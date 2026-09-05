@@ -589,7 +589,8 @@ def _project_config(profile: str | None | types.EllipsisType = ...) -> dict:
             _warned_profiles.add(profile)
             log.warning(
                 "%s=%r but no [tool.mini.profiles.%s] table is configured — the storage pair is unset, "
-                "so this session uses the local store. Add the table (see the storage-envs skill) or unset %s.",
+                "so this session uses the local store. Add the table (see the mi-ni skill's storage reference) "
+                "or unset %s.",
                 PROFILE_ENV,
                 profile,
                 profile,

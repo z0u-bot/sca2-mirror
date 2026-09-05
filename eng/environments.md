@@ -2,7 +2,7 @@
 
 *Part of the [engineering notes](./README.md).*
 
-Three places a project's bytes live, and why each is where it is. The *how* is in the `storage-envs` and `backup` skills.
+Three places a project's bytes live, and why each is where it is. The *how* is in the `mi-ni` skill's storage reference and the `backup` skill.
 
 ## The profile picks names; the token draws the boundary
 

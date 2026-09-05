@@ -52,4 +52,8 @@ rg -no '.{0,55}anneal.{0,55}' docs/  # a {0,N} window around each match
 
 For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
+### Storage
+
+Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for work *on* the storage or publishing machinery. `./go auth --check` names the active pair and what the token can write. Modal memo state is shared across profiles while artifacts aren't, so give dev runs a throwaway experiment name. See the `mi-ni` skill's storage reference.
+
 Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).
