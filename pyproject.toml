@@ -66,25 +66,6 @@ pages = [
 ]
 
 [tool.mini]
-# The project's Hugging Face bucket for the content-addressed artifact store
-# (see .agents/skills/mi-ni/references/storage.md). Committed here so it's set
-# once and shared by every checkout, Modal worker, and CI run — the bucket name
-# is not a secret (the token lives in the env / `hf` cache). Override per-shell
-# with MINI_STORE_BUCKET. Unset → the store stays local (no network).
-store-bucket = "z0u/sca2-store"
-
-# The public, versioned publish tier: a Hugging Face *dataset repo* that backs
-# `publish()` and report exports. Set this to keep the CAS bucket above private
-# (persisting an artifact never makes its bytes world-readable) while published
-# views stay public and gain git history — a citation pins to a commit sha.
-# Unset → publish/exports stay in the bucket (the single-store default). Override
-# per-shell with MINI_PUBLISH_REPO. See eng/publishing.md and issue #38.
-publish-repo = "z0u/sca2-pub"
-
-# Either key can instead go in a gitignored `mini.local.toml` beside this file,
-# under the same `[tool.mini]` table — for a checkout whose bucket shouldn't be
-# committed. Resolution: env var, then mini.local.toml, then here.
-
 # Environment every task worker gets, on both backends. It has to be here rather
 # than set from inside a task: a Modal container is reused across tasks, and XLA
 # parses XLA_FLAGS once when its backend comes up, so an in-process setting takes
@@ -102,6 +83,14 @@ publish-repo = "z0u/sca2-pub"
 # A role can override per-experiment with env= (merged key by key). Not a secret
 # channel: these values are recorded on every task record. Tokens go in secrets=.
 env = { XLA_FLAGS = "--xla_cpu_enable_concurrency_optimized_scheduler=false --xla_gpu_deterministic_ops=true --xla_gpu_exclude_nondeterministic_ops=true" }
+
+# See .agents/skills/mi-ni/references/storage.md
+store-bucket = "z0u/sca2-store"
+publish-repo = "z0u/sca2-pub"
+
+[tool.mini.profiles.dev]
+store-bucket = "z0u/sca2-store-dev"
+publish-repo = "z0u/sca2-pub-dev"
 
 [tool.marimo.runtime]
 watcher_on_save = "autorun"

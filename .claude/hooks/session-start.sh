@@ -43,10 +43,16 @@ log() { echo "session-start: $*" >&2; }
     git log --oneline -3 | sed 's/^/  /'
     echo
     # Resource wiring from env-var presence — no network/deps. `./go auth --check`
-    # verifies the tokens live; this just says what's plausibly wired up.
+    # verifies the tokens live, and says which storage pairs the token can write;
+    # this just says what's plausibly wired up.
     on() { [[ -n "${!1:-}" ]] && printf on || printf OFF; }
     echo "Resources (env presence; ./go auth --check for live status):" \
          "Modal $(on MODAL_TOKEN_ID) · HF $(on HF_TOKEN)"
+    # Which storage pair this environment writes to. A web environment has no
+    # mini.local.toml, so it names the pair by variable rather than by profile
+    # (mi-ni skill, storage reference); the names aren't secret, so print them.
+    storage="Storage: ${MINI_STORE_BUCKET:-<pyproject default>} · publish ${MINI_PUBLISH_REPO:-<pyproject default>}"
+    echo "${storage}${MINI_PROFILE:+ · profile $MINI_PROFILE}"
     echo
     echo "Experiments (report.py dirs; annotated status in docs/index.md):"
     git ls-files 'docs/**/report.py' | sed 's#/report.py##; s#^docs/#  #' | paste -sd' '
