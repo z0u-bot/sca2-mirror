@@ -41,12 +41,7 @@ echo
 # Which storage pair this session writes to. Read from the variable rather than
 # resolved through `mini.store`, so this stays pure bash on the synchronous path;
 # `./go auth --check` prints the resolved names and what the token can reach.
-if [[ -n "${MINI_PROFILE:-}" ]]; then
-    echo "Storage: profile '$MINI_PROFILE' (a dev pair, safe to wipe)."
-else
-    echo "Storage: production (MINI_PROFILE unset; set it to 'dev' for work on the storage or" \
-         "publishing machinery — see AGENTS.md)."
-fi
+echo "MINI_PROFILE=${MINI_PROFILE:-prod}"
 
 # Only the resource note below needs `free`; everything above lands either way.
 command -v free >/dev/null 2>&1 || exit 0
