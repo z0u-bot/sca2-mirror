@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [devops, security, publishing, storage]
 opened: 2026-09-05
+closed: 2026-09-06
 bundle: env-hardening
 ---
 
@@ -26,3 +27,5 @@ The devcontainer token stays scoped to all four repos, since this checkout does 
 **2026-09-06, web env checked** — The last open thread, the Claude Code web environment, resolves from inside one: this session has `MINI_PROFILE=dev` and `HF_TOKEN` set, and no `MINI_STORE_BUCKET` / `MINI_PUBLISH_REPO` overrides, so the pair comes from the `[tool.mini.profiles.dev]` table rather than from environment variables. `./go auth --check` reports `profile dev, bucket z0u/sca2-store-dev, dataset z0u/sca2-pub-dev` with `token: write on dev; no access to production` — a dev-only credential, so here the token *and* the profile are the boundary, unlike the devcontainer. Modal is off, so compute is local.
 
 Note that the opt-in reasoning above inverts here: the web env defaults to `dev`, which is the safer side for storage work and the more exposed side of the memo caveat. It bites only with Modal, since the memo store is Modal-side, so it stays theoretical while no Modal token is set. If one is ever added to this environment, dev runs need experiment names that can't collide with production ones — worth enforcing in `mini run` rather than by discipline.
+
+**2026-09-06, closed** — Both environments are configured and every part of the runbook is either done or a deliberate choice recorded above, so this is done. The one piece of future work it turned up, folding the profile into the Modal control-plane names, is split out as [`modal-memo-profile-scope`](./modal-memo-profile-scope.md) rather than held open here.
