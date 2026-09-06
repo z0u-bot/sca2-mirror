@@ -54,8 +54,13 @@ def test_status_line_marks_and_trims():
 
 def test_modal_reports_workspace_without_id(monkeypatch):
     monkeypatch.setattr(auth_check, "_run", fake_run(0, "Workspace: acme-corp (ac-1a2b)\nUser: someone"))
+    monkeypatch.setenv("MINI_NO_PROJECT_CONFIG", "1")
+    monkeypatch.delenv("MODAL_ENVIRONMENT", raising=False)
     status = asyncio.run(auth_check.check_modal())
     assert status.ok and status.detail == "workspace acme-corp"
+    # A profile's Environment is part of "where this session writes", so it's shown beside the workspace.
+    monkeypatch.setenv("MODAL_ENVIRONMENT", "dev")
+    assert asyncio.run(auth_check.check_modal()).detail == "workspace acme-corp, environment dev"
 
 
 def test_a_failed_probe_says_why(monkeypatch):

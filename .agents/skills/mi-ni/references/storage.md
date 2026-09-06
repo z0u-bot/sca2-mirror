@@ -118,21 +118,24 @@ publish-repo = "your-namespace/your-publish-repo"
 [tool.mini.profiles.dev]
 store-bucket = "your-namespace/your-bucket-dev"
 publish-repo = "your-namespace/your-publish-repo-dev"
+modal-environment = "dev"
 ```
 
 `MINI_PROFILE=dev` selects the table. Leaving it unset means the base keys, so a project without profiles sees no change.
 
-Under a profile, the two storage keys come from the profile table alone. A key the table leaves out is unset, never inherited from the base, so a half-filled profile behaves like a project without that key (local store, or single-bucket publishing) rather than reaching production. The other `[tool.mini]` keys (`app`, `env`, `region`) are inherited.
+Under a profile, the three profile keys (the two storage names and `modal-environment`) come from the profile table alone. A key the table leaves out is unset, never inherited from the base, so a half-filled profile behaves like a project without that key (local store, single-bucket publishing, or Modal's default Environment) rather than reaching production. The other `[tool.mini]` keys (`app`, `env`, `region`) are inherited.
 
-`MINI_STORE_BUCKET` and `MINI_PUBLISH_REPO` still override everything. `mini.local.toml` overlays a profile table the way it overlays the base keys. `mini run --app modal` forwards `MINI_PROFILE` along with the resolved names, so a worker follows its driver. A profile name that no file defines warns once and yields no pair. `./go auth --check` prints the active profile beside the bucket.
+`MINI_STORE_BUCKET`, `MINI_PUBLISH_REPO` and `MODAL_ENVIRONMENT` still override everything. `mini.local.toml` overlays a profile table the way it overlays the base keys. `mini run --app modal` forwards `MINI_PROFILE` along with the resolved names, so a worker follows its driver. A profile name that no file defines warns once and yields no pair. `./go auth --check` prints the active profile beside the bucket.
 
 Under a profile, `./go publish` writes its pins to a gitignored `.mini/publish.<profile>.lock` rather than to `publish.lock`. That leaves `publish.lock` as the production record that the site and CI read. `./go preview` reads the lock of the active profile. Nothing in a profile is meant to reach production, so there is no promotion step: a dev pair starts empty and can be emptied.
 
 The profile picks the names; the token decides what can be written. An environment set aside for engineering work carries a token with write access on the dev pair only, so a session that forgets `MINI_PROFILE` fails on its first write instead of succeeding quietly. Where a token spans both pairs, the profile is the only boundary. `./go auth --check` prints the active profile, the pair it resolves to, and which pairs the token can write. The reasoning behind all of this is in [`eng/environments.md`](/eng/environments.md).
 
-### What a profile does not separate
+### The Modal Environment is the third name
 
-Modal control-plane state — `Dict`s, per-experiment Volumes, the HF cache Volume — is named per experiment, with no profile component. So a dev run of an experiment that shares a name with a production one shares that state too, and its memo records point at artifacts in the *other* pair's bucket: memoization reports a hit and the bytes are missing. Give engineering runs a throwaway experiment name. Prefix Modal names with the profile only if the sharing causes trouble beyond that.
+Modal control-plane state — the `mini-cp-<name>` `Dict`, the per-experiment Volume, the HF cache Volume — is named per experiment, with no profile component. Without separation, a dev run of an experiment that shares a name with a production one would find production's memo records and skip the work, while whatever it wrote went to the dev bucket: memoization reports a hit and the bytes are missing from the pair being read.
+
+`modal-environment` names a [Modal Environment](https://modal.com/docs/guide/environments): a namespace inside the workspace with its own apps, `Dict`s, Volumes and Secrets. Every named lookup mini makes (the control plane, the Volume, the HF cache, the detached app run, `gc`'s mark phase, the CLI's peek) resolves in it, so a dev run's state lives beside production's rather than under the same names. A worker needs nothing forwarded: Modal stamps a container with its own `MODAL_ENVIRONMENT`. Environments are available on every Modal plan; create one with `modal environment create dev`, since lookups never create one. A profile that names no Environment shares Modal's default with production, and the first `ModalApparatus` built under it warns so. The dashboard has an Environment dropdown, and `./go auth --check` prints the active one beside the workspace.
 
 `mini gc --store` sweeps whichever bucket the active profile names.
 
@@ -147,13 +150,15 @@ A one-time job, mostly the human's, since two of the steps need credentials an a
    uv run python -c "from huggingface_hub import HfApi; HfApi().create_bucket('<ns>/<store>-dev', private=True)"
    ```
 
-2. Add the `[tool.mini.profiles.dev]` table, in whichever file holds the production pair — `pyproject.toml` if that is where it lives, so the profile travels with the repo; the gitignored `mini.local.toml` if the pair lives there instead, as it does in a fork.
+2. Add the `[tool.mini.profiles.dev]` table, in whichever file holds the production pair — `pyproject.toml` if that is where it lives, so the profile travels with the repo; the gitignored `mini.local.toml` if the pair lives there instead, as it does in a fork. Name the Modal Environment in it too (`modal-environment = "dev"`).
 
-3. Mint a dev-only token (human): a fine-grained Hugging Face token with read and write on the two dev repos and nothing else. It goes into the environments set aside for engineering work — a devcontainer, a Claude Code web environment, the CI test job. Science environments keep their production tokens. A checkout used for both kinds of work needs both, and then relies on the profile rather than the token.
+3. Create the Modal Environment. Any session with a Modal token can do this: `uv run modal environment create dev`. Nothing else is created up front; the `Dict`s and Volumes appear on the first dev run.
 
-4. Point those environments at dev. A checkout configured by file sets `MINI_PROFILE=dev` in its environment. Some environments configure storage by variable instead: a Claude Code web environment has no config file, so set `MINI_STORE_BUCKET` and `MINI_PUBLISH_REPO` to the dev names beside the dev token.
+4. Mint a dev-only token (human): a fine-grained Hugging Face token with read and write on the two dev repos and nothing else. It goes into the environments set aside for engineering work — a devcontainer, a Claude Code web environment, the CI test job. Science environments keep their production tokens. A checkout used for both kinds of work needs both, and then relies on the profile rather than the token.
 
-5. Check. `./go auth --check` should name the profile, the dev pair, and the token's reach, and `uv run pytest -m hf` should run against the pair. The integration tests pick the `dev` profile themselves whenever one is defined, so they stop writing to production as soon as the table exists.
+5. Point those environments at dev. A checkout configured by file sets `MINI_PROFILE=dev` in its environment. Some environments configure storage by variable instead: a Claude Code web environment has no config file, so set `MINI_STORE_BUCKET`, `MINI_PUBLISH_REPO` and `MODAL_ENVIRONMENT` to the dev names beside the dev token.
+
+6. Check. `./go auth --check` should name the profile, the dev pair, the token's reach and the Modal Environment, and `uv run pytest -m hf` should run against the pair. The integration tests pick the `dev` profile themselves whenever one is defined, so they stop writing to production as soon as the table exists.
 
 Treat the dev pair as an engineering sandbox: nothing in it is ever promoted, and it can be wiped at any time. You can seed one from the project backup, which doubles as a restore drill — see the `backup` skill.
 

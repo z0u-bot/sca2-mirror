@@ -54,6 +54,6 @@ For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
 ### Storage
 
-Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for work *on* the storage or publishing machinery. `./go auth --check` names the active pair and what the token can write. Modal memo state is shared across profiles while artifacts aren't, so give dev runs a throwaway experiment name. See the `mi-ni` skill's storage reference.
+Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for work *on* the storage or publishing machinery. `./go auth --check` names the active pair, what the token can write, and the Modal Environment the profile runs in, so a dev run of a production experiment name has its own memo state as well as its own bucket. See the `mi-ni` skill's storage reference.
 
 Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).

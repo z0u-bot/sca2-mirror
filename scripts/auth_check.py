@@ -75,7 +75,13 @@ async def check_modal() -> Status:
     # The line reads "Workspace: <name> (<internal-id>)"; keep the name, drop the id.
     match = re.search(r"^\s*Workspace:\s*(\S+)", out, re.MULTILINE)
     workspace = match.group(1) if match else ""
-    return Status("Modal", True, f"workspace {workspace}" if workspace else "authenticated")
+    # Only shown when set — unset is Modal's default Environment, the production case.
+    from mini.store import modal_environment
+
+    parts = [f"workspace {workspace}" if workspace else "authenticated"]
+    if env := modal_environment():
+        parts.append(f"environment {env}")
+    return Status("Modal", True, ", ".join(parts))
 
 
 # -- which storage pairs the token can reach ---------------------------------

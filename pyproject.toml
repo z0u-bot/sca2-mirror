@@ -91,6 +91,7 @@ publish-repo = "z0u/sca2-pub"
 [tool.mini.profiles.dev]
 store-bucket = "z0u/sca2-store-dev"
 publish-repo = "z0u/sca2-pub-dev"
+modal-environment = "dev"
 
 [tool.marimo.runtime]
 watcher_on_save = "autorun"
