@@ -394,14 +394,24 @@ def test_manual_publish_marker_opts_out_of_the_reminder_only(tmp_path):
     assert is_manually_published(nb)  # just not nagged about
 
 
-def test_externalize_html_writes_sidecar_and_passes_through(tmp_path):
+def test_externalize_html_writes_sidecar_and_stamps_the_inline_copy(tmp_path):
     pub = Publisher(tmp_path / "_assets")
     html = '<div role="img"><svg xmlns="http://www.w3.org/2000/svg"></svg></div>'
-    assert externalize_html(html, name="sublines", publish=pub) == html  # inline copy unchanged
-    assert (tmp_path / "_assets" / "sublines.html").read_text() == html  # …and a plain file for tooling
+    inline = externalize_html(html, name="sublines", publish=pub)
+    # The inline copy differs by one inert attribute, on the root element and nowhere else…
+    assert inline == '<div data-mini-asset="_assets/sublines.html" role="img">' + html.split(">", 1)[1]
+    assert (tmp_path / "_assets" / "sublines.html").read_text() == html  # …and the file is the figure itself
 
     externalize_html("<svg xmlns='http://www.w3.org/2000/svg'/>", name="spark.svg", publish=pub)
     assert (tmp_path / "_assets" / "spark.svg").exists()  # an explicit extension is kept as given
+
+
+def test_externalize_html_leaves_a_fragment_with_no_root_element_alone(tmp_path):
+    # Nothing to hang the marker on, so the render can't swap it for a link; the sidecar
+    # is still written, and the report still shows what it always did.
+    pub = Publisher(tmp_path / "_assets")
+    assert externalize_html("bare text", name="odd", publish=pub) == "bare text"
+    assert (tmp_path / "_assets" / "odd.html").read_text() == "bare text"
 
 
 def test_externalize_html_uses_the_default_publisher_when_there_is_one(tmp_path):
@@ -449,7 +459,7 @@ def test_files_nothing_fetches_skip_the_kernel(tmp_path, monkeypatch):
     assert pub.asset_url(b"<svg/>", name="frag.svg", serve=False) == "_assets/frag.svg"
 
     sidecar = Publisher(asset_dir=tmp_path / "b", virtualize=True)
-    assert externalize_html("<svg/>", name="frag.svg", publish=sidecar) == "<svg/>"
+    assert externalize_html("<svg/>", name="frag.svg", publish=sidecar) == '<svg data-mini-asset="_assets/frag.svg"/>'
     assert (tmp_path / "b" / "frag.svg").read_text() == "<svg/>"
 
 

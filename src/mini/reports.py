@@ -25,6 +25,7 @@ import re
 import types
 import unicodedata
 from dataclasses import dataclass, field
+from html import escape as html_escape
 from pathlib import Path, PurePosixPath
 from typing import Any
 
@@ -55,6 +56,7 @@ __all__ = [
     "exporting",
     "EXPORTING_ENV",
     "externalize_html",
+    "ASSET_MARKER",
     "relative_urls",
     "stray_links",
     "ReportFigure",
@@ -444,16 +446,37 @@ def current_publisher() -> Publisher | None:
     return _default_publisher
 
 
+# Stamped on an externalized fragment's root element, carrying that fragment's sidecar
+# URL. Nothing in the browser reads it — it is there for a reader of the *Markdown*
+# render, which swaps the whole element for a link to the sidecar rather than carry a
+# page of path data (``scripts/clean_marimo_md.py``). Because nothing fetches it, it can
+# stay the notebook-relative URL that the render then repoints; ``insert_base`` and
+# :func:`stray_links` both look at ``src``/``href`` only, so it rides along untouched.
+ASSET_MARKER = "data-mini-asset"
+
+# The opening tag of a fragment's root element: leading whitespace, ``<``, a tag name.
+_ROOT_TAG = re.compile(r"\s*<[a-zA-Z][\w.:-]*")
+
+
 def externalize_html(fragment: str, *, name: str, publish: Publisher | None = None) -> str:
-    """Write *fragment* (an HTML/SVG chunk) out as a named bundle asset, and return it unchanged for inlining.
+    """Write *fragment* (an HTML/SVG chunk) out as a named bundle asset, and return it stamped for inlining.
 
     The inline copy is the one readers see — an inlined SVG participates in the page's CSS (theming, fonts), which a referenced file can't. But a Marimo export buries that markup in its client-rendered session JSON (HTML-escaped inside JSON inside HTML), so tooling that can't run the frontend can't read it. The sidecar under ``_assets/`` is the escape hatch: the same fragment as a plain file, like the PNGs ``themed`` writes. *name* keeps its extension if it has one (``.svg`` for a bare SVG element), else ``.html``. With no publisher (*publish* or the report default), this is a no-op pass-through.
+
+    The returned copy differs from *fragment* in one inert attribute: :data:`ASSET_MARKER` on the root element, naming the sidecar's URL. That is what lets ``./go render`` replace a screenful of inlined SVG with a link — the sidecar is written under a name of the caller's choosing, so without the stamp, matching an SVG in the document back to the file it came from would mean comparing content. Pass a single root element: the stamp lands on the first tag, and it is that one element the render swaps out. Give it an ``aria-label`` (``figure_html``'s *aria_label*) and the render uses it as the link's description — the same text a screen reader gets.
+
+    The sidecar holds the fragment as authored, without the stamp: it is the figure, not a reference to itself.
     """
     publish = publish if publish is not None else current_publisher()
-    if publish is not None:
-        leaf = name if PurePosixPath(name).suffix else f"{name}.html"
-        publish.asset_url(fragment.encode(), name=leaf, serve=False)
-    return fragment
+    if publish is None:
+        return fragment
+    leaf = name if PurePosixPath(name).suffix else f"{name}.html"
+    url = publish.asset_url(fragment.encode(), name=leaf, serve=False)
+    m = _ROOT_TAG.match(fragment)
+    if m is None:
+        log.warning("externalize_html: %r does not start with an element, so a render can't link it", leaf)
+        return fragment
+    return f'{fragment[: m.end()]} {ASSET_MARKER}="{html_escape(url)}"{fragment[m.end() :]}'
 
 
 # ---------------------------------------------------------------------------
