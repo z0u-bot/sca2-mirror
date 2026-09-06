@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [devops, security, publishing, storage]
 opened: 2026-09-05
+closed: 2026-09-06
 bundle: env-hardening
 ---
 
@@ -22,3 +23,9 @@ Two parts of the runbook are unfinished, both deliberate-looking. The devcontain
 **2026-09-06, wired up** — The remaining human half is done bar one deliberate choice. `MINI_PROFILE=dev` is opt-in rather than the default here, because Modal memo state is keyed by experiment name with no profile component, so a dev run of an experiment that already ran in production finds its memo records while the artifact bytes stay in the production bucket. Defaulting to dev would put every session one step from that. AGENTS.md now carries the rule and that caveat, both session-start hooks print which pair the session writes to, and `./go auth --check` reports which pairs the token can write (`token: write on production and dev`).
 
 The devcontainer token stays scoped to all four repos, since this checkout does science as well as machinery work; the profile is the boundary here rather than the token, which `./go auth --check` now makes visible. Closing this leaves only the Claude Code web environment's `MINI_STORE_BUCKET` / `MINI_PUBLISH_REPO`, which can't be checked from the devcontainer.
+
+**2026-09-06, web env checked** — The last open thread, the Claude Code web environment, resolves from inside one: this session has `MINI_PROFILE=dev` and `HF_TOKEN` set, and no `MINI_STORE_BUCKET` / `MINI_PUBLISH_REPO` overrides, so the pair comes from the `[tool.mini.profiles.dev]` table rather than from environment variables. `./go auth --check` reports `profile dev, bucket z0u/sca2-store-dev, dataset z0u/sca2-pub-dev` with `token: write on dev; no access to production` — a dev-only credential, so here the token *and* the profile are the boundary, unlike the devcontainer. Modal is off, so compute is local.
+
+Note that the opt-in reasoning above inverts here: the web env defaults to `dev`, which is the safer side for storage work and the more exposed side of the memo caveat. It bites only with Modal, since the memo store is Modal-side, so it stays theoretical while no Modal token is set. If one is ever added to this environment, dev runs need experiment names that can't collide with production ones — worth enforcing in `mini run` rather than by discipline.
+
+**2026-09-06, closed** — Both environments are configured and every part of the runbook is either done or a deliberate choice recorded above, so this is done. The one piece of future work it turned up, folding the profile into the Modal control-plane names, is split out as [`modal-memo-profile-scope`](./modal-memo-profile-scope.md) rather than held open here.
