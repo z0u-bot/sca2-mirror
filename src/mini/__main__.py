@@ -95,8 +95,10 @@ def _peek(name: str, backend: str) -> int:
         import modal
 
         from mini.modal_apparatus import control_dict_name
+        from mini.store import modal_environment
 
-        d = modal.Dict.from_name(control_dict_name(name))  # no create_if_missing: a peek must not create
+        # No create_if_missing: a peek must not create. Same Environment the run used.
+        d = modal.Dict.from_name(control_dict_name(name), environment_name=modal_environment())
         return sum(k != META_KEY for k in d.keys())
     except Exception:
         return 0
