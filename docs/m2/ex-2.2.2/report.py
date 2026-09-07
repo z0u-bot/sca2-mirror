@@ -73,6 +73,8 @@ def _():
     Here we carry the term into the transformer, keeping the D2.1 grammar and recipe, before the operation work in the [D2.2 plan](../d2.2/design.md) changes the grammar. Two things are new. The readout is no longer a single linear decoder; it is every block after the redirect, so the term trains the blocks, and a stop-gradient keeps it from touching the placement. And the concept is continuous, so the designed target is a choice: the operand-averaged null for *red* is uniform over 27 colors and has no mode, so we take its center, the visible operand mixed with mid-gray.
 
     This addresses the third risk in the plan, that the response to suppression is undesigned. One limitation carries over from M1: the response is trained at the antipode, while the removal we deploy projects to zero. H4 reads how far the designed response carries between the two, so a limitation of this size shows up as a curve rather than a flat miss.
+
+The nearest published analogue is LUNAR (arXiv:2502.07218), which redirects the activations of the data to forget into the model's own refusal region, with one matrix edit after training. The response is designed there by choosing a region the model already produces. Ours is trained at a state the model never otherwise visits, which is where the limitation above comes from, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward LUNAR's choice.
     """)
     return
 
@@ -209,7 +211,7 @@ def _():
 
     **E2 — the antipode.** The fraction of clean states with negative alignment, per slice and position, on the fallback, `fb-only`, and `anti-only` conditions. This is what the anti-anchor term is for, and it also says whether the anti-subspace term had already done the job.
 
-    **E3 — off-axis recoverability.** This is the auditing row that the [D2.2 design](../d2.2/design.md) assigns here. We fit a ridge probe for the redness of the concept operand on the intervened operand states, per slice, under `primary` and under `redirect`, five-fold over lines. We report held-out R² for the fallback and no-fallback conditions beside the clean states.
+    **E3 — off-axis recoverability.** This is the auditing row that the [D2.2 design](../d2.2/design.md) assigns here. We fit a ridge probe for the redness of the concept operand on the intervened operand states, per slice, under `primary` and under `redirect`, five-fold over lines. We report held-out R² for the fallback and no-fallback conditions beside the clean states, and beside the floor the task itself sets: the same ridge fit to the raw RGB values, which ex-2.1.7 put at 0.863. The number sizes what a linear readout can still find, and [it does not bound the intervention](/todo/science/off-axis-probe-r2-does-bound-intervention.md); the read here is the fallback figure against the no-fallback one, resolved or not.
 
     If the fallback raised the off-axis R², it would be keeping red readable off the axis so it knows when to emit the target; that is the masked case rather than the removed one. The target depends only on the visible operand, so there is no need for it to.
 
