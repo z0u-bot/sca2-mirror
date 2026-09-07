@@ -132,12 +132,19 @@ class Intervention:
     slices: tuple[int, ...] = SLICES
     positions: tuple[int, ...] | None = None
     gamma: float = 1.0
+    per_line: str | None = None
+    """`concept`: of *positions*, edit only the concept operand on each line (the redder one; ties go to op1).
+    The eval contract takes global positions, so this runs as two passes, one per operand slot, each over the
+    lines whose concept operand sits in that slot. None: edit every listed position on every line."""
 
 
-REDIRECT = Intervention("redirect", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=2.0)
-"""The trained state, at eval: reflect both operand states through the axis at the embedding (γ = 2 in the
-projection operator). A non-red operand has nothing on the axis, so the reflection leaves it alone; training
-reflected the concept operand only, and this is the same edit on every line that qualified. H1, H2, H4."""
+REDIRECT = Intervention(
+    "redirect", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=2.0, per_line="concept"
+)
+"""The trained state, at eval: reflect the concept operand's state through the axis at the embedding (γ = 2 in
+the projection operator), on each line. This is the edit training applied, so H1 and H2 read the readout the
+term trained, with nothing else changed. The label-free version, both operand positions on every line, is the
+`redirect-both` ride-along row. H1, H2, H4."""
 
 PRIMARY = Intervention("primary", "projection")
 """Ex-2.2.1's primary intervention: full-strength projection at every slice and position. The deployment
@@ -148,18 +155,23 @@ GAMMAS = (0.5, 1.0, 1.5, 2.0)
 reflection. γ = 2 is `redirect`."""
 
 SWEEP = tuple(
-    Intervention(f"gamma-{g}", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=g)
+    Intervention(
+        f"gamma-{g}", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=g, per_line="concept"
+    )
     for g in GAMMAS
 )
 
 RIDE_ALONG = (
+    Intervention("redirect-both", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=2.0),
     Intervention("operands", "projection", positions=OPERAND_POSITIONS),
     Intervention("embedding", "projection", slices=(0,)),
     Intervention("shaped", "shaped"),
     Intervention("ablate", "ablate", slices=()),
 )
 """Ex-2.2.1's arms, re-run on the fallback condition without gates, so the operator-tuning pass the design
-schedules has the fallback rows to hand. Same definitions as there: `shaped` at a = 0.5, b = 1, p = 1."""
+schedules has the fallback rows to hand. Same definitions as there: `shaped` at a = 0.5, b = 1, p = 1.
+`redirect-both` is `redirect` without the concept-operand label: a deployed operator is not told which operand
+carries the concept, so this row says what the trained response costs when both operand states are reflected."""
 
 SHAPED = dict(a=0.5, b=1.0, p=1.0)
 
@@ -228,11 +240,17 @@ AGREE_PARTIAL = 0.5
 """H2 partial: "at least 0.5"."""
 
 TASK_GATE = 0.02
-"""H3 and H4: the width every D2.1 task gate used. H3: "clean exact-match accuracy on all probe lines within
-0.02 of the no-fallback condition's". H4: "seed-mean non-red damage under `redirect` at most 0.02"."""
+"""H3 and H4: the width every D2.1 task gate used, on exact-match accuracy. H3: "clean exact-match accuracy
+on all probe lines within 0.02 of the no-fallback condition's". H4: "the seed-mean non-red deficit under
+`redirect` stays at or below 0.02" — the deficit, clean accuracy minus intervened accuracy, which is the
+statistic ex-2.2.1's H2 gated at this width and reported at 0.024."""
 
 TASK_PARTIAL = 0.05
-"""H3 and H4 partial: "within 0.05"."""
+"""H3 and H4 partial: "within 0.05". Ex-2.2.1's H2 landed partial in this band."""
+
+VISIBLE_RED_DOSE = 0.5
+"""Red lines whose *visible* operand also reaches this redness (67 of the 365) are the ones where `redirect-both`
+reflects a state training left clean, so E5 reports its target accuracy split on that subset as well as pooled."""
 
 MARGIN_RATIO = 0.8
 """H3: "the seed-mean alignment margin at the end of training (ex-2.1.10's m_span) is at least 0.8 of the

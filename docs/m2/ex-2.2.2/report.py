@@ -65,7 +65,7 @@ def _():
 
     [Ex-2.2.1](../ex-2.2.1/report.py) showed that projecting the anchor axis out of the D2.1 checkpoints removes *red*. Red-line accuracy falls from 1.0 to 0.09, in proportion to how red the line is, and stays inside the bound the placed geometry set.
 
-    It also measured what the model does instead. A red line still decodes to a color, usually a one-step neighbor of the true mix, and which neighbor it is varies by seed: at least five of the nine seeds agree on 13% of red lines. Nothing in training said what a removed concept should decode to, so the answer is whatever the untrained region of the stream happens to produce. M1 called that spoofing, and it is where the seed spread in [ex-2.9.1](/docs/m1/ex-2.9.1/report.py) came from.
+    It also measured what the model does instead. A red line still decodes to a color, about half the time a one-step neighbor of the true mix, and which neighbor it is varies by seed: at least five of the nine seeds agree on 13% of red lines. Nothing in training said what a removed concept should decode to, so the answer is whatever the untrained region of the stream happens to produce. M1 called that spoofing, and it is where the seed spread in [ex-2.9.1](/docs/m1/ex-2.9.1/report.py) came from.
 
     The remedy in M1 was fallback control ([ex-2.9.2](/docs/m1/ex-2.9.2/report.py)): one loss term, applied to the decoder only, that pins the antipode of the anchor axis to a designed null answer, mid-gray. Reflecting a state through the axis then collapsed the response to a tight cluster on the bound the null predicted, across 32 seeds. Under plain zeroing the term added little, and that report said a trained fallback should be paired with the redirect it was trained at.
 
@@ -91,7 +91,7 @@ def _():
     - **target accuracy** — the fraction of red lines whose decoded answer is the target.
     - **response** — the probability the model puts on the correct answer, read from the log-softmax at the `=` position. **Damage** is the clean response minus the intervened response, per line. **Deficit** is the clean exact-match accuracy minus the intervened accuracy over a group of lines; it is the statistic ex-2.2.1 gated selectivity on.
     - **seed agreement** — the fraction of red lines on which at least five of the nine seeds decode the same answer, under a given intervention. For the three-seed arms, it is the mean over seed pairs of the fraction of red lines the pair decodes alike.
-    - **redirect** — reflecting the operand states through the axis at the embedding, α → −α. This is the state the fallback was trained at.
+    - **redirect** — reflecting the concept operand's state through the axis at the embedding, α → −α, on each line. This is the state the fallback was trained at.
     - **clean** — the un-intervened forward pass of the same checkpoint.
     ///
     """)
@@ -126,10 +126,12 @@ def _():
 
     All of these run through the projection operator of the eval contract, which removes a fraction γ of the e₁ component and puts the state back on the sphere. At γ = 2 the operator is a reflection.
 
-    - **`redirect`** — γ = 2 at the embedding, at both operand positions. This is close to the state the fallback was trained at, now applied to every line. The operator edits both operands because a deployed operator is not told which one carries the concept; training reflected the concept operand alone. A non-red operand has nothing on the axis, so the reflection leaves it alone, and on most red lines the two coincide. They part on the 67 of 365 red lines whose visible operand is itself red (redness ≥ 0.5), where the eval operator reflects a state training left clean. We report target accuracy split on that subset as well as pooled, so the pooled figure can be read against the 0.82 ceiling it would have if every one of those lines missed. H1, H2, and the first clause of H4 read here.
+    - **`redirect`** — γ = 2 at the embedding, at the concept operand of each line. This is the edit training applied, now on every line, so H1 and H2 read the readout the term trained with nothing else changed. On a non-red line the chosen operand has nothing on the axis, so the reflection leaves it alone. H1, H2, and the first clause of H4 read here.
     - **`primary`** — the ex-2.2.1 intervention: γ = 1 at every slice and every position. This is the removal we deploy, and the fallback was never trained under it. Read by the second clause of H4 and the deployment row of H5.
-    - **The carry sweep** — γ ∈ {0.5, 1, 1.5, 2} at the training site (embedding, operand positions). Read by H5.
-    - **Ride-along rows** — the `operands`, `embedding`, `shaped`, and `ablate` arms from ex-2.2.1, run on the fallback condition without gates. This gives the operator-tuning pass in the design the fallback rows to hand (E5).
+    - **The carry sweep** — γ ∈ {0.5, 1, 1.5, 2} at the training site (embedding, concept operand). Read by H5.
+    - **Ride-along rows** — `redirect-both`, plus the `operands`, `embedding`, `shaped`, and `ablate` arms from ex-2.2.1, run on the fallback condition without gates. `redirect-both` is `redirect` without the concept-operand label: both operand positions on every line, which is what a deployed operator can do. The two part on the 67 of 365 red lines whose visible operand is itself red (redness ≥ 0.5), where `redirect-both` reflects a state training left clean, so E5 reports it split on that subset. The rest give the operator-tuning pass in the design the fallback rows to hand (E5).
+
+    <!-- REVIEW: an earlier draft had `redirect` reflect both operand positions, which differs from training on the 67 of 365 red lines whose visible operand is itself red and would cap H1's pooled figure at 0.82. `redirect` now reflects the concept operand only, per line, so H1 and H2 measure the trained readout as trained and the 0.8 gate keeps its headroom. The label-free operator moved to the `redirect-both` ride-along row with the both-red split in E5. Verify: the per-line operator is two passes through the eval contract partitioned by concept-operand slot; the Measurements section says so. -->
     """)
     return
 
@@ -139,7 +141,7 @@ def _():
     mo.md(r"""
     ## The designed response (H1)
 
-    **H1.** Under `redirect`, the fallback condition decodes red lines to the target. Seed-mean target accuracy is at least 0.8; partial: between 0.5 and 0.8. The reference row is the no-fallback condition under the same intervention, and the fallback figure has to sit above it by a resolved margin (two pooled between-seed standard deviations). Contrary: target accuracy at the no-fallback level, which would mean the term did not train the readout. The fallback loss over training (see the method) says whether the term was ever active.
+    **H1.** Under `redirect`, the fallback condition decodes red lines to the target. Seed-mean target accuracy is at least 0.8; partial: between 0.5 and 0.8. The reference row is the no-fallback condition under the same intervention, and the fallback figure has to sit above it by a resolved margin (two pooled between-seed standard deviations); a figure that clears 0.8 without a resolved margin counts as partial. Contrary: target accuracy at the no-fallback level, which would mean the term did not train the readout. The fallback loss over training (see the method) says whether the term was ever active.
 
     /// admonition | TODO
     A table of target accuracy and true-answer accuracy on red lines under `redirect`, seed mean with the seed range, for the fallback and no-fallback conditions and the un-anchored calibration row. Beside it, per seed, the probability the model puts on the target on red lines, drawn as a strip. That way a split response, with some lines at the target and some elsewhere, shows up as such instead of averaging into the gate.
@@ -157,9 +159,14 @@ def _():
 
     ## Task and placement intact (H3)
 
-    **H3.** The term costs nothing on the task or the placement. Clean exact-match accuracy on all probe lines is within 0.02 of the no-fallback condition (partial: within 0.05), and the seed-mean alignment margin at the end of training, the `m_span` of ex-2.1.10, is at least 0.8 of the no-fallback value. Partial: one of the two holds.
+    **H3.** The term costs nothing on the task or the placement. Clean exact-match accuracy on all probe lines is within 0.02 of the no-fallback condition, and the seed-mean alignment margin at the end of training, the `m_span` of ex-2.1.10, is at least 0.8 of the no-fallback value. Partial: exactly one of the two holds, or both hold with accuracy read at the wider 0.05 band.
 
     Contrary: the fallback term competing with the anchor for the operand states, which is what the stop-gradient is there to prevent. The `recipe` arm says whether the code path on its own moved anything.
+
+    <!-- REVIEW: H3 gave two partial rules for the same clause ("partial: within 0.05" inline, and "one of the two holds" after), which do not decide a run whose accuracy sits between 0.02 and 0.05 with the margin intact. Merged into one rule; both bands are unchanged, and `TASK_PARTIAL` keeps its documented role. -->
+
+    <!-- REVIEW: the same merge applies to H4's first clause, which quoted only the 0.02 gate although `TASK_PARTIAL`'s docstring assigns it a 0.05 partial band there too. -->
+
 
     /// admonition | TODO
     Clean accuracy on all, red, and non-red lines for every condition and arm. Then the alignment trajectory (margin over training) for the fallback condition drawn over the no-fallback condition, nine thin lines each. Beside it, the fallback loss and the anti-anchor loss over training, which check that the term switched on when the anchor placed the concept.
@@ -167,7 +174,7 @@ def _():
 
     ## Selectivity kept (H4)
 
-    **H4.** Two clauses. Under `redirect`, the seed-mean non-red deficit stays at or below 0.02, since the operator touches only operand states and a non-red operand has nothing on the axis to reflect. Under `primary`, the non-red deficit in the fallback condition is not resolved above the no-fallback figure (0.024 in ex-2.2.1, re-measured here).
+    **H4.** Two clauses. Under `redirect`, the seed-mean non-red deficit stays at or below 0.02, since the operator touches one operand state per line and on a non-red line that state has nothing on the axis to reflect. Under `primary`, the non-red deficit in the fallback condition is not resolved above the no-fallback figure (0.024 in ex-2.2.1, re-measured here).
 
     Partial: the first clause holds only at the 0.05 band, or exactly one clause holds. Contrary on the second clause: the term widens the edit, which would mean the blocks now read the axis at positions or slices where they did not before.
 
@@ -179,9 +186,12 @@ def _():
 
     ## Carry from the antipode to zero (H5)
 
-    **H5.** The designed response carries part of the way to zero. Along the carry sweep, γ ∈ {0.5, 1, 1.5, 2} at the training site, seed-mean target accuracy on red lines is non-decreasing in γ, allowing a dip of at most 0.02 between adjacent strengths, and at γ = 1 it is at least half its value at γ = 2. Partial: monotone, but γ = 1 below half.
+    **H5.** The designed response carries part of the way to zero. Along the carry sweep, γ ∈ {0.5, 1, 1.5, 2} at the training site, seed-mean target accuracy on red lines is non-decreasing in γ, allowing a dip of at most 0.02 between adjacent strengths, and at γ = 1 it is at least half its value at γ = 2. Partial: either clause holds on its own — monotone with γ = 1 below half, or γ = 1 at half or more with a dip larger than the allowance.
 
-    Contrary: target accuracy at γ = 1 sits at the no-fallback level and the rise is confined to γ > 1. That would be the known limitation showing in full, with the response living at the antipode and not reaching the projected state. The remedy for that is the D2.3 [concept swap](/todo/science/redirect-between-two-anchored-ops.md), which targets a state training actually visits, rather than a wider bracket here.
+    Contrary: target accuracy at γ = 1 sits at the no-fallback level and the rise is confined to γ > 1. That would be the known limitation showing in full, with the response living at the antipode and not reaching the projected state. The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would address it by targeting a state training already visits; widening the bracket here would not.
+
+    <!-- REVIEW: H5's partial band covered only the monotone-but-short case, leaving no verdict for a run that carries to γ = 1 through a dip; both single-clause cases are now partial. The D2.3 sentence was in the present indicative ("the remedy is"), which reads as a scheduled follow-up; softened to the conditional, since that item is a backlog entry. -->
+
 
     We report the `primary` row beside the sweep, without a gate: the deployment read, γ = 1 at every slice rather than at the training site alone. The difference between the two says how much the projection at later slices costs the designed response.
 
@@ -210,7 +220,7 @@ def _():
 
     **E4 — arms.** The H1–H4 statistics for `fb-only`, `anti-only`, the weight bracket, and `recipe`. The `recipe` row is a regression check against the stored no-fallback checkpoints, at three seeds, on clean accuracy, margin, red accuracy under `primary`, and non-red damage.
 
-    **E5 — ride-along operators.** The H1, H2, and H4 statistics for the `operands`, `embedding`, `shaped`, and `ablate` rows on the fallback condition, beside the ex-2.2.1 figures for the same rows on the no-fallback condition.
+    **E5 — ride-along operators.** The H1, H2, and H4 statistics for the `redirect-both`, `operands`, `embedding`, `shaped`, and `ablate` rows on the fallback condition, beside the ex-2.2.1 figures for the same rows on the no-fallback condition. For `redirect-both`, target accuracy is also split on the red lines whose visible operand is itself red, against the pooled figure: the gap between it and `redirect` is what the concept-operand label is worth to a deployed operator.
     ///
 
     ## Discussion
@@ -239,7 +249,7 @@ def _():
 
     The stop-gradient is what makes this the decoder-only term from M1. The embedding table and the placement of *red* get no gradient from it. The blocks and the unembedding do, and what they learn is a map from a state at the antipode to the target. Ex-2.2.1 read the concept from the operand states in the first two blocks, so those are the blocks with something to learn.
 
-    **The anti-anchor term.** This is $\mathrm{mean}(\max(-\alpha, 0))$ over the same live positions and slices the anti-subspace term reads, at a constant weight of 0.1. It is a hinge on negative alignment, so it keeps clean states out of the hemisphere where the fallback lives, and being one-sided it does not oppose the anchor. The anti-subspace term already penalizes $\alpha^2$ there, so the arms that drop one term or the other say whether the hinge adds anything.
+    **The anti-anchor term.** This is $\mathrm{mean}(\max(-\alpha, 0))$ over the same live positions and slices the anti-subspace term reads, on the clean forward pass only, at a constant weight of 0.1. The reflected states the fallback term runs are not live positions of that pass, so the two terms do not pull against each other. It is a hinge on negative alignment, so it keeps clean states out of the hemisphere where the fallback lives, and being one-sided it does not oppose the anchor. The anti-subspace term already penalizes $\alpha^2$ there, so the arms that drop one term or the other say whether the hinge adds anything.
 
     ### The designed target
 
@@ -251,7 +261,7 @@ def _():
 
     ### Measurements
 
-    We run one teacher-forced pass per run per intervention, over all 5,832 lines, through the eval contract in [`sca.intervention`](/src/sca/intervention.py). Each pass gives the log-softmax at the `=` position, from which we read the probability on the correct answer and on the target, the argmax, and the mass outside the color vocabulary.
+    We run one teacher-forced pass per run per intervention, over all 5,832 lines, through the eval contract in [`sca.intervention`](/src/sca/intervention.py). Each pass gives the log-softmax at the `=` position, from which we read the probability on the correct answer and on the target, the argmax, and the mass outside the color vocabulary. The contract takes positions as a global set, so the per-line operators (`redirect` and the carry sweep) run as two passes, one per operand slot, each over the lines whose concept operand sits in that slot; the rows are then stitched back together.
 
     Each pass also gives the write per (slice, line, position), as in ex-2.2.1, and the clean alignment map. Target accuracy, seed agreement, and the composition all come from the argmax on red lines. The training trajectory records the fallback and anti-anchor losses beside the anchor loss and the margin, every 50 steps.
 
