@@ -10,3 +10,5 @@ Two frictions observed the first time the format ran. (a) A scalar objective wal
 ## Notes
 
 **2026-08-17, housekeeping** — promoted, because this is worth the least when it is read late. All three lessons are edits to how the *next* search plan is written, and D2.2's first survey is the next one; fold them in while the plan is being drafted and the cost is a paragraph, after it runs and the cost is another run. Shortlist was 1/6.
+
+**2026-09-07, design review** — the next search plan is now identifiable: the design schedules a scoring-only tuning pass over the shaped suppression's threshold and ramp (and the repulsion form) on the stored ex-2.2.1 runs, before the anchor-op prereg. It is a survey in the science skill's sense, with two objectives that trade (red removal against non-red damage), so all three lessons apply to it: rank on the constraint margin beside the objective, promote near a gate on more than one seed (the stored runs give nine), and have the publisher carry every statistic the analysis promises. The fallback prereg ([ex-2.2.2](/docs/m2/ex-2.2.2/report.py)) is scored rather than surveyed, so it takes only the third.

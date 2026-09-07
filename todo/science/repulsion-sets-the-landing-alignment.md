@@ -21,3 +21,7 @@ Two readings of what that buys, and they pull in different directions.
 What it would take: a `repulsion` operator in `sca.intervention` beside `projection` and `shaped_suppression` (a few lines; the M1 code above is the reference), a contract check that its write equals the angle between $\alpha$ and $m(\alpha)$, and an arm on ex-2.2.1 or on the first graded experiment. The ex-2.2.1 runs are stored, so an extra arm is one more scoring pass per run rather than a rerun.
 
 Sibling of the [shaped-suppression item](./shaped-suppression-rather-than-projecting-whole-axis.md), which owns the choice of operator for the anchored-op experiments.
+
+## Notes
+
+**2026-09-07, design review** — placed in the [D2.2 design](/docs/m2/d2.2/design.md) as part of the operator-tuning pass on the stored ex-2.2.1 runs (scoring only, no training), which runs before the anchor-op prereg and chooses among the plain projection, the shaped suppression at a tuned threshold, and this repulsion form. The [ex-2.2.2](/docs/m2/ex-2.2.2/report.py) fallback prereg uses reflection (γ = 2 in the projection operator) as its trained state, which is the landing-alignment idea at its simplest: the state lands at −α.
