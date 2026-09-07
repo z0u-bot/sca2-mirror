@@ -46,12 +46,13 @@ FALLBACK_SLICE = 0
 """Where the redirect acts during training: the embedding. Everything after it is the readout the term
 trains, which is the transformer form of M1's decoder-only term."""
 
-FALLBACK_POSITION = "concept operand"
-"""The redirect reflects one state per line: the redder operand's (ties go to op1)."""
+FALLBACK_POSITIONS = None
+"""The redirect reflects every position of the crop. The edit at a position is twice its alignment, so it
+singles out nothing and needs no labels: the same operator a model without labelled positions can run."""
 
 FALLBACK_THRESHOLD = 0.5
-"""The term applies only to lines whose concept operand has a clean embedding alignment of at least this
-much, so a reflection moves the state by at least one unit of alignment. Below it the term is inert, which
+"""The term scores only lines whose concept operand (the redder one; ties go to op1) has a clean embedding
+alignment of at least this much, so a reflection moves the state by at least one unit of alignment. Below it the term is inert, which
 is what makes a constant weight safe from step 0: the anchor places the concept inside its warm-up, and the
 term switches on as it does."""
 
@@ -132,46 +133,34 @@ class Intervention:
     slices: tuple[int, ...] = SLICES
     positions: tuple[int, ...] | None = None
     gamma: float = 1.0
-    per_line: str | None = None
-    """`concept`: of *positions*, edit only the concept operand on each line (the redder one; ties go to op1).
-    The eval contract takes global positions, so this runs as two passes, one per operand slot, each over the
-    lines whose concept operand sits in that slot. None: edit every listed position on every line."""
 
 
-REDIRECT = Intervention(
-    "redirect", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=2.0, per_line="concept"
-)
-"""The trained state, at eval: reflect the concept operand's state through the axis at the embedding (γ = 2 in
-the projection operator), on each line. This is the edit training applied, so H1 and H2 read the readout the
-term trained, with nothing else changed. The label-free version, both operand positions on every line, is the
-`redirect-both` ride-along row. H1, H2, H4."""
+REDIRECT = Intervention("redirect", "projection", slices=(FALLBACK_SLICE,), positions=FALLBACK_POSITIONS, gamma=2.0)
+"""The trained state, at eval: reflect every embedding state through the axis (γ = 2 in the projection
+operator). This is the edit training applied, so H1 reads the readout the term trained, with nothing else
+changed. H1, H3."""
 
 PRIMARY = Intervention("primary", "projection")
 """Ex-2.2.1's primary intervention: full-strength projection at every slice and position. The deployment
-read, and the removal the fallback was never trained under. H4, H5."""
+read, and the removal the fallback was never trained under. H3, H4."""
 
 GAMMAS = (0.5, 1.0, 1.5, 2.0)
-"""The carry sweep (H5): the projection operator at the training site, from half removal through zero to the
-reflection. γ = 2 is `redirect`."""
+"""The carry sweep (H4): the projection operator at the embedding, every position, from half removal through
+zero to the reflection. γ = 2 is `redirect`; γ = 1 is ex-2.2.1's `embedding` arm."""
 
 SWEEP = tuple(
-    Intervention(
-        f"gamma-{g}", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=g, per_line="concept"
-    )
+    Intervention(f"gamma-{g}", "projection", slices=(FALLBACK_SLICE,), positions=FALLBACK_POSITIONS, gamma=g)
     for g in GAMMAS
 )
 
 RIDE_ALONG = (
-    Intervention("redirect-both", "projection", slices=(FALLBACK_SLICE,), positions=OPERAND_POSITIONS, gamma=2.0),
     Intervention("operands", "projection", positions=OPERAND_POSITIONS),
-    Intervention("embedding", "projection", slices=(0,)),
     Intervention("shaped", "shaped"),
     Intervention("ablate", "ablate", slices=()),
 )
 """Ex-2.2.1's arms, re-run on the fallback condition without gates, so the operator-tuning pass the design
-schedules has the fallback rows to hand. Same definitions as there: `shaped` at a = 0.5, b = 1, p = 1.
-`redirect-both` is `redirect` without the concept-operand label: a deployed operator is not told which operand
-carries the concept, so this row says what the trained response costs when both operand states are reflected."""
+schedules has the fallback rows to hand. Same definitions as there: `shaped` at a = 0.5, b = 1, p = 1. The
+`embedding` arm is the sweep's γ = 1 point. `operands` is the one row that needs position labels."""
 
 SHAPED = dict(a=0.5, b=1.0, p=1.0)
 
@@ -223,49 +212,43 @@ assert N_NEW_RUNS == 24
 # --- Gates ---------------------------------------------------------------------------------
 
 TARGET_ACC_GATE = 0.8
-"""H1: "seed-mean exact-match accuracy against the designed target on red lines, under `redirect`, is at
-least 0.8"."""
+"""H1: "seed-mean exact-match accuracy against the designed target on the red lines with a clean visible
+operand, under `redirect`, is at least 0.8"."""
 
 TARGET_ACC_PARTIAL = 0.5
 """H1 partial: "between 0.5 and 0.8"."""
 
 AGREE_SEEDS = 5
-"""H2: a red line "agrees" when at least this many of the nine seeds decode the same answer. Ex-2.2.1's
-definition, whose 13% under the projection is the reference."""
-
-AGREE_GATE = 0.8
-"""H2: "the seed-agreement fraction on red lines under `redirect` is at least 0.8"."""
-
-AGREE_PARTIAL = 0.5
-"""H2 partial: "at least 0.5"."""
+"""E1: a red line "agrees" when at least this many of the nine seeds decode the same answer. Ex-2.2.1's
+definition, whose 13% under the projection is the reference. Reported, not gated."""
 
 TASK_GATE = 0.02
-"""H3 and H4: the width every D2.1 task gate used, on exact-match accuracy. H3: "clean exact-match accuracy
-on all probe lines within 0.02 of the no-fallback condition's". H4: "the seed-mean non-red deficit under
+"""H2 and H3: the width every D2.1 task gate used, on exact-match accuracy. H2: "clean exact-match accuracy
+on all probe lines within 0.02 of the no-fallback condition's". H3: "the seed-mean non-red deficit under
 `redirect` stays at or below 0.02" — the deficit, clean accuracy minus intervened accuracy, which is the
 statistic ex-2.2.1's H2 gated at this width and reported at 0.024."""
 
 TASK_PARTIAL = 0.05
-"""H3 and H4 partial: "within 0.05". Ex-2.2.1's H2 landed partial in this band."""
+"""H2 and H3 partial: "within 0.05". Ex-2.2.1's H2 landed partial in this band."""
 
 VISIBLE_RED_DOSE = 0.5
-"""Red lines whose *visible* operand also reaches this redness (67 of the 365) are the ones where `redirect-both`
-reflects a state training left clean, so E5 reports its target accuracy split on that subset as well as pooled."""
+"""Red lines whose *visible* operand also reaches this redness (67 of the 365) have both operand states reflected
+and no defined target. They take no fallback loss, sit outside H1's gate, and are reported beside it."""
 
 MARGIN_RATIO = 0.8
-"""H3: "the seed-mean alignment margin at the end of training (ex-2.1.10's m_span) is at least 0.8 of the
+"""H2: "the seed-mean alignment margin at the end of training (ex-2.1.10's m_span) is at least 0.8 of the
 no-fallback condition's"."""
 
 GRADE_DIP = 0.02
-"""H5: "target accuracy is non-decreasing along the sweep, allowing a dip between adjacent strengths of at
+"""H4: "target accuracy is non-decreasing along the sweep, allowing a dip between adjacent strengths of at
 most 0.02"."""
 
 CARRY_FRAC = 0.5
-"""H5: "target accuracy at γ = 1 is at least half of its value at γ = 2"."""
+"""H4: "target accuracy at γ = 1 is at least half of its value at γ = 2"."""
 
 RESOLUTION_SD = 2.0
 """Differences between conditions or arms smaller than this many pooled between-seed standard deviations of
-the statistic are reported as not resolved. H1's and H4's comparisons against no-fallback use it."""
+the statistic are reported as not resolved. H1's and H3's comparisons against no-fallback use it."""
 
 #: What a red line decodes to under intervention, in the order the composition is stored. Ex-2.2.1's five
 #: categories plus the target; a target that is also a one-step neighbor of the true answer counts as target.
