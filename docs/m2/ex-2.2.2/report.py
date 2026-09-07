@@ -30,9 +30,7 @@ def _():
 
     /// tip |
     <!-- tl;dr -->
-    Ex-2.2.1 removed *red* from the anchored transformer. What a red line decoded to afterward was left to the model: a near miss of the true answer, and the miss varied by seed.
-
-    Here we add M1's fallback control to the D2.1 recipe. It is a training term that teaches the blocks what to answer once the concept is gone, aiming at a designed target, and it leaves the placement of the concept alone. Does the designed answer appear, does the term cost anything, is the removal still selective, and how far does a response trained at the antipode, the state with its axis component flipped in sign, carry to a state that was only projected to zero?
+    We add fallback control: a training term that teaches the blocks what to answer once the concept is gone, aiming at a designed target while leaving concept placement alone. Does the intervention remain effective and selective, and seed variability reduced?
     ///
     """)
     return
@@ -70,11 +68,11 @@ def _():
 
     The remedy in M1 was fallback control ([ex-2.9.2](/docs/m1/ex-2.9.2/report.py)): one loss term, applied to the decoder only, that pins the antipode of the anchor axis to a designed null answer, mid-gray. Reflecting a state through the axis then collapsed the response to a tight cluster on the bound the null predicted, across 32 seeds. Under plain zeroing the term added little, and that report said a trained fallback should be paired with the redirect it was trained at.
 
-    Here we carry the term into the transformer, keeping the D2.1 grammar and recipe, before the operation work in the [D2.2 plan](../d2.2/design.md) changes the grammar. Two things are new. The readout is no longer a single linear decoder; it is every block after the redirect, so the term trains the blocks, and a stop-gradient keeps it from touching the placement. And the concept is continuous, so the designed target is a choice: the operand-averaged null for *red* is uniform over 27 colors and has no mode, so we take its center, the visible operand mixed with mid-gray.
+    Here we carry the term into the transformer, keeping the D2.1 grammar and recipe, before the operation work in the [D2.2 plan](../d2.2/design.md) changes the grammar. The readout is no longer a single linear decoder (as it was in autoencoders); it is every block after the redirect, so the term trains the blocks, and a stop-gradient prevents it from touching the placement. And the concept is continuous, so the designed target is a choice: the operand-averaged null for *red* is uniform over 27 colors and has no mode, so we take its center, the visible operand mixed with mid-gray.
 
     This addresses the third risk in the plan, that the response to suppression is undesigned. One limitation carries over from M1: the response is trained at the antipode, while the removal we deploy projects to zero. H4 reads how far the designed response carries between the two, so a limitation of this size shows up as a curve rather than a flat miss.
 
-The nearest published analogue is LUNAR (arXiv:2502.07218), which redirects the activations of the data to forget into the model's own refusal region, with one matrix edit after training. The response is designed there by choosing a region the model already produces. Ours is trained at a state the model never otherwise visits, which is where the limitation above comes from, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward LUNAR's choice.
+    The nearest published analogue is LUNAR (arXiv:2502.07218), which redirects the activations of the data to forget into the model's own refusal region, with one matrix edit after training. The response is designed there by choosing a region the model already produces. Ours is trained at a state the model never otherwise visits, which is where the limitation above comes from, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward LUNAR's choice.
     """)
     return
 
@@ -114,7 +112,7 @@ def _():
     | **no-fallback** | the D2.1 recipe: anchor + anti-subspace term | 9 | ex-2.1.10 `either-t100` |
     | **fallback** | the recipe + anti-anchor term (0.1) + fallback term (w_fb = 0.05) | 9 | new |
 
-    The fallback condition is the primary one, and every hypothesis scores it. The no-fallback condition is the reference for it under every intervention.
+    Every hypothesis scores against the fallback condition. The no-fallback condition is the reference for it under every intervention.
 
     The arms below have three seeds each. We report the same statistics for them, without gates.
 
