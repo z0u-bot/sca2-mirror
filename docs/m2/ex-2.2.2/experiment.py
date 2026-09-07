@@ -7,8 +7,8 @@ gates cannot drift apart; the DAG lands once the preregistration is frozen, and
 
 The experiment adds M1's fallback control (ex-2.9.2) to the D2.1 recipe
 (ex-2.1.10 `either-t100`): a training term that teaches the blocks what to
-answer once *red* has been removed, at a designed target, without touching the
-placement of the concept. Every checkpoint is scored through the eval contract
+answer once *red* has been removed, at a designed fallback answer, with the
+placement of the concept kept out of its gradient. Every checkpoint is scored through the eval contract
 (`sca.intervention`) on the 5,832-line probe set the D2.1 experiments share,
 beside the stored ex-2.1.10 checkpoints ex-2.2.1 scored.
 """
@@ -68,19 +68,19 @@ alignment, mean(max(−α, 0)) over the same live positions and slices the anti-
 keeps the antipode hemisphere empty of clean states without opposing the anchor."""
 
 GRAY = (N_LEVELS - 1) / 2
-"""Mid-gray on the 16-level channel scale (7.5): the know-nothing operand the designed target mixes with."""
+"""Mid-gray on the 16-level channel scale (7.5): the know-nothing operand the fallback answer mixes with."""
 
 LEVELS = np.asarray(GRIDS["v216"], dtype=float)
 """The six channel levels of the corpus grid: 0, 3, 6, 9, 12, 15."""
 
 
-def fallback_target(visible: np.ndarray) -> np.ndarray:
+def fallback_answer(visible: np.ndarray) -> np.ndarray:
     """The designed answer for a line whose concept operand has been removed: the *visible* operand mixed
     with mid-gray, each channel rounded to the nearest grid level.
 
     Also the per-channel median of the operand-averaged null (the mix with each of the visible operand's
     three closed partners per channel), so it is the center of the distribution a removed concept leaves.
-    The two definitions agree on every level of the grid, and `check_target()` asserts it.
+    The two definitions agree on every level of the grid, and `check_answer()` asserts it.
     """
     v = np.asarray(visible, dtype=float)
     mean = (v + GRAY) / 2
@@ -93,17 +93,17 @@ def closed_partners(level: float) -> np.ndarray:
     return LEVELS[np.isin(mixes, LEVELS)]
 
 
-def check_target() -> None:
-    """The gray target coincides with the median closed-partner mix at every level, and the null has no mode."""
+def check_answer() -> None:
+    """The gray fallback answer coincides with the median closed-partner mix at every level, and the null has no mode."""
     for v in LEVELS:
         partners = closed_partners(v)
         assert len(partners) == 3, (v, partners)
         mixes = np.sort(np.floor((v + partners + 1) / 2))
         assert len(set(mixes)) == 3, "the null per channel is uniform over three distinct answers"
-        assert fallback_target(np.array([v]))[0] == mixes[1], (v, mixes)
+        assert fallback_answer(np.array([v]))[0] == mixes[1], (v, mixes)
 
 
-check_target()
+check_answer()
 
 # --- The lines -------------------------------------------------------------------------
 
@@ -129,7 +129,7 @@ class Intervention:
 
     name: str
     kind: str
-    """`projection`, `shaped`, or `ablate`."""
+    """`projection`, `shaped`, `ablate`, or `linear`: a matrix fitted after training (E6)."""
     slices: tuple[int, ...] = SLICES
     positions: tuple[int, ...] | None = None
     gamma: float = 1.0
@@ -140,12 +140,13 @@ REDIRECT = Intervention("redirect", "projection", slices=(FALLBACK_SLICE,), posi
 operator). This is the edit training applied, so H1 reads the readout the term trained, with nothing else
 changed. H1, H3."""
 
-PRIMARY = Intervention("primary", "projection")
-"""Ex-2.2.1's primary intervention: full-strength projection at every slice and position. The deployment
-read, and the removal the fallback was never trained under. H3, H4."""
+PROJECTION = Intervention("projection", "projection")
+"""Ex-2.2.1's primary intervention: full-strength projection at every slice and position. The fallback was
+never trained under it, so this row says whether a trained fallback needs the intervention it was trained
+at. H3, H4."""
 
 GAMMAS = (0.5, 1.0, 1.5, 2.0)
-"""The carry sweep (H4): the projection operator at the embedding, every position, from half removal through
+"""The transfer sweep (H4): the projection operator at the embedding, every position, from half removal through
 zero to the reflection. γ = 2 is `redirect`; γ = 1 is ex-2.2.1's `embedding` arm."""
 
 SWEEP = tuple(
@@ -158,11 +159,24 @@ RIDE_ALONG = (
     Intervention("shaped", "shaped"),
     Intervention("ablate", "ablate", slices=()),
 )
-"""Ex-2.2.1's arms, re-run on the fallback condition without gates, so the operator-tuning pass the design
+"""Ex-2.2.1's arms, re-run on the fallback condition without gates, so the intervention-tuning pass the design
 schedules has the fallback rows to hand. Same definitions as there: `shaped` at a = 0.5, b = 1, p = 1. The
 `embedding` arm is the sweep's γ = 1 point. `operands` is the one row that needs position labels."""
 
 SHAPED = dict(a=0.5, b=1.0, p=1.0)
+
+LUNAR = Intervention("lunar", "linear", slices=(FALLBACK_SLICE,), positions=FALLBACK_POSITIONS)
+"""E6: a LUNAR-style redirect fitted after training, on each no-fallback checkpoint with the checkpoint frozen.
+One 64×64 matrix at the embedding, applied at every position, fitted on training crops with the fallback
+cross-entropy over the same qualifying red lines the fallback term uses, plus an identity term on every other
+state. Scored through the contract like every other row, beside the fallback condition under `redirect`."""
+
+LUNAR_RETAIN_WEIGHT = 1.0
+"""Weight of the identity term (mean squared distance from the unedited state, over non-qualifying positions)
+relative to the fallback cross-entropy in the E6 fit."""
+
+LUNAR_STEPS = 2000
+"""Adam steps of the E6 fit, at the recipe's batch size; a 64×64 matrix, so CPU minutes per seed."""
 
 # --- Conditions --------------------------------------------------------------------------
 
@@ -211,11 +225,11 @@ assert N_NEW_RUNS == 24
 
 # --- Gates ---------------------------------------------------------------------------------
 
-TARGET_ACC_GATE = 0.8
-"""H1: "seed-mean exact-match accuracy against the designed target on the red lines with a clean visible
-operand, under `redirect`, is at least 0.8"."""
+FALLBACK_ACC_GATE = 0.8
+"""H1: "seed-mean fallback accuracy (the argmax at `=` is the fallback answer) on the red lines with a clean
+visible operand, under `redirect`, is at least 0.8"."""
 
-TARGET_ACC_PARTIAL = 0.5
+FALLBACK_ACC_PARTIAL = 0.5
 """H1 partial: "between 0.5 and 0.8"."""
 
 AGREE_SEEDS = 5
@@ -233,26 +247,27 @@ TASK_PARTIAL = 0.05
 
 VISIBLE_RED_DOSE = 0.5
 """Red lines whose *visible* operand also reaches this redness (67 of the 365) have both operand states reflected
-and no defined target. They take no fallback loss, sit outside H1's gate, and are reported beside it."""
+and no defined fallback answer. They take no fallback loss, sit outside H1's gate, and are reported beside it."""
 
 MARGIN_RATIO = 0.8
 """H2: "the seed-mean alignment margin at the end of training (ex-2.1.10's m_span) is at least 0.8 of the
 no-fallback condition's"."""
 
 GRADE_DIP = 0.02
-"""H4: "target accuracy is non-decreasing along the sweep, allowing a dip between adjacent strengths of at
+"""H4: "fallback accuracy is non-decreasing along the sweep, allowing a dip between adjacent strengths of at
 most 0.02"."""
 
-CARRY_FRAC = 0.5
-"""H4: "target accuracy at γ = 1 is at least half of its value at γ = 2"."""
+TRANSFER_FRAC = 0.5
+"""H4: "fallback accuracy at γ = 1 is at least half of its value at γ = 2"."""
 
 RESOLUTION_SD = 2.0
 """Differences between conditions or arms smaller than this many pooled between-seed standard deviations of
 the statistic are reported as not resolved. H1's and H3's comparisons against no-fallback use it."""
 
 #: What a red line decodes to under intervention, in the order the composition is stored. Ex-2.2.1's five
-#: categories plus the target; a target that is also a one-step neighbor of the true answer counts as target.
-COMPOSITION = ("target", "true", "neighbor", "visible_operand", "red_operand", "other")
+#: categories plus the fallback answer; a fallback answer that is also a one-step neighbor of the true answer
+#: counts as fallback.
+COMPOSITION = ("fallback", "true", "neighbor", "visible_operand", "red_operand", "other")
 
 #: Ridge strength of the off-axis recoverability probe (E3), matching ex-2.1.12 and ex-2.2.1.
 DECODE_L2 = 1e-2

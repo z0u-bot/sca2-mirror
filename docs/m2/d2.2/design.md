@@ -42,23 +42,42 @@ The bound was stated as layer-local, as the [kickoff lessons](/todo/science/d21-
 
 These checkpoints have no fallback term, so the response to suppression was undesigned. A red line decodes in the color vocabulary to a near miss of the true answer, a one-step neighbor about half the time, and which neighbor varies by seed. At least five of nine seeds agree on 13% of red lines. That is the reference (baseline) for the [fallback control](#fallback-control).
 
-**The operator is still open.** Ex-2.2.1 leaves two selective operators (`operands` and `shaped`) and one that removes fully (the plain projection). None does both. Before the [anchor-op prereg](#anchor-one-operation) commits to one, we will run a scoring-only pass on the stored ex-2.2.1 runs: tune the threshold and ramp of the shaped suppression, and try the repulsion form, which sets where the state lands rather than how much is removed ([item](/todo/science/repulsion-sets-the-landing-alignment.md)). There is no training, so it costs what ex-2.2.1 cost to score, and it settles the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md). Meanwhile the fallback experiment carries all three operators as ride-along rows.
+**The intervention is still open.** Ex-2.2.1 leaves two selective interventions (`operands` and `shaped`) and one that removes fully (the plain projection). None does both. Before the [anchor-op prereg](#anchor-one-operation) commits to one, we will run a scoring-only pass on the stored ex-2.2.1 runs: tune the threshold and ramp of the shaped suppression, and try the repulsion form, which sets where the state lands rather than how much is removed ([item](/todo/science/repulsion-sets-the-landing-alignment.md)). There is no training, so it costs what ex-2.2.1 cost to score, and it settles the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md). Meanwhile the fallback experiment carries all three as ride-along rows.
 
 ### Fallback control
 
 Preregistered as [ex-2.2.2](../ex-2.2.2/report.py). This is [queue item 3](/todo/science/d21-kickoff-carry-over-lessons.md) of the kickoff lessons, and it follows the M1 result [ex-2.9.2](/docs/m1/ex-2.9.2/report.py): teach the model what to produce once the concept has been removed, so the intervention has a designed, predictable outcome. Ex-2.2.1 set the reference at 13% seed agreement on red lines, with a response that is a near miss of the true answer.
 
-It runs on the D2.1 grammar, before the op work, so the term is proven on a known recipe and a continuous concept before it meets the categorical null. The mechanism is the antipode redirect from ex-2.9.2, in its transformer form. We reflect the embedding state of every position through the axis (α → −α) and hold the reflected states fixed with a stop-gradient, so the term trains the blocks that read the concept and never its placement. The reflection moves each state proportional to its alignment, so it needn't target a position or role and needs no labels. On red lines we then train the answer at `=` toward the designed target.
+It runs on the D2.1 grammar, before the op work. So we test the term on a known recipe and a continuous concept first, and only later on the categorical null.
 
-The *anti-anchor* term is added to clear out the antipode hemisphere. It does not oppose the anchor term, so it can carry a higher weight. Arms without each term will say whether either matters in models with this much spare capacity.
+The mechanism is the antipode redirect from ex-2.9.2, in transformer form: at the first anchored slice (in ex-2.2.2, the embedding) we reflect every position's state through the axis, flipping α to −α. A stop-gradient holds the reflected states fixed,[^sg] so the term trains the blocks that read the concept and never where the concept sits. Each state moves in proportion to how well it aligns with the axis, so the term needs no labels and no target position or role. On red lines we then train the answer at `=` toward the fallback answer.
 
-**The designed target for a continuous concept.** In the op experiments the null is a distribution with a mode. For *red* it is not. The operand-averaged null, the answer with the red operand replaced by any closed partner of the visible operand, is uniform over 27 colors on this grid. So it has no mode, and nothing for a greedy decode or a seed-agreement read to converge on. We use its center instead: the visible operand mixed with mid-gray and rounded to the grid. That is the per-channel median of the null, and it carries over the gray target from M1. A prereg for a continuous concept has to state this choice. The categorical experiments inherit the mode of their null.
+[^sg]: A stop-gradient is an identity in the forward pass with a gradient of zero: a loss downstream of it cannot move anything upstream of it. Here it sits on the reflected states, so the fallback loss reaches the blocks and the unembedding and leaves the embedding table alone, and with it where the anchor put the concept. The other losses see the clean pass and are unaffected.
 
-There is a known limitation. The response is trained at the antipode, while the removal we care about projects to zero, so the score reads how far the designed response carries to a state training never visited. Ex-2.2.2 reads it as a sweep in intervention strength, from the trained state (reflection, γ = 2) down through zero (γ = 1), so a limitation of this size should show up as a curve rather than a miss. The [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md) (D2.3) resolves the mismatch outright, since its redirect target is a state that training visits in the ordinary course of the task.
+The *anti-anchor* term is added to clear out the antipode hemisphere. It does not pull against the anchor term, so it can carry a higher weight. Arms without each term will say whether either matters in models with this much spare capacity.
 
-We considered closing the gap here instead, by rehearsing the intervention: apply the projection operator on a fraction of training steps and train the output toward the fallback. We rejected that for two reasons. A fallback observed under the same operator the model was trained on is a convergence result rather than a removal result. And the training pressure rewards keeping the concept readable off-axis, with the fallback emitted only where the projected state is detected, which is the masked-versus-removed failure itself. It is refiled as an auditing question: [rehearsed fallback as an auditing probe](/todo/science/rehearsal-fallback-as-auditing-probe.md).
+**The fallback answer for a continuous concept.** For *red* the null has no mode. The operand-averaged null is the answer with the red operand replaced by any closed partner of the visible operand, and on this grid it is uniform over 27 colors, so a greedy decode or a seed-agreement read has nothing to converge on.
 
-Unlike in autoencoders, the effect is no longer decoder-only, because more layers follow the intervention. So the task gate has to watch what it costs.
+We use the center of the null instead: the visible operand mixed with mid-gray and rounded to the grid. That is the per-channel median of the null, and it carries over the gray target from M1. A prereg for a continuous concept has to state this choice. The op experiments have a null with a mode, and the categorical experiments inherit it.
+
+A known limitation: we train the response at the antipode, while the ex-2.2.1 projection lands the state at zero. The score therefore reads how far the designed response transfers to a state that training never visited. Nothing is deployed yet, and the reflection may turn out to be the intervention to use. The two differ in that a reflection can be undone, which matters if we read the result as unlearning and not if we read it as a designed response.
+
+Weight ablation has both forms as well: `ablate` in the contract puts the projector into every matrix, and putting the reflector there instead gives the reflection in weight space. A third form would zero the weights and write the antipode with a bias, moving every state by the same amount whatever its dose.
+
+Ex-2.2.2 reads the limitation as a sweep in intervention strength, from the trained state (reflection, γ = 2) down through zero (γ = 1), so a limitation of this size should show up as a curve rather than a miss. The [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md) (D2.3) removes the mismatch outright, because its redirect target is a state that training visits in the ordinary course of the task.
+
+We considered closing the gap here instead, by rehearsing the intervention: apply the projection operator on a fraction of training steps and train the output toward the fallback. We rejected it for two reasons. A fallback seen under the same operator the model trained on tells us the model converged, not that anything was removed. And the training pressure rewards keeping the concept readable off the axis and emitting the fallback only when the projected state is detected, which is the masked-rather-than-removed failure itself. It is refiled as an auditing question: [rehearsed fallback as an auditing probe](/todo/science/rehearsal-fallback-as-auditing-probe.md).
+
+More of the model follows the edit than in the autoencoders, four blocks and the unembedding rather than one decoder, so the task gate watches what the term costs.
+
+**Relation to the Most Forbidden Technique.** Fallback control trains on the anchor axis, which is also the signal we read. Training against an interpretability signal is what [the Most Forbidden Technique](https://thezvi.substack.com/p/the-most-forbidden-technique) warns about: once the model has been optimized on the signal, the signal stops meaning what it meant. The failure mode here would be a model that detects the edit and emits the fallback while keeping the concept readable elsewhere, so that a mask looks like removal.
+
+Four choices keep that from being the easy solution.
+(a) The stop-gradient, so the term cannot move where the concept sits.
+(b) The antipode as the trained state, which no clean state occupies, rather than the projected state, which non-red states share.
+(c) The off-axis audit, which reads whether red stays linearly readable off the axis.
+(d) Rehearsal rejected, since training under the intervention is where a mask would be rewarded.
+The discussion in ex-2.2.2 reads its results against this paragraph.
 
 **Auditing rows.** The eval-contract dep promised the 2025 auditing rows before any arm was scored, and ex-2.2.1 scored its arms without them, so this prereg decides them row by row. *Off-axis recoverability* runs in ex-2.2.2 as an exploratory row: a ridge probe for redness, fitted per slice on the intervened operand states, in the fallback and no-fallback conditions. A response trained at the antipode is one case where red could stay readable off-axis. *Activation perturbation* (ActPert) and *relearning rebound* wait for D2.3. ActPert goes beside the RMU row; relearning rebound needs a fine-tuning budget, costed then, and will relearn from the `ablate` weights as the permanent removal.
 
@@ -76,7 +95,12 @@ Optional arm: control models at one, three, and six operations, with the cube pr
 
 Anchor all slices except the embeddings. We don't expect concepts to map to tokens in more complex models and languages anyway.
 
-Hypotheses, in outline. The hidden-state slices align as they did in earlier experiments, which would let later experiments leave the embeddings out. The embeddings become somewhat aligned anyway, because their directions correlate with the hidden states. And the constant component that ex-2.2.1 found on the syntax embeddings is absent, taking the non-red cost of the plain projection with it. Every training experiment from here scores its checkpoints through the eval contract, so that last hypothesis is a scored row of this experiment rather than a follow-up.
+Hypotheses:
+(a) the hidden-state slices align as they did in earlier experiments, which would let later experiments leave the embeddings out;
+(b) the embeddings become somewhat aligned anyway, because their directions correlate with the hidden states;
+(c) the constant component that ex-2.2.1 found on the syntax embeddings is absent, taking with it the non-red cost of the plain projection.
+
+The syntax embeddings may stay somewhat aligned regardless, as we expect for other tokens. If they do, that may resolve once there are several operations and the op token does work of its own. That hypothesis is a scored row of this experiment rather than a follow-up, since every training experiment from here scores its checkpoints through the eval contract.
 
 This is different from the [layer sweep](#layer-sweep), which tests the model's ability to route around intervention.
 
@@ -117,7 +141,9 @@ Nice to have: Sweep over all ops to see whether they can all be suppressed equal
 
 Anchor at subsets of slices (single ℓ, prefix ≤ ℓ, suffix ≥ ℓ, all) on a frozen schedule, then run the [suppress operation](#suppress-the-operation-and-the-operands) intervention at the anchored slices. This tests the claim that bounds are layer-local. The geometric bound covers the immediate write, and we need to know whether later blocks amplify or absorb the edit.
 
-Ex-2.2.1 already says what to expect for *red*. The concept is read in the first two blocks and the last block does not read it, so a removal acting at the embedding and the first block should match the full intervention, and one that starts later should not. That is a prediction about prefixes and suffixes, which favors a prefix/suffix bracket over single slices. Still to decide: whether this is one experiment or two, since anchor layer × intervention layer is a grid. Either way we bracket rather than survey.
+Ex-2.2.1 already says what to expect for *red*. The concept is read in the first two blocks, and the last block does not read it. So a removal acting at the embedding and the first block should match the full intervention, and one that starts later should not. That is a prediction about prefixes and suffixes, so we favor a prefix/suffix bracket over single slices.
+
+Caveat on reading depth this way: at d64-L4 on one operation the model has capacity to spare, so where it reads the concept may say more about what it can afford than about what the task needs. Several operations may draw on more of the depth, and the character-level runs (ex-2.1.5, ex-2.1.6) already used more layers than the word-level ones. Still to decide: whether this is one experiment or two, since anchor layer × intervention layer is a grid.
 
 ### SGTM baseline
 
@@ -142,13 +168,13 @@ The D2.2 post.
 Only what the plan above already commits to; everything else stays open until an experiment forces it.
 
 - [Suppress red](#suppress-red-on-the-existing-checkpoints) ran before the op grammar was ready: no training, and the highest information per dollar in the plan. Done.
-- The operator for the op experiments is chosen by a scoring-only tuning pass on the stored ex-2.2.1 runs, before the [anchor-op](#anchor-one-operation) prereg; until then the fallback experiment carries all three as ride-along rows.
+- The intervention for the op experiments is chosen by a scoring-only tuning pass on the stored ex-2.2.1 runs, before the [anchor-op](#anchor-one-operation) prereg; until then the fallback experiment carries all three as ride-along rows.
 - The bound claim is layer-local from the start. The geometry bounds the write; what the behavior does in response is a prediction, so a behavioral miss feeds the [layer sweep](#layer-sweep) rather than falsifying the bound.
 - [Anchor operation](#anchor-one-operation) opens with a small smoke test, before the many-seed equivalence read.
 - The survey is confirmed on the new grammar as a set of proposals, and not replicated literally first.
 - The dose axis for the categorical concept is intervention strength; the stimulus side (*op-relevance*) supplies the per-line predictions and the bound.
-- The fallback mechanism is the antipode redirect at the embedding, with a stop-gradient at the reflected state. Rehearsing the intervention during training is refiled as an [auditing question](/todo/science/rehearsal-fallback-as-auditing-probe.md).
-- The designed target for a continuous concept is the center of its operand-averaged null; for *red* that is the visible operand mixed with mid-gray. A categorical concept takes the mode of its null instead.
+- The fallback mechanism is the antipode redirect at the first anchored slice, which is the embedding while the embeddings are anchored, with a stop-gradient at the reflected state. Rehearsing the intervention during training is refiled as an [auditing question](/todo/science/rehearsal-fallback-as-auditing-probe.md).
+- The fallback answer for a continuous concept is the center of the operand-averaged null; for *red* that is the visible operand mixed with mid-gray. A categorical concept takes the mode of its null instead. Either is a design choice, since the answer can be any function of the line: to have *red* read as *black* under intervention, we would use the same term with black mixed with the visible operand as its answer.
 - Auditing rows: off-axis recoverability in [ex-2.2.2](../ex-2.2.2/report.py) as an exploratory row; ActPert and relearning rebound at D2.3.
 - Which op to anchor is open until the op table lands and its relevance distributions are computed.
 - The layer sweep takes the shape of a prefix/suffix bracket, following the depth read from ex-2.2.1. The grid question is deferred to the [experiment](#layer-sweep) itself.
@@ -169,4 +195,4 @@ The first experiments all change one thing from D2.1, so a negative there should
 
 ## Out of scope
 
-Verification lines (D2.3). Several ops on separate axes (a D2.3 candidate, for the subspace bound and the [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md)). The feedback controller (the kickoff advice stands). RMU, LUNAR (the nearest analogue of the fallback, tractable in a toy transformer), and SAE baselines. The word-level tokenizer, unless [anchor operation](#anchor-one-operation) fails. Resolving D2.1's H2 decodability question ([its own item](/todo/science/global-structure-preserved-under-anchoring.md)), run when the claim is needed. Stream-vs-init attribution ([kickoff](/todo/science/d21-kickoff-carry-over-lessons.md) queue item 4), until there is an anchoring failure worth attributing — D2.1 produced none.
+Verification lines (D2.3). Several ops on separate axes (a D2.3 candidate, for the subspace bound and the [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md)). The feedback controller (the kickoff advice stands). RMU and SAE baselines, and a full LUNAR row beside them; a LUNAR-style redirect, the nearest analogue of the fallback, runs as an exploratory row of ex-2.2.2. Resolving D2.1's H2 decodability question ([its own item](/todo/science/global-structure-preserved-under-anchoring.md)), run when the claim is needed. Stream-vs-init attribution ([kickoff](/todo/science/d21-kickoff-carry-over-lessons.md) queue item 4), until there is an anchoring failure worth attributing — D2.1 produced none.
