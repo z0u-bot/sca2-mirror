@@ -100,7 +100,7 @@ Hypotheses:
 (b) the embeddings become somewhat aligned anyway, because their directions correlate with the hidden states;
 (c) the constant component that ex-2.2.1 found on the syntax embeddings is absent, taking with it the non-red cost of the plain projection.
 
-The syntax embeddings may stay somewhat aligned regardless, as we expect for other tokens. If they do, that may resolve once there are several operations and the op token does work of its own. That hypothesis is a scored row of this experiment rather than a follow-up, since every training experiment from here scores its checkpoints through the eval contract.
+Hypothesis (c) is a scored row of this experiment rather than a follow-up, since every training experiment from here scores its checkpoints through the eval contract. The syntax embeddings may stay somewhat aligned regardless, as we expect for other tokens. If they do, that may resolve once there are several operations and the op token does work of its own.
 
 This is different from the [layer sweep](#layer-sweep), which tests the model's ability to route around intervention.
 
