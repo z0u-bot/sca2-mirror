@@ -175,7 +175,7 @@ def _():
     /// details | Glossary
     - **line** — one equation, `c1 ‹op› c2 = answer`, six word-level tokens. The op word is one token, like each color.
     - **op word** — the token between the operands: one of `mix`, `add`, `lighten`, `darken`. Bare *op* is the operation; *op1* and *op2* are the operand roles.
-    - **closed pair** — a pair of colors whose answer under an op is itself a grid color, so the line can be written. `mix` is closed on {ex.closure(ex.MIX):.0%} of pairs; the other three ops on all of them.
+    - **closed pair** — a pair of colors whose answer under an op is itself a grid color, so the line can be written. `mix` is closed on {ex.closure(ex.MIX):.1%} of pairs (the [op table](#the-grammar)); the other three ops on all of them.
     - **op-relevance** — how much of the answer reading the op is worth, for one line. Take the mixture over the ops closed on that pair, and measure the weight it withholds from the answer given by the anchored op. Defined in `experiment.py`.
     - **residual stream** — the running vector each token carries through the network, which every block reads from and writes to.
     - **slice** ($\ell$) — a depth at which the residual stream is read: the embedding (0), plus the stream after each of the four blocks.
@@ -207,7 +207,7 @@ def _():
 
     The recipe is the D2.1 primary, `either-t100`, with nothing changed but the grammar and the epoch count. The three proposals are the operating point from the survey plus the two promoted trials the survey read as its twin and its knee. `t48` sits within one m_line band of `t00`, with more grading and contrast. `t12` holds the most grading of the promoted set, at a margin the survey still could not tell apart from the one at `t00`. All three ran the anchor flat, as the survey did.
 
-    The two richer-op arms are un-anchored models on one and two ops, at the same line count and step count, and they serve E4 only.
+    The two richer-op arms are un-anchored models on one and two ops, at the same line count and step count, so with more lines per op. They serve E4 only.
 
     ### The interventions
 
@@ -255,7 +255,7 @@ def _():
 
     **H3.** The plateau found in the survey belongs to the recipe rather than to the one-op grammar. At least one proposal is feasible at fresh seeds on the new grammar, and its seed-mean m_line on the `mix` lines exceeds the recipe by more than one band.
 
-    Feasibility is read as the survey read it: task on every op, containment, retention, no latch, contrast at least {ex.CONTRAST_PARTIAL:g}, and grading $r^2$ no more than {ex.GRADE_R2_DROP:g} below the fresh value for the recipe, clearing that floor by at least one per-run σ. The last clause is the grading margin, and it is part of feasibility here as it is in the selection rule below.
+    Feasibility is read as the survey read it, with the constraints listed once in the selection rule below; the grading margin is part of it there, as it is here.
 
     Partial: a proposal is feasible and its m_line sits within a band of the recipe, or a proposal clears every survey constraint and exceeds the recipe by more than a band but misses the grading margin. Contrary: no proposal is feasible, or every feasible proposal sits more than a band below the recipe. Either would say the plateau was specific to the one-op grammar, and the recipe carries D2.2.
 
@@ -300,7 +300,7 @@ def _():
 
     **E3 — redder than both.** `add` and `darken` have lines whose answer is redder than either operand; `mix` and `lighten` have none. On those lines the strongest evidence for *red* sits at the answer, a position the labeller never keys on. That is the blind-span case named in the scope note of ex-2.1.10. We read the alignment at `=` and at the answer position, against lines of the same op and dose whose answer is not redder than both, and the softmin profile on each group. Then we restrict the H4 statistics to these lines, which asks whether removing *red* from the operands also removes it from an answer that was redder than they were.
 
-    **E4 — a richer op set.** The cube probes of ex-2.1.12 (ridge, ℓ₂ = 10⁻², strict per-value holdout) on the un-anchored models at one, two, and four ops: held-out $R^2$ for op1, op2, and the RGB of the answer, per slice and position. This asks whether more rules give the model a better operand geometry at the same data and compute, read together with the lines-per-op confound the conditions table notes.
+    **E4 — a richer op set.** The cube probes of ex-2.1.12 (ridge, ℓ₂ = 10⁻², strict per-value holdout) on the un-anchored models at one, two, and four ops: held-out $R^2$ for op1, op2, and the RGB of the answer, per slice and position. This asks whether more rules give the model a better operand geometry at the same data and compute, read together with the lines-per-op confound noted under [the conditions](#conditions).
 
     **E5 — the noise floor, re-measured.** The per-run σ of every gated statistic on the new grammar, from the five seeds of the recipe and of the control, beside the ex-2.1.10 values the bands used. The H3 verdict and the selection rule are scored with the frozen ex-2.1.10 bands either way; where the fresh σ is larger, we report which H3 comparisons the wider band would leave unresolved, as a robustness read.
     ///
