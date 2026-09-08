@@ -767,7 +767,7 @@ def _(
     lines,
     metrics,
     per_line,
-    runs,
+    runs: dict[str, list[dict]],
     seed_row,
     stat,
 ):
@@ -821,7 +821,7 @@ def _(
             ax.set_title(f"under `{iv}`", fontsize=8)
             ax.tick_params(labelsize=7)
         axes[0].set_ylabel("share of red lines", fontsize=8)
-        axes[0].legend(fontsize=6, frameon=False, ncol=3, loc="lower left")
+        fig.legend(fontsize=6, frameon=False, ncol=len(_cats), loc="outside lower center")
         return fig
 
     def _row(c, iv, g="red_clean"):
