@@ -192,7 +192,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.2.3. The multi-op grammar, with *red* anchored again](./m2/ex-2.2.3/report.py) (preregistration)
 
-    The grammar grows to four operations spelled as words (`mix`, `add`, `lighten`, `darken`), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts. It also settles the op table, since `screen` and `multiply` are degenerate on the six-level grid.
+    The grammar grows to six operations spelled as words (`mix`, `add`, `screen`, `multiply`, `lighten`, `darken`, each rounded to the grid), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe at two lengths, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts.
 
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 

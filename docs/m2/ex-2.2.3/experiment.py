@@ -5,7 +5,7 @@ Design constants only, for now. The report imports these so its prose and the
 gates cannot drift apart; the DAG lands once the preregistration is frozen, and
 `DESIGN_ONLY` goes with it.
 
-The D2.2 plan makes the operation a variable: four operations on the same color
+The D2.2 plan makes the operation a variable: six operations on the same color
 grid, each spelled as a word, so a line reads `c1 <op> c2 = answer`. Every D2.1
 recipe was tuned on the one-op grammar, so this experiment is the regression
 check the plan schedules before any operation is anchored: an un-anchored
@@ -49,40 +49,58 @@ LEVELS = GRIDS[GRID]
 TOP = N_LEVELS - 1
 
 
+def snap(v: float) -> int:
+    """The grid level nearest to *v*, ties upward. No pair of levels ties on this grid for any op below,
+    so the tie rule is there for completeness.
+    """
+    return min(LEVELS, key=lambda level: (abs(level - v), -level))
+
+
 @dataclass(frozen=True)
 class Op:
-    """One operation: the word the model sees, and the per-channel rule on the 0..15 scale."""
+    """One operation: the word the model sees, and the per-channel rule on the 0..15 scale.
+
+    The rule is computed on the continuous scale and snapped to the nearest grid level, so every op is
+    defined on every pair and each answer is a vocabulary token. Where the rule already lands on a level
+    (every pair for `add`, `lighten`, and `darken`; the on-grid fraction for the rest) no rounding happens,
+    and on those pairs `mix` is D2.1's op unchanged.
+    """
 
     name: str
     """The op's name in code and prose, and its surface form: the one token between the operands."""
-    channel: Callable[[int, int], int]
+    channel: Callable[[int, int], float]
     rule: str
     """The per-channel rule, for the method's table."""
 
-    def __call__(self, a: Rgb, b: Rgb) -> Rgb:
+    def raw(self, a: Rgb, b: Rgb) -> tuple[float, float, float]:
         r, g, b_ = (self.channel(x, y) for x, y in zip(a, b, strict=True))
+        return (r, g, b_)
+
+    def __call__(self, a: Rgb, b: Rgb) -> Rgb:
+        r, g, b_ = (snap(v) for v in self.raw(a, b))
         return (r, g, b_)
 
 
 OPS = (
     Op("mix", lambda x, y: (x + y + 1) // 2, "⌊(x + y + 1) / 2⌋"),
     Op("add", lambda x, y: min(x + y, TOP), "min(x + y, 15)"),
+    Op("screen", lambda x, y: TOP - (TOP - x) * (TOP - y) / TOP, "15 − (15 − x)(15 − y) / 15"),
+    Op("multiply", lambda x, y: x * y / TOP, "x · y / 15"),
     Op("lighten", max, "max(x, y)"),
     Op("darken", min, "min(x, y)"),
 )
-"""The first op table. `mix` is D2.1's op (the round-half-up mean, spelled `+` there and `mix` here). The
-other three are the blend modes that stay closed on the grid: saturating `add`, and the per-channel `max`
-and `min` (Photoshop's *lighten* and *darken*).
+"""The op table: the four blend modes the D2.2 design named (`mix` is D2.1's round-half-up mean, spelled `+`
+there and `mix` here; saturating `add`; `screen`; `multiply`), plus the per-channel `max` and `min`
+(Photoshop's *lighten* and *darken*). Each is computed on the 0..15 scale and snapped to the nearest level of
+the grid, the "defined rounding" the design's deps section asks for.
 
-The D2.2 design named `screen` and `multiply` for the second and third slots. On the six-level grid neither
-survives the closed-pair rule: `screen` lands on the grid only where a channel is 0 or 15, where it equals
-`add`, and `multiply` only where it is 0 or the identity, so each contributes no line that another op does
-not already teach. `agreement()` and `closure()` below are what settled it, and the report renders them.
+All six are commutative, so operand order carries no information, as in D2.1. They are distinct rules: no two
+agree on more than 38% of pairs (`agreement()`), and every op but `lighten` has lines whose answer is redder
+than both operands (`line_counts()`)."""
 
-All four ops are commutative, so operand order carries no information, as in D2.1."""
-
-MIX, ADD, LIGHTEN, DARKEN = OPS
+MIX, ADD, SCREEN, MULTIPLY, LIGHTEN, DARKEN = OPS
 OP_NAMES = tuple(op.name for op in OPS)
+OP_BY_NAME = {op.name: op for op in OPS}
 
 
 def colors() -> list[Rgb]:
@@ -96,45 +114,43 @@ def unordered_pairs() -> list[tuple[Rgb, Rgb]]:
     return [(a, b) for i, a in enumerate(cs) for b in cs[i:]]
 
 
-def is_closed(op: Op, a: Rgb, b: Rgb) -> bool:
-    """A pair is closed under an op when the op's answer is itself a grid color, so the line can be written."""
-    return all(v in LEVELS for v in op(a, b))
+def lines() -> list[tuple[Rgb, Rgb]]:
+    """Every line of an op: each unordered pair in both orders, self-pairs once (46,656)."""
+    return [(x, y) for a, b in unordered_pairs() for (x, y) in ({(a, b), (b, a)})]
 
 
-def closed_pairs(op: Op) -> list[tuple[Rgb, Rgb]]:
-    return [(a, b) for a, b in unordered_pairs() if is_closed(op, a, b)]
+def is_on_grid(op: Op, a: Rgb, b: Rgb) -> bool:
+    """The op's rule lands on the grid for this pair without rounding."""
+    return all(v in LEVELS for v in op.raw(a, b))
 
 
-def closure(op: Op) -> float:
-    """The fraction of unordered pairs closed under the op."""
-    return len(closed_pairs(op)) / len(unordered_pairs())
+def on_grid(op: Op) -> float:
+    """The fraction of unordered pairs the op answers without rounding."""
+    return sum(is_on_grid(op, a, b) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
-def agreement(p: Op, q: Op) -> tuple[int, int]:
-    """(pairs where p and q give the same answer, pairs closed under both)."""
-    both = [(a, b) for a, b in unordered_pairs() if is_closed(p, a, b) and is_closed(q, a, b)]
-    return sum(p(a, b) == q(a, b) for a, b in both), len(both)
+def mix_probe_lines() -> list[tuple[Rgb, Rgb]]:
+    """`mix`'s on-grid lines: D2.1's closed pairs in both orders, the 5,832 lines its statistics were read on."""
+    return [(a, b) for a, b in lines() if is_on_grid(MIX, a, b)]
 
 
-def relevance(anchored: Op) -> dict[float, float]:
-    """The *op-relevance* distribution over the anchored op's closed pairs.
+def agreement(p: Op, q: Op) -> float:
+    """The fraction of unordered pairs on which p and q give the same answer."""
+    return sum(p(a, b) == q(a, b) for a, b in unordered_pairs()) / len(unordered_pairs())
 
-    For a line, relevance is the weight the mixture over ops closed on that pair withholds from the anchored
-    op's answer: 1 − (share of those ops whose answer equals the anchored op's). It is the fraction of the
-    answer that reading the op is worth on that line. Returned as {relevance: fraction of lines}; the D2.2
-    design asks for this per candidate anchored op, under the table's own rounding.
+
+def relevance(anchored: Op) -> dict[int, float]:
+    """How often reading the op word is worth something on the anchored op's lines.
+
+    For a line, count the *other* ops whose answer equals the anchored op's. At 0 the answer names the op;
+    at k the op word only rules out 5 − k of the six. Returned as {k: fraction of lines}. The D2.2 design asks
+    for this per candidate anchored op, under the table's own rounding.
     """
-    values = []
-    for a, b in closed_pairs(anchored):
-        answers = [op(a, b) for op in OPS if is_closed(op, a, b)]
-        values.append(round(1 - answers.count(anchored(a, b)) / len(answers), 4))
-    vals, counts = np.unique(values, return_counts=True)
-    return {float(v): float(c) / len(values) for v, c in zip(vals, counts, strict=True)}
-
-
-def ordered_lines(op: Op) -> list[tuple[Rgb, Rgb]]:
-    """Every writable line of the op: each closed pair in both orders (self-pairs once)."""
-    return [(x, y) for a, b in closed_pairs(op) for (x, y) in ({(a, b), (b, a)})]
+    counts = np.zeros(len(OPS), dtype=int)
+    for a, b in unordered_pairs():
+        answer = anchored(a, b)
+        counts[sum(op(a, b) == answer for op in OPS if op is not anchored)] += 1
+    return {k: float(c) / len(unordered_pairs()) for k, c in enumerate(counts) if c}
 
 
 def dose(a: Rgb, b: Rgb) -> float:
@@ -143,49 +159,56 @@ def dose(a: Rgb, b: Rgb) -> float:
 
 
 def line_counts(op: Op) -> dict[str, int]:
-    """Over the op's writable lines: the total, the red and non-red lines, and the redder-than-both lines."""
-    lines = ordered_lines(op)
+    """Over the op's lines: the total, the red and non-red lines (the same for every op, since dose reads the
+    operands), and the redder-than-both lines.
+    """
+    ls = lines()
     return {
-        "lines": len(lines),
-        "red": sum(dose(a, b) >= RED_DOSE for a, b in lines),
-        "nonred": sum(dose(a, b) <= NONRED_DOSE for a, b in lines),
-        "redder": sum(redness(op(a, b)) > dose(a, b) + 1e-9 for a, b in lines),
+        "lines": len(ls),
+        "red": sum(dose(a, b) >= RED_DOSE for a, b in ls),
+        "nonred": sum(dose(a, b) <= NONRED_DOSE for a, b in ls),
+        "redder": sum(redness(op(a, b)) > dose(a, b) + 1e-9 for a, b in ls),
     }
 
 
 def check_table() -> None:
-    """The table's invariants: `mix` is the D2.1 op, every op is commutative, and the three new ops are closed everywhere."""
+    """The table's invariants: every answer is a grid color, every op is commutative, `mix` is D2.1's op where
+    D2.1 defined it, and the three exact ops never round.
+    """
+    cs = set(colors())
     for a, b in unordered_pairs()[::97]:
-        assert MIX(a, b) == mix(a, b)
         for op in OPS:
-            assert op(a, b) == op(b, a)
+            assert op(a, b) in cs, op.name
+            assert op(a, b) == op(b, a), op.name
+    for a, b in mix_probe_lines()[::37]:
+        assert MIX(a, b) == mix(a, b)
     for op in (ADD, LIGHTEN, DARKEN):
-        assert closure(op) == 1.0, op.name
-    assert len(ordered_lines(MIX)) == 5832, "mix's writable lines are D2.1's probe set"
+        assert on_grid(op) == 1.0, op.name
+    assert len(mix_probe_lines()) == 5832, "mix's on-grid lines are D2.1's probe set"
 
 
 # --- The lines -----------------------------------------------------------------------------
 
 RED_DOSE = 0.8
-"""*Red lines* have dose ≥ 0.8: 365 of `mix`'s 5,832 lines, the ex-2.2.1 definition."""
+"""*Red lines* have dose ≥ 0.8, the ex-2.2.1 definition: 365 of `mix`'s 5,832 probe lines."""
 
 NONRED_DOSE = 0.2
-"""*Non-red lines* have dose ≤ 0.2: 1,689 of `mix`'s lines."""
+"""*Non-red lines* have dose ≤ 0.2: 1,689 of `mix`'s probe lines."""
 
 check_table()
 
 # --- The corpus ------------------------------------------------------------------------------
 
-N_LINES_PER_OP = 50_000
-"""Lines per op; the corpus samples ops uniformly, and within an op draws closed training pairs uniformly with
-random operand order, as ex-2.1.10 draws `mix`'s. Half of D2.1's count per op, so the corpus is twice D2.1's
-size and every `mix` pair is seen half as often per epoch, and a quarter as often over the matched-step run."""
+N_LINES = 100_000
+"""D2.1's corpus size, unchanged. Ops are drawn uniformly, so each op has about a sixth of the lines, and
+within an op the training pairs are drawn uniformly with random operand order, as ex-2.1.10 drew `mix`'s.
+D2.1 drew its 100k lines from 5,832 distinct `mix` lines; here they are drawn from six times 46,656, so most
+lines are seen once per epoch and most pairs of an op are never seen under it."""
 
-N_LINES = N_LINES_PER_OP * len(OPS)
 CORPUS_SEED = 0
 HOLDOUT_FRAC = 0.2
-"""Of the distinct closed pairs, held out per op: bookkeeping is keyed on (op, pair), so a pair held out under
-`add` may be trained under `mix`."""
+"""Of the distinct pairs, held out per op: bookkeeping is keyed on (op, pair), so a pair held out under `add`
+may be trained under `mix`."""
 
 TOKENS_PER_LINE = 6
 BLOCK, BATCH = 64, 64
@@ -193,11 +216,9 @@ OVERSAMPLE, TRAIN_SPLIT = 16, 0.9
 """Ex-2.1.3's DataConfig, unchanged through D2.1."""
 
 
-def steps_per_epoch(n_lines: int) -> int:
-    """Optimizer steps per epoch for a corpus of *n_lines*, from the loader's own sizing rule.
-
-    An epoch covers `oversample / batch_size` of the training split, so the count is close to
-    0.9 · 6 · n_lines / 16,384: 33 steps for D2.1's 100k lines, 66 for this corpus.
+def steps_per_epoch(n_lines: int = N_LINES) -> int:
+    """Optimizer steps per epoch, from the loader's own sizing rule: an epoch covers `oversample / batch_size`
+    of the training split, so the count is close to 0.9 · 6 · n_lines / 16,384, which is 33 for 100k lines.
     """
     n_tokens = int(TRAIN_SPLIT * n_lines * TOKENS_PER_LINE)
     model = ModelConfig(vocab_size=256, block_size=BLOCK, n_embd=64, n_head=8, n_head_dim=8, n_ff=256, n_layer=4)
@@ -205,23 +226,14 @@ def steps_per_epoch(n_lines: int) -> int:
     return batches_per_epoch(n_tokens, data, model)
 
 
-D21_LINES = 100_000
-D21_EPOCHS = 100
-"""Ex-2.1.10's corpus and length: the reference recipe ran 100 epochs of 100k lines."""
+EPOCHS = 100
+"""Ex-2.1.10's length: 100 epochs of 100k lines, 3,300 steps. The corpus size is D2.1's, so the epoch is too,
+and the recipe runs here with nothing changed but the grammar."""
 
-SURVEY_EPOCHS = 50
-"""The survey's trial length, on the same 100k lines: its proposals were made at half the reference's steps."""
+EPOCHS_SHORT = 50
+"""The survey's trial length, 1,650 steps. Its proposals run at it, and so does the recipe's short arm."""
 
-D21_STEPS = D21_EPOCHS * steps_per_epoch(D21_LINES)
-SURVEY_STEPS = SURVEY_EPOCHS * steps_per_epoch(D21_LINES)
-
-EPOCHS_RECIPE = round(D21_STEPS / steps_per_epoch(N_LINES))
-EPOCHS_PROPOSAL = round(SURVEY_STEPS / steps_per_epoch(N_LINES))
-"""Training is matched to D2.1 by *steps*, since the corpus is twice the size: the recipe runs the same number
-of steps as ex-2.1.10 (50 epochs here), and each proposal the same number as its survey trial (25). Every
-schedule keyframe is a fraction of training, as ex-2.1.11 restated them, so the shapes are unchanged."""
-
-assert (EPOCHS_RECIPE, EPOCHS_PROPOSAL) == (50, 25), (EPOCHS_RECIPE, EPOCHS_PROPOSAL)
+assert EPOCHS * steps_per_epoch() == 3300
 
 # --- Training, shared with D2.1 --------------------------------------------------------------
 
@@ -263,7 +275,7 @@ class Condition:
     title: str
     lam: float
     tau: float = TAU_REF
-    epochs: int = EPOCHS_RECIPE
+    epochs: int = EPOCHS
     anti_peak_ratio: float = ANTI_PEAK_RATIO_REF
     anti_anneal_end_frac: float = ANTI_ANNEAL_END_FRAC_REF
     anchor_anneal: bool = True
@@ -278,16 +290,30 @@ class Condition:
 
     @property
     def steps(self) -> int:
-        return self.epochs * steps_per_epoch(N_LINES)
+        return self.epochs * steps_per_epoch()
 
 
 CONTROL = Condition("control", 5, "un-anchored", lam=0.0)
-"""Nothing placed on the axis: the anchor and anti-subspace weights at zero. The task reference for H1 and the
-4-op point of the richer-op arm."""
+"""Nothing placed on the axis: the anchor and anti-subspace weights at zero. The task reference for H1 at the
+full length, and the six-op point of the richer-op arm."""
+
+# REVIEW: added `control-short`, so H1 reads every 50-epoch condition against an un-anchored model of the
+# same length. Per-pair exposure fell about fiftyfold from D2.1, so a 50-epoch arm could miss the task gate
+# for want of training rather than because of the anchor, and the full-length control cannot tell those
+# apart. Verify: the calibration read at 50 epochs; if it reaches holdout EM near 1 on every op, the arm
+# changes nothing and could be dropped.
+CONTROL_SHORT = Condition("control-short", 5, "un-anchored, at the proposals' length", lam=0.0, epochs=EPOCHS_SHORT)
+"""The task reference for H1 at the proposals' length."""
 
 RECIPE = Condition("recipe", 5, "the ex-2.1.10 recipe", lam=SCORING_LAMBDA)
-"""The D2.1 primary retrained on the new grammar at the same step count: the placement reference for H2, and
-the incumbent in H3's selection."""
+"""The D2.1 primary retrained on the new grammar, unchanged: the placement reference for H2, and the incumbent
+in H3's selection."""
+
+RECIPE_SHORT = Condition(
+    "recipe-short", 5, "the recipe at the proposals' length", lam=SCORING_LAMBDA, epochs=EPOCHS_SHORT
+)
+"""The recipe at 50 epochs, so H3 compares each proposal with the recipe at the same step count. The survey
+ran this arm too (`short`), and found its m_line within a band of the full-length recipe's."""
 
 T00 = Condition(
     "t00",
@@ -295,7 +321,7 @@ T00 = Condition(
     "survey proposal t00",
     lam=0.5573771884288644,
     tau=0.2652855688754236,
-    epochs=EPOCHS_PROPOSAL,
+    epochs=EPOCHS_SHORT,
     anti_peak_ratio=1.3764374809867324,
     anti_anneal_end_frac=0.5369576041586697,
     anchor_anneal=False,
@@ -309,7 +335,7 @@ T48 = Condition(
     "survey proposal t48",
     lam=0.4313002226158571,
     tau=0.22225105244233356,
-    epochs=EPOCHS_PROPOSAL,
+    epochs=EPOCHS_SHORT,
     anti_peak_ratio=2.948510815850172,
     anti_anneal_end_frac=0.5462400943506509,
     anchor_anneal=False,
@@ -323,7 +349,7 @@ T12 = Condition(
     "survey proposal t12",
     lam=0.36133018466356065,
     tau=0.23333255019137145,
-    epochs=EPOCHS_PROPOSAL,
+    epochs=EPOCHS_SHORT,
     anti_peak_ratio=1.1284021176786219,
     anti_anneal_end_frac=0.9193784880917519,
     anchor_anneal=False,
@@ -332,33 +358,60 @@ T12 = Condition(
 """The knee: the promoted trial with the most grading, at a margin the survey could still not tell from t00's."""
 
 PROPOSALS = (T00, T48, T12)
-CANDIDATES = (RECIPE, *PROPOSALS)
+CANDIDATES = (RECIPE, RECIPE_SHORT, *PROPOSALS)
 """The set H3's selection rule chooses from."""
+
+SURVEY_RECIPE = {
+    "recipe": (
+        3,
+        {
+            "m_line": 0.4204,
+            "r2_sim": 0.7823,
+            "contrast": 0.8562,
+            "alpha_op1": 0.039,
+            "holdout_em": 0.9961,
+            "retention": 0.9897,
+        },
+    ),
+    "recipe-short": (
+        3,
+        {
+            "m_line": 0.4218,
+            "r2_sim": 0.8065,
+            "contrast": 0.8491,
+            "alpha_op1": 0.0262,
+            "holdout_em": 1.0,
+            "retention": 0.9968,
+        },
+    ),
+}
+"""The survey's own re-runs of the recipe at both lengths (its `ref` and `short` conditions, three seeds each),
+as (seeds, seed means), so the H3 table can print every candidate's one-op value beside its fresh one. The
+proposals' values are read from `SURVEY_REF` at render time."""
 
 RICHER_OP_ARM = (
     Condition("ops-1", 3, "un-anchored, mix only", lam=0.0, ops=("mix",)),
-    Condition("ops-2", 3, "un-anchored, mix and add", lam=0.0, ops=("mix", "add")),
+    Condition("ops-3", 3, "un-anchored, mix, add, multiply", lam=0.0, ops=("mix", "add", "multiply")),
 )
-"""Un-anchored models at one and two ops, on a corpus of the same size (200k lines) at the same step count,
-probed for the cube as ex-2.1.12 probed D2.1's; the control is the four-op point. Unscored (E4). Holding the
-line count fixed means the one-op model sees each `mix` pair four times as often, so a better cube at four ops
-would be a clean positive, and a worse one is confounded with lines per op."""
+"""Un-anchored models at one and three ops, on a corpus of the same size at the same step count, probed for
+the cube as ex-2.1.12 probed D2.1's; the control is the six-op point. Unscored (E4). Holding the line count
+fixed means the one-op model sees each `mix` pair six times as often, so a better cube at six ops would be a
+clean positive, and a worse one is confounded with lines per op."""
 
-CONDITIONS = (CONTROL, *CANDIDATES, *RICHER_OP_ARM)
+CONDITIONS = (CONTROL, CONTROL_SHORT, *CANDIDATES, *RICHER_OP_ARM)
 N_RUNS = sum(c.seeds for c in CONDITIONS)
-assert N_RUNS == 31
+assert N_RUNS == 41
 
 # --- The probe set ---------------------------------------------------------------------------
 
 N_PROBE = 27
-"""Probe lines per color as op1. For `mix` that is every closed partner, so its probe set is D2.1's 5,832 lines
-with the op word changed. The other ops are closed on every pair, so 27 partners per color are drawn with a
-fixed seed; each op then has 5,832 probe lines, and the probe set is four times D2.1's."""
+"""Probe lines per color as op1, per op. For `mix` these are its on-grid partners, so its probe set is D2.1's
+5,832 lines with the op word changed, and every gated statistic is read on the lines D2.1 read it on. For the
+other ops, 27 partners per color are drawn once with a fixed seed; each op then has 5,832 probe lines."""
 
 PROBE_SEED = 0
 PRIMARY_OP = MIX
-"""Every gated statistic is read on `mix`'s lines, the lines D2.1's numbers were read on; the other ops' values
-are reported beside them (E1)."""
+"""Every gated statistic is read on `mix`'s probe lines; the other ops' values are reported beside them (E1)."""
 
 # --- Gates -----------------------------------------------------------------------------------
 
@@ -406,7 +459,7 @@ for 0.2."""
 GRADE_R2_DROP = 0.10
 """H2 (grading): "the recipe's grading r² is no more than 0.10 below its D2.1 value". A difference in r²
 against a reference arm rather than a fixed threshold, as ex-2.1.9 and ex-2.1.10 read it. H3's feasibility
-reads each proposal's r² against the recipe's fresh value at the same width."""
+reads each candidate's r² against the full-length recipe's fresh value at the same width."""
 
 LATCH_PI = 0.5
 """The latch veto, per run: a softmin weight of the non-red group above 0.5 at op1 means the pull latched a
@@ -440,8 +493,7 @@ NOISE_RUN = {
     "contrast": 0.0057,
 }
 """Per-run σ of each statistic at the reference recipe, from ex-2.1.10's nine seeds as ex-2.1.11 tabulated
-them. The bands below use these until the recipe condition here gives fresh ones on the new grammar; the
-report prints both."""
+them. The bands use these; E5 re-measures them on the new grammar, and the report prints both."""
 
 
 def equiv_band(stat: str, n_a: int = 5, n_b: int = 5, noise: dict[str, float] = NOISE_RUN) -> float:
@@ -449,13 +501,22 @@ def equiv_band(stat: str, n_a: int = 5, n_b: int = 5, noise: dict[str, float] = 
     return RESOLUTION_SD * noise[stat] * np.sqrt(1 / n_a + 1 / n_b)
 
 
+# REVIEW: the selection rule had three ways to leave the choice to the person running it.
+# (1) "two candidates within one m_line band of each other tie" is not transitive over three
+# candidates, so ties are now read against the highest value rather than pairwise. (2) "then to
+# the recipe" did not say which of the two recipe arms. (3) The full contrast gate could empty
+# the feasible set with no fallback named; it now falls to the full-length recipe, as an empty
+# feasible set already did. Verify: none of these changes which candidate wins in the case where
+# one feasible candidate leads by more than a band.
 SELECTION_RULE = """\
-Among the candidates (the recipe and the three proposals), keep those feasible at fresh seeds on every seed \
-mean: task within the gate on every op, containment, retention, no latched run, contrast at least the partial \
-floor, and grading r² no more than 0.10 below the recipe's fresh value, clearing that floor by at least one per-run σ. Among \
-those, require contrast at the full gate; adopt the highest seed-mean m_line on the mix lines. Two candidates \
-within one m_line band of each other tie, and the tie goes to the larger grading margin, then to the recipe. \
-If no proposal is feasible, the recipe is adopted, and the D2.2 experiments carry its point."""
+Among the candidates (the recipe at both lengths and the three proposals), keep those feasible at fresh seeds \
+on every seed mean: task within the gate on every op against the control of the same length, containment, retention, no latched run, contrast at \
+least the partial floor, and grading r² no more than 0.10 below the full-length recipe's fresh value, clearing \
+that floor by at least one per-run σ. Among those, require contrast at the full gate, and take the highest \
+seed-mean m_line on the mix probe lines. Every candidate within one m_line band of that highest value ties \
+with it, and the tie goes to the larger grading margin, then to the full-length recipe, then to \
+`recipe-short`. If no other candidate is feasible, or none of the feasible candidates clears the full contrast \
+gate, the full-length recipe is adopted. Whichever point is adopted, the D2.2 experiments carry it."""
 
 # --- Interventions ---------------------------------------------------------------------------
 
