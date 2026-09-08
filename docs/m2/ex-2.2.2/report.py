@@ -908,7 +908,7 @@ def _(
 
     The anti-subspace term alone leaves about a quarter of clean states past the antipode plane; the hinge takes that to about {clean("negative_frac").mean():.2f}, and the `fb-only` arm, without the hinge, sits where the no-fallback condition does.
 
-    **E3 — off-axis recoverability.** Held-out R² of a ridge probe for the concept operand's redness, fitted on the operand states with the axis deleted, per slice. (A ridge probe is a linear regression with a penalty on the weights; held-out R² is the share of variance it explains on lines it was not fitted to.) Fallback / no-fallback, fallback / no-fallback, with the resolution floor (two pooled between-seed sds) beside each:
+    **E3 — off-axis recoverability.** Held-out R² of a ridge probe for the concept operand's redness, fitted on the operand states with the axis deleted, per slice. (A ridge probe is a linear regression with a penalty on the weights; held-out R² is the share of variance it explains on lines it was not fitted to.) Fallback / no-fallback, with the resolution floor (two pooled between-seed sds) beside each:
 
     | states | emb. | block 1 | block 2 | block 3 | block 4 | floor: emb. | b1 | b2 | b3 | b4 |
     |---|---|---|---|---|---|---|---|---|---|---|
