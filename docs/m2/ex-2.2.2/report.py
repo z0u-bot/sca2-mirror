@@ -102,7 +102,7 @@ def _():
     /// tip |
     <!-- tl;dr -->
     We add fallback control: a training term that teaches the blocks what to answer once the concept is gone, aiming at a designed fallback answer, with the concept's placement kept out of its gradient. Does the fallback appear, does the intervention stay effective and selective, and does seed variability fall?
-    The fallback appears in every seed, costs nothing on the task and a little margin, and reaches the plain projection at more than half strength. The reflection it was trained at is destructive on non-red lines in every anchored model, with or without the term.
+    The fallback appears in every seed, costs nothing on the task and a little margin, and reaches the plain projection at more than half strength. The reflection it was trained at is destructive on non-red lines in every anchored model, with or without the term, because the syntax token rows carry the axis.
     ///
     """)
     return
@@ -124,7 +124,7 @@ def _(clean, floor, stat):
 
     - [The designed response (H1)](#the-designed-response-h1) — **holds.** Fallback accuracy on the red lines with a clean visible operand under `redirect`: {_fb:.3f}, against {_fb_ref:.3f} without the term; gate {ex.FALLBACK_ACC_GATE:g}, and the margin above the reference clears the {floor("redirect", "fb_acc", "red_clean"):.3f} floor.
     - [Task and placement intact (H2)](#task-and-placement-intact-h2) — **holds.** Clean accuracy gap from the no-fallback condition: {_gap:.4f} (gate {ex.TASK_GATE:g}). Margin at the end of training: {_ratio:.3f} of the no-fallback value (gate {ex.MARGIN_RATIO:g}).
-    - [Selectivity kept (H3)](#selectivity-kept-h3) — **partial.** Non-red deficit under `redirect`: {_d_red:.3f} (gate {ex.TASK_GATE:g}; the no-fallback condition loses {_d_red_ref:.3f} under the same edit). Under `projection`: {_d_proj:.3f} against {_d_proj_ref:.3f}. That difference is smaller than the {floor("projection", "deficit", "nonred"):.3f} resolution floor, so the second clause holds, but as an unresolved difference.
+    - [Selectivity (H3)](#selectivity-h3) — **partial.** Non-red deficit under `redirect`: {_d_red:.3f} (gate {ex.TASK_GATE:g}; the no-fallback condition loses {_d_red_ref:.3f} under the same edit). Under `projection`: {_d_proj:.3f} against {_d_proj_ref:.3f}. That difference is smaller than the {floor("projection", "deficit", "nonred"):.3f} resolution floor, so the second clause holds, but as an unresolved difference.
     - [Transfer from the antipode to zero (H4)](#transfer-from-the-antipode-to-zero-h4) — **holds.** Fallback accuracy at γ = 1 is {_g[1] / _g[3]:.2f} of its value at γ = 2 (gate {ex.TRANSFER_FRAC:g}), and the sweep has no dip.
 
     <!-- REVIEW: a seed-agreement hypothesis (then H2) was cut: at the H1 gate it is close to implied by H1, and the case that separates them (seeds agreeing on an answer other than the fallback answer) is what E1's composition shows. Seed agreement is reported under E1, ungated. The later hypotheses moved up one number. -->
@@ -140,7 +140,7 @@ def _():
 
     Two corrections landed after the freeze, each with a `REVIEW` note beside the text it changed. The first is the count of red lines with a clean visible operand, now 296 rather than 298, because one color sat on the 0.5 contour to roundoff. The second is the gradient paragraph in the method, which now accounts for the tied embedding.
 
-    Anything conceived after seeing the data is under [Exploratory analyses](#exploratory-analyses), marked as post hoc. The [Discussion](#discussion) is still a placeholder, pending a discussion round.
+    Anything conceived after seeing the data is under [Exploratory analyses](#exploratory-analyses), marked as post hoc (E7 and E8).
     ///
 
     ## Why this experiment
@@ -576,7 +576,9 @@ def _(CONDS, clean, seed_row, trajectory):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    ## Selectivity kept (H3)
+    ## Selectivity (H3)
+
+    <!-- REVIEW: the heading was "Selectivity kept", the hypothesis's short name; renamed after the results review, since the first clause failed by a wide margin and the verdict is partial. The Findings anchor follows the heading. -->
 
     **H3.** Under `redirect`, the seed-mean non-red deficit stays at or below 0.02. Under `projection`, the non-red deficit in the fallback condition is not resolved above the no-fallback figure (0.024 in ex-2.2.1, re-measured here).
 
@@ -886,10 +888,15 @@ def _(
         for c in CONDS
     )
 
+    _syntax_rows = "\n".join(
+        f"| {c.title} | " + " | ".join(f"{v:.2f}" for v in clean("alpha_q99_nonred", cond=c.name).mean(0)[0]) + " |"
+        for c in (ex.CONTROL, ex.NO_FALLBACK, ex.FALLBACK)
+    )
+
     mo.md(rf"""
     ## Exploratory analyses
 
-    Preregistered as exploratory, no gates, except the last row, which is post hoc.
+    Preregistered as exploratory, no gates, except the last two rows, which are post hoc.
 
     **E1 — composition.** {_plot()}
 
@@ -949,6 +956,16 @@ def _(
     <!-- REVIEW: this line said the projection figure "is the size of" the unresolved difference in H3's second clause; the figure is 0.028 and the difference 0.090, so it accounts for part of it rather than all. Verify: the `projection` deficit columns of the H3 table against the fallback column here. -->
 
     <!-- REVIEW: E7 is post hoc; it was added after the H3 result to say what the non-red lines decode to, using the per-line guesses the scorer already stores. The fallback answer for a non-red line is the scorer's own table (visible operand mixed with gray), with the true-answer and visible-operand coincidences removed first. Verify: the composition order in experiment.py, and the per-line `guess` arrays. -->
+
+    **E8 — the syntax rows on the axis (post hoc).** 99th-percentile clean alignment over the non-red lines at the embedding slice, one figure per position, averaged over seeds. Operand and answer columns pool all the color tokens, so their percentile is the tail of about two hundred rows; a syntax column is a single row, so its percentile is that row's alignment.
+
+    | condition | {" | ".join(f"`{p}`" for p in POS_NAMES)} |
+    |---|---|---|---|---|---|---|
+    {_syntax_rows}
+
+    In the un-anchored model the `+` and `=` rows sit where a random direction would. In every anchored model they carry 0.3 to 0.4. Meanwhile the anti-subspace term has flattened the non-red colors, and the hinge flattens them further. So the leak sits in two token rows at slice 0, before any block runs.
+
+    <!-- REVIEW: E8 is post hoc; it was added after the discussion round to say where the non-red cost of H3's first clause comes from, using the stored clean alignment maps (the same data as the write map's left panel, for three conditions instead of one). Verify: `alpha_q99_nonred` in the clean statistics. -->
     """)
     return
 
@@ -958,9 +975,19 @@ def _():
     mo.md(r"""
     ## Discussion
 
-    /// admonition | TODO
-    Interpretation only, after the results. Whether the fallback in the transformer gives the intervention a designed outcome the way it did in M1. How far it transfers from the trained state to the projected one, and what that says the anchored-op experiments should train toward. Whether the anti-anchor term earns its place in the recipe. What the off-axis row says about masking, read against the [Most Forbidden Technique paragraph](../d2.2/design.md#fallback-control) in the design, and what the fitted edit of E6 says about designing at a region the model already has. No re-derivation of the findings.
-    ///
+    The fallback in the transformer does what it did in M1. At the edit it was trained at, every seed gives the designed answer, and the seed disagreement ex-2.2.1 found under projection is gone there.
+
+    What is new is the gap between the edit the term was trained at and the edit we want to use. The clean model never visits the antipode, and the response trained there carries over to the plain projection in most seeds, but in some barely at all. That is the mismatch the design named, and the anchored-op experiments should train toward a state that training already visits; the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 gives one by construction.
+
+    The anti-anchor hinge pays for that transfer with margin: it keeps the clean states on the anchor side of the plane. That cost comes from designing at the antipode, and the swap has no antipode, so we are not adopting the hinge into the recipe. Nor does the fallback term itself carry into the operator experiments by default. We are keeping the code, for fits like E6 and for a concept with no visited state to aim at.
+
+    The selectivity cost belongs to the edit rather than to the term. Every anchored model loses most non-red lines under the reflection, because the `+` and `=` rows carry the axis (E8) and the reflection flips them along with the operand. We read the tied readout as what puts the axis there: the state after a red operand sits on the axis, and the cheapest way to predict the token that follows is for the row of that token to lean the same way. An [untied readout would test this](/todo/science/syntax-rows-carry-the-axis-via-tied-readout.md).
+
+    Until those rows are clean, any edit applied at every position pays the cost, including a rotation to a second anchored concept. The thresholded and operand-only edits of ex-2.2.1 avoid it.
+
+    On masking, the off-axis row cannot say whether the term keeps red readable elsewhere. The shift it shows is inside the floor, and the follow-up at more seeds is filed.
+
+    The fitted edit of E6, which reaches the designed response at a smaller non-red cost, is the LUNAR argument in miniature: if the model already produces the destination, there is no need to train at a state it never visits. The trained term still has one thing going for it, the response living in the model rather than in a fitted map. The [fit of E6 could be tightened](/todo/science/lunar-fit-retain-term-and-weight-sweep.md) before the two are compared again.
     """)
     return
 
