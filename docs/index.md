@@ -176,8 +176,16 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.2.1. Suppressing *red* in the anchored transformer](./m2/ex-2.2.1/report.py)
 
-    Preregistered, not yet run. The first intervention on an anchored transformer: project the anchor axis out of the D2.1 checkpoints and score red lines against non-red lines, for removal, selectivity, grading, and a layer-local write bound. Weight ablation, M1's shaped suppression, and a post-hoc tier (diff-in-means, probe, LEACE on the un-anchored control) ride along.
+    The first intervention on an anchored transformer: project the anchor axis out of the D2.1 checkpoints and score red lines against non-red lines. The removal works, grades with the line's redness, and stays inside the bound the placed geometry sets; zeroing the axis weights does the same job. Selectivity is partial: the non-red cost comes from the syntax positions, whose embeddings carry a constant component on the axis. Editing the operands alone avoids it, and so does M1's shaped suppression, which removes only half of *red*.
 
     <span class="tags">`word-tokens` `intervention` `suppression` `checkpoints` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.1/report.py -->
+
+- [2.2.2. A designed response to suppressing *red*](./m2/ex-2.2.2/report.py) (preregistration)
+
+    Fallback control from M1, adapted to the transformer. It's a training term that teaches the blocks what to answer once *red* is removed, at a designed fallback answer (continuation), with a stop-gradient protecting the placement. The fallback answer is the center of the operand-averaged null, the visible operand mixed with *mid-gray*. Scores whether the fallback answer appears, what the term costs, and how far a response trained at the antipode transfers to a state that was only projected to zero.
+
+    <span class="tags">`word-tokens` `intervention` `fallback` `training` `eval-contract`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.2/report.py -->
