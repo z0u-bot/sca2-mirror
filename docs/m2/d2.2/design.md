@@ -42,42 +42,45 @@ The bound was stated as layer-local, as the [kickoff lessons](/todo/science/d21-
 
 These checkpoints have no fallback term, so the response to suppression was undesigned. A red line decodes in the color vocabulary to a near miss of the true answer, a one-step neighbor about half the time, and which neighbor varies by seed. At least five of nine seeds agree on 13% of red lines. That is the reference (baseline) for the [fallback control](#fallback-control).
 
-**The intervention is still open.** Ex-2.2.1 leaves two selective interventions (`operands` and `shaped`) and one that removes fully (the plain projection). None does both. Before the [anchor-op prereg](#anchor-one-operation) commits to one, we will run a scoring-only pass on the stored ex-2.2.1 runs: tune the threshold and ramp of the shaped suppression, and try the repulsion form, which sets where the state lands rather than how much is removed ([item](/todo/science/repulsion-sets-the-landing-alignment.md)). There is no training, so it costs what ex-2.2.1 cost to score, and it settles the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md). Meanwhile the fallback experiment carries all three as ride-along rows.
+**The intervention is still open.** Ex-2.2.1 leaves two selective interventions (`operands` and `shaped`) and one that removes fully (the plain projection). None are both complete and selective. Before the [anchor-op prereg](#anchor-one-operation) commits to one, we will run a scoring-only pass on the stored ex-2.2.1 runs: tune the threshold and ramp of the shaped suppression, and try the repulsion form, which sets where the state lands rather than how much is removed ([item](/todo/science/repulsion-sets-the-landing-alignment.md)). There is no training, so it costs what ex-2.2.1 cost to score, and it settles the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md). Meanwhile the fallback experiment carries all three as ride-along rows.
 
 ### Fallback control
 
 Preregistered as [ex-2.2.2](../ex-2.2.2/report.py). This is [queue item 3](/todo/science/d21-kickoff-carry-over-lessons.md) of the kickoff lessons, and it follows the M1 result [ex-2.9.2](/docs/m1/ex-2.9.2/report.py): teach the model what to produce once the concept has been removed, so the intervention has a designed, predictable outcome. Ex-2.2.1 set the reference at 13% seed agreement on red lines, with a response that is a near miss of the true answer.
 
-It runs on the D2.1 grammar, before the op work. So we test the term on a known recipe and a continuous concept first, and only later on the categorical null.
+It runs on the D2.1 grammar, before the op work. So we test the term on a known recipe with a continuous concept first (*red*), and only later on the categorical null (an operator).
 
-The mechanism is the antipode redirect from ex-2.9.2, in transformer form: at the first anchored slice (in ex-2.2.2, the embedding) we reflect every position's state through the axis, flipping α to −α. A stop-gradient holds the reflected states fixed,[^sg] so the term trains the blocks that read the concept and never where the concept sits. Each state moves in proportion to how well it aligns with the axis, so the term needs no labels and no target position or role. On red lines we then train the answer at `=` toward the fallback answer.
+The mechanism is the antipode redirect from m1/ex-2.9.2, in transformer form: at the first anchored slice (the embedding) we reflect every position's state through the axis, flipping α to −α. A stop-gradient holds the reflected states fixed,[^sg] so the term trains the blocks that read the concept and never where the concept sits. <!-- How precise is that statement, given that all slices are anchored? --> Each state moves in proportion to how well it aligns with the axis, so the term needs no labels and no target position or role. On red lines we then train the answer at `=` toward the fallback answer.
 
 [^sg]: A stop-gradient is an identity in the forward pass with a gradient of zero: a loss downstream of it cannot move anything upstream of it. Here it sits on the reflected states, so the fallback loss reaches the blocks and the unembedding and leaves the embedding table alone, and with it where the anchor put the concept. The other losses see the clean pass and are unaffected.
 
-The *anti-anchor* term is added to clear out the antipode hemisphere. It does not pull against the anchor term, so it can carry a higher weight. Arms without each term will say whether either matters in models with this much spare capacity.
+The *anti-anchor* term is added to clear out the antipode hemisphere. Its influence does not overlap with the *anchor* term, so it can have a higher weight than the *anti-subspace* term. Arms without each term will say whether either matters in models with this much spare capacity.
 
 **The fallback answer for a continuous concept.** For *red* the null has no mode. The operand-averaged null is the answer with the red operand replaced by any closed partner of the visible operand, and on this grid it is uniform over 27 colors, so a greedy decode or a seed-agreement read has nothing to converge on.
 
-We use the center of the null instead: the visible operand mixed with mid-gray and rounded to the grid. That is the per-channel median of the null, and it carries over the gray target from M1. A prereg for a continuous concept has to state this choice. The op experiments have a null with a mode, and the categorical experiments inherit it.
+We use the center of the null instead: the visible operand mixed with *mid-gray* and rounded to the grid. That is the per-channel median of the null, and it carries over the *gray* target from M1. A prereg for a continuous concept has to state this choice. The op experiments have a null with a mode, and the later categorical experiments should use it.
 
-A known limitation: we train the response at the antipode, while the ex-2.2.1 projection lands the state at zero. The score therefore reads how far the designed response transfers to a state that training never visited. Nothing is deployed yet, and the reflection may turn out to be the intervention to use. The two differ in that a reflection can be undone, which matters if we read the result as unlearning and not if we read it as a designed response.
+A known limitation: we train the response at the antipode, while the ex-2.2.1 projection rewrites the state as zero (off-manifold). The score <!-- which? --> therefore reads how far the designed response transfers to a state that training never visited. Nothing is deployed yet, and the reflection may turn out to be the intervention to use. The two differ in that a reflection can be undone, which matters if we want unlearning but not if we just want a designed response.
 
-Weight ablation has both forms as well: `ablate` in the contract puts the projector into every matrix, and putting the reflector there instead gives the reflection in weight space. A third form would zero the weights and write the antipode with a bias, moving every state by the same amount whatever its dose.
+Weight ablation has both forms as well: `ablate` in the contract puts the projector into every matrix, and putting the reflector there instead gives the reflection in weight space. ~~A third form would zero the weights and write the antipode with a bias, moving every state by the same amount whatever its dose.~~ <!-- That was just brainstorming. -->
 
-Ex-2.2.2 reads the limitation as a sweep in intervention strength, from the trained state (reflection, γ = 2) down through zero (γ = 1), so a limitation of this size should show up as a curve rather than a miss. The [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md) (D2.3) removes the mismatch outright, because its redirect target is a state that training visits in the ordinary course of the task.
+Ex-2.2.2 measures the limitation <!-- "limitation" doesn't feel like the right word. Maybe "trade-off"? --> as a sweep in intervention strength, from the trained state (reflection, γ = 2) down through zero (γ = 1)~~, so a limitation of this size should show up as a curve rather than a miss~~. The [two-op concept swap](/todo/science/redirect-between-two-anchored-ops.md) (D2.3) removes the mismatch outright, because its redirect target is a state that training visits in the ordinary course of the task.
 
-We considered closing the gap here instead, by rehearsing the intervention: apply the projection operator on a fraction of training steps and train the output toward the fallback. We rejected it for two reasons. A fallback seen under the same operator the model trained on tells us the model converged, not that anything was removed. And the training pressure rewards keeping the concept readable off the axis and emitting the fallback only when the projected state is detected, which is the masked-rather-than-removed failure itself. It is refiled as an auditing question: [rehearsed fallback as an auditing probe](/todo/science/rehearsal-fallback-as-auditing-probe.md).
+We considered closing the gap here instead, by rehearsing the intervention: apply the projection operator on a fraction of training steps and train the output toward the fallback. We rejected it because:
+**1.** A fallback seen under the same operator the model trained on tells us the model converged, not that anything was removed, and
+**2.** The training pressure would reward keeping the concept readable off the axis and emitting the fallback only when the projected state is detected (masked, rather than removed).
+It is refiled as an auditing question: [rehearsed fallback as an auditing probe](/todo/science/rehearsal-fallback-as-auditing-probe.md).
 
 More of the model follows the edit than in the autoencoders, four blocks and the unembedding rather than one decoder, so the task gate watches what the term costs.
 
 **Relation to the Most Forbidden Technique.** Fallback control trains on the anchor axis, which is also the signal we read. Training against an interpretability signal is what [the Most Forbidden Technique](https://thezvi.substack.com/p/the-most-forbidden-technique) warns about: once the model has been optimized on the signal, the signal stops meaning what it meant. The failure mode here would be a model that detects the edit and emits the fallback while keeping the concept readable elsewhere, so that a mask looks like removal.
 
-Four choices keep that from being the easy solution.
-(a) The stop-gradient, so the term cannot move where the concept sits.
-(b) The antipode as the trained state, which no clean state occupies, rather than the projected state, which non-red states share.
-(c) The off-axis audit, which reads whether red stays linearly readable off the axis.
-(d) Rehearsal rejected, since training under the intervention is where a mask would be rewarded.
-The discussion in ex-2.2.2 reads its results against this paragraph.
+Mitigations:
+**(a)** The stop-gradient, so the fallback term can't directly move the concept.
+**(b)** The antipode as the trained state, which no clean state occupies, ~~rather than the projected state, which non-red states share~~ <!-- The projected state is fully orthogonal, right? This seems tautological, probably omit. -->.
+**(c)** The off-axis audit, which checks whether red stays linearly readable off the axis.
+**(d)** Rehearsal rejected, since training under the intervention would reward masking.
+The discussion in ex-2.2.2 interprets its results against this paragraph.
 
 **Auditing rows.** The eval-contract dep promised the 2025 auditing rows before any arm was scored, and ex-2.2.1 scored its arms without them, so this prereg decides them row by row. *Off-axis recoverability* runs in ex-2.2.2 as an exploratory row: a ridge probe for redness, fitted per slice on the intervened operand states, in the fallback and no-fallback conditions. A response trained at the antipode is one case where red could stay readable off-axis. *Activation perturbation* (ActPert) and *relearning rebound* wait for D2.3. ActPert goes beside the RMU row; relearning rebound needs a fine-tuning budget, costed then, and will relearn from the `ablate` weights as the permanent removal.
 
@@ -96,11 +99,11 @@ Optional arm: control models at one, three, and six operations, with the cube pr
 Anchor all slices except the embeddings. We don't expect concepts to map to tokens in more complex models and languages anyway.
 
 Hypotheses:
-(a) the hidden-state slices align as they did in earlier experiments, which would let later experiments leave the embeddings out;
-(b) the embeddings become somewhat aligned anyway, because their directions correlate with the hidden states;
-(c) the constant component that ex-2.2.1 found on the syntax embeddings is absent, taking with it the non-red cost of the plain projection.
+**(a)** the hidden-state slices align as they did in earlier experiments, which would let later experiments leave the embeddings out;
+**(b)** the embeddings become somewhat aligned anyway, because their directions correlate with the hidden states;
+**(c)** the constant component that ex-2.2.1 found on the syntax embeddings is absent, taking with it the non-red cost of the plain projection. <!-- Do (b) and (c) predict conflicting things? -->
 
-Hypothesis (c) is a scored row of this experiment rather than a follow-up, since every training experiment from here scores its checkpoints through the eval contract. The syntax embeddings may stay somewhat aligned regardless, as we expect for other tokens. If they do, that may resolve once there are several operations and the op token does work of its own.
+Hypothesis (c) is scored because every training experiment from here scores its checkpoints through the eval contract. The syntax embeddings may stay somewhat aligned regardless, as we expect for other tokens. If they do, that may resolve once there are several operations and the op token does work of its own.
 
 This is different from the [layer sweep](#layer-sweep), which tests the model's ability to route around intervention.
 
