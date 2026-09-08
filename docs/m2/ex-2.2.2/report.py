@@ -58,7 +58,7 @@ def _():
 def _():
     mo.md(r"""
     /// admonition | How to read this draft
-    This is a preregistration. Each hypothesis section opens with its frozen prediction, and the `TODO` under it says what its figure or table will show. The predictions freeze once this skeleton is agreed in review, and the commit that freezes them will be quoted here; results replace the placeholders in place, and anything conceived after seeing the data goes under [Exploratory analyses](#exploratory-analyses), marked as post hoc.
+    This is a preregistration. Each hypothesis section opens with its frozen prediction, and the `TODO` under it says what its figure or table will show. The hypotheses, their gates, and the method were frozen at commit `d72340e7`, before any run. Results replace the placeholders in place, and anything conceived after seeing the data goes under [Exploratory analyses](#exploratory-analyses), marked as post hoc.
 
     No run of this experiment has happened. The gates come from the published reference numbers in ex-2.2.1, the task-gate width the D2.1 experiments used, and the fallback result from M1.
     ///
