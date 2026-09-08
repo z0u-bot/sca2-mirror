@@ -89,7 +89,7 @@ def _():
             A schematic of the residual stream as a grid: four columns for the positions of a red line (red, +, blue, =), and rows from the embedding at the bottom through blocks 1 to 4 to the unembedding, which has a logits box at the = position only. The embedding row is outlined in orange and labelled as the edit, reflecting every position; an orange dashed line above it is labelled stop-gradient. The block and unembedding rows are shaded blue. A blue arrow points down into the logits box from a label reading loss, cross-entropy at = against the fallback answer, and a second blue arrow runs down the right margin from the unembedding to the dashed line, labelled gradient reaches the blocks and unembedding.
         """,
         caption="""
-            **Where the fallback term acts.** One red line, `red + blue =`, as positions (columns) against slices (rows). The edit reflects every embedding state through the axis, α ↦ −α, and detaches it. The blocks run forward from there as usual, mixing positions through attention. The loss is read from the logits at `=`, and its gradient reaches the blocks and the unembedding and stops at the dashed line.
+            **Where the fallback term acts.** One red line, `red + blue =`, as positions (columns) against slices (rows). The numbered annotations are the three places above; the blocks run forward from the edited embedding as usual, mixing positions through attention, and the dashed line is where the gradient stops.
         """,
     )
     def _plot() -> plt.Figure:
@@ -179,15 +179,15 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    In M1 the decoder took a constant input, the antipode itself, so the term was decoder-only by construction. Here a stop-gradient[^sg] gives the reflected state that same role, so the placement of *red* gets no gradient from the term.
+    In M1 the decoder took a constant input, the antipode itself, so the term was decoder-only by construction. Here a stop-gradient[^sg] gives the reflected state that same role.
 
-    [^sg]: A stop-gradient is an identity in the forward pass with a gradient of zero, so a loss downstream of it cannot move anything upstream of it (`.detach()` in PyTorch). Here it sits on the reflected embedding states, so the fallback loss trains the blocks and the unembedding and leaves the embedding table alone. The other losses see the clean pass and are unaffected.
+    [^sg]: An identity in the forward pass with a gradient of zero (`.detach()` in PyTorch), so a loss downstream of it cannot move anything upstream of it. The other losses see the clean pass and are unaffected.
 
-    The fallback answer also has to be chosen. Once the *red* operand is gone, the least committal answer is the visible operand mixed with an unknown partner, and averaged over every partner the corpus allows that comes out uniform over a 3×3×3 subgrid (27 colors). We take its center, which works out to be the visible operand mixed with *mid-gray*. That's similar to M1, in which the fallback answer was *mid-gray* (whereas here it's mixed with the visible operand).
+    The fallback answer for a continuous concept also has to be chosen. We use the center of the operand-averaged null, which works out to be the visible operand mixed with *mid-gray*; the [method](#the-fallback-answer) derives it.
 
     This addresses the third risk in the plan, that the response to suppression is undesigned. One mismatch carries over from M1: the response is trained at the antipode, while the ex-2.2.1 projection lands the state at zero. H4 measures how far the response transfers between the two.
 
-    The nearest published analogue is LUNAR (arXiv:2502.07218): one matrix edit after training, redirecting the activations of the data to forget into the model's own refusal region. LUNAR designs the response by choosing a region the model already produces; ours is trained at a state the model never otherwise visits, which is where the mismatch above comes from. E6 fits a LUNAR-style edit to the no-fallback checkpoints, so the two designs can be compared, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward the LUNAR choice.
+    The nearest published analogue is LUNAR (arXiv:2502.07218): one matrix edit after training, redirecting the activations of the data to forget into the model's own refusal region. LUNAR designs the response by choosing a region the model already produces; ours is trained at a state the model never otherwise visits, which is where the mismatch above comes from. E6 fits a LUNAR-style edit to the no-fallback checkpoints, so the two designs can be compared.
 
     **Natural language.** The three parts all transfer to the natural language domain:
     the edit would be the reflection at the first anchored slice, applied at every position;
@@ -217,7 +217,8 @@ def _():
     - **alignment** ($\alpha$) — $\cos(h, e_1)$, the cosine between a state and the anchor axis. States are unit-norm, so this is just the e₁ component.
     - **dose** — how *red* a line is, taken as the larger of the two operand rednesses ($r(1 - g/2 - b/2)$ on the unit cube).
     - **red lines** — dose ≥ 0.8. 365 probe lines. **Non-red lines** — dose ≤ 0.2. 1,689 lines.
-    - **concept operand** — the redder of the two operands in a line (ties go to op1); the **visible operand** is the other one.
+    - **concept operand** — the redder of the two operands in a line (ties go to op1); the **visible operand** is the other one, and is *clean* when its redness is below 0.5.
+    - **margin** (`m_span`) — the pooled alignment margin of ex-2.1.10: at each slice, how much more aligned the red states are than the rest, taken at the best span role, then averaged over slices.
     - **fallback answer** — the designed answer for a *red* line under intervention: the visible operand mixed with *mid-gray*, rounded to the grid. This is the center of the operand-averaged null.
     - **fallback accuracy** — the fraction of *red* lines whose argmax at `=` is the fallback answer.
     - **response** — the probability the model puts on the correct answer, read from the log-softmax at the `=` position. **Damage** is the clean response minus the intervened response, per line. **Deficit** is the clean exact-match accuracy minus the intervened accuracy over a group of lines; it is the statistic ex-2.2.1 gated selectivity on.
@@ -257,8 +258,8 @@ def _():
 
     All of these run through the projection operator of the eval contract: it removes a fraction γ of the e₁ component, then puts the state back on the sphere. At γ = 2 the operator is a reflection, flipping the component instead of shrinking it.
 
-    - **`redirect`** — γ = 2 at the embedding, at every position, with no labels. This is the same edit training applied, so H1 reads the readout the term trained. An operand with nothing on the axis stays put; the syntax embeddings are the exception, since ex-2.2.1 found a constant component on them, below 0.5, that the reflection flips. Read by H1 and the first clause of H3.
-    - **`projection`** — the ex-2.2.1 intervention: γ = 1 at every slice and every position. The fallback was never trained under it, so this row says whether a trained fallback needs the exact intervention it was trained on. Read by the second clause of H3 and the projection row of H4.
+    - **`redirect`** — γ = 2 at the embedding, at every position, with no labels. This is the same edit training applied, so H1 reads the readout the term trained. Read by H1 and the first clause of H3.
+    - **`projection`** — the ex-2.2.1 intervention: γ = 1 at every slice and every position. The fallback was never trained under it. Read by the second clause of H3 and the projection row of H4.
     - **The transfer sweep** — γ ∈ {0.5, 1, 1.5, 2} at the embedding, every position. Its γ = 2 point is `redirect`, and its γ = 1 point is the `embedding` arm of ex-2.2.1, which differs from `projection` in leaving the later slices alone. Read by H4.
     - **Ride-along rows** — the `operands`, `shaped`, and `ablate` arms from ex-2.2.1, run on the fallback condition without gates. That way the intervention-tuning pass in the design has the fallback rows to hand (E5). `operands` is the one row here that needs position labels; it stays so we can compare with ex-2.2.1.
 
@@ -282,7 +283,7 @@ def _():
 
     **H2.** The term costs nothing on the task or the placement. Clean exact-match accuracy on all probe lines is within 0.02 of the no-fallback condition, and the seed-mean alignment margin at the end of training, the `m_span` of ex-2.1.10, is at least 0.8 of the no-fallback value. Partial: exactly one of the two holds, or both hold with accuracy read at the wider 0.05 band.
 
-    Contrary: the fallback term competing with the anchor for the operand states, which is what the stop-gradient is supposed to prevent. The `recipe` arm says whether the code path on its own moved anything.
+    Contrary: the fallback term competing with the anchor for the operand states, which is what the stop-gradient is supposed to prevent.
 
     <!-- REVIEW: H2 (then H3) gave two partial rules for the same clause ("partial: within 0.05" inline, and "one of the two holds" after), which do not decide a run whose accuracy sits between 0.02 and 0.05 with the margin intact. Merged into one rule; both bands are unchanged, and `TASK_PARTIAL` keeps its documented role. -->
 
@@ -336,7 +337,7 @@ def _():
     /// admonition | TODO
     Preregistered as exploratory, no gates.
 
-    **E1 — composition.** What red lines decode to under `redirect` and under `projection`: the fallback answer, the true answer, a one-step neighbor of it, the visible operand, the red operand, or something else. Drawn as a stacked bar per seed, fallback beside no-fallback. These are the six categories from ex-2.2.1 with the fallback answer added. Also the mass outside the color vocabulary, and how far the decoded answer sits from the fallback answer and from the true mix. Seed agreement goes here too, the statistic ex-2.2.1 read at 13% under the projection: the fraction of red lines at least five of the nine seeds decode alike, per condition and intervention, and per red line how many seeds decode its plurality answer, whose mean over lines is the threshold-free companion to the five-of-nine count.
+    **E1 — composition.** What red lines decode to under `redirect` and under `projection`: the fallback answer, the true answer, a one-step neighbor of it, the visible operand, the red operand, or something else. Drawn as a stacked bar per seed, fallback beside no-fallback. These are the six categories from ex-2.2.1 with the fallback answer added. Also the mass outside the color vocabulary, and how far the decoded answer sits from the fallback answer and from the true mix. Seed agreement goes here too, the statistic ex-2.2.1 read at 13% under the projection, per condition and intervention, and per red line how many seeds decode its plurality answer, whose mean over lines is the threshold-free companion to the five-of-nine count.
 
     **E2 — the antipode.** The fraction of clean states with negative alignment, per slice and position, on the fallback, `fb-only`, and `anti-only` conditions. This is what the anti-anchor term is for, and it also says whether the anti-subspace term had already done the job.
 
@@ -348,7 +349,7 @@ def _():
 
     **E5 — ride-along interventions.** The H1 and H3 statistics for the `operands`, `shaped`, and `ablate` rows on the fallback condition, beside the ex-2.2.1 figures for the same rows on the no-fallback condition.
 
-    **E6 — a LUNAR-style redirect, fitted after training.** We freeze each no-fallback checkpoint and fit one 64×64 matrix at the embedding, applied at every position, on the same qualifying red lines the fallback term uses. Two loss parts: the fallback cross-entropy at `=`, plus an identity term on every other state (the mean squared distance from the unedited state). The fitted matrix runs through the eval contract like any other operator, and we report the H1 and H3 statistics for it beside the fallback condition under `redirect`. This model has no refusal region of its own, so the fallback answer stands in for it, which makes the row a comparison of the two designs, a trained readout against a fitted edit, rather than a replication of LUNAR.
+    **E6 — a LUNAR-style redirect, fitted after training.** We freeze each no-fallback checkpoint and fit one 64×64 matrix at the embedding, applied at every position, on the same qualifying red lines the fallback term uses. Two loss parts: the fallback cross-entropy at `=`, plus an identity term on every other state (the mean squared distance from the unedited state). The fitted matrix runs through the eval contract like any other operator, and we report the H1 and H3 statistics for it beside the fallback condition under `redirect`. This model has no refusal region of its own, so the fallback answer stands in for it.
     ///
 
     ## Discussion
@@ -377,13 +378,11 @@ def _():
 
     The term is the mean over qualifying lines, at a constant weight of 0.05 from step 0. We take that weight from M1, as a starting point rather than a derived value: there it scaled a mean squared error on one decoder, and here it scales a cross-entropy through four blocks. Checking it is what the bracket arms are for.
 
-    The alignment threshold keeps the term inert until the anchor has placed the concept, which the ex-2.1.10 trajectories put inside the warm-up. The visible-operand threshold leaves out the lines that have no defined fallback answer.
+    The alignment threshold keeps the term inert until the anchor has placed the concept, which the ex-2.1.10 trajectories put inside the warm-up. If the concept never arrived at the edit slice, the term would stay inert rather than train toward the wrong state, and the margin gate of H2 would report the anchoring failure.
 
     **Where the term acts.** The stop-gradient makes this similar to the decoder-only term from M1: the reflected embedding states are detached, so the embedding table and the placement of *red* get no gradient, while the four blocks and the unembedding do. They learn a map from a state at the antipode to the fallback answer. In ex-2.2.1 the concept was read from the operand states in the first two blocks, so those are the blocks with something to learn.
 
-    We reflect once, at the first anchored slice, which in this recipe is the embedding. Reflecting at every slice, as the ex-2.2.1 projection does, would need a detach at every slice, and then only the layers after the last detach would train; reflecting everywhere and detaching only the first edit is the rehearsal the design rejected. When a later experiment leaves the embeddings un-anchored, the reflection moves to the output of the first block, and the embedding and that block join the placement side of the stop-gradient.
-
-    Two things follow from reflecting at one slice. First, if the concept were absent at the edit slice, the reflection there would move nothing, and no line would clear the alignment threshold. The term would then sit inert rather than train toward the wrong state. With the edit at an anchored slice, an absent concept is an anchoring failure, and the margin gate of H2 would report it. Second, the gradient stops at the detach whichever slice carries it, so the placement at and before the edit is safe.
+    We reflect once, at the first anchored slice, which in this recipe is the embedding. Reflecting at every slice, as the ex-2.2.1 projection does, would need a detach at every slice, and then only the layers after the last detach would train; reflecting everywhere and detaching only the first edit is the rehearsal the design rejected.
 
     The stop-gradient does leave one thing open. The blocks after the edit are shared with the clean pass, so the term can reshape how the concept is carried downstream of the edit, including keeping it readable off the axis. That is what the off-axis row (E3) and the margin gate watch.
 
@@ -407,7 +406,7 @@ def _():
 
     ### Budget
 
-    Twenty-four training runs of the ex-2.1.10 recipe, each with a second forward and backward pass through the blocks on most steps for the fallback term, plus the scoring of twelve stored checkpoints. The scoring is CPU work, at about a second per run per intervention. E6 adds nine fits of a 64×64 matrix, one per no-fallback seed, at a few CPU minutes each.
+    Twenty-four training runs of the ex-2.1.10 recipe, each at about twice the cost of a plain run (see [Compute](#training)), plus the scoring of twelve stored checkpoints. The scoring is CPU work, at about a second per run per intervention. E6 adds nine fits of a 64×64 matrix, one per no-fallback seed, at a few CPU minutes each.
     """)
     return
 
