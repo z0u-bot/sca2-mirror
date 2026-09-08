@@ -9,21 +9,92 @@ app = marimo.App(
 )
 
 with app.setup(hide_code=True):
+    import json
+    import tempfile
+    from pathlib import Path
+
     import marimo as mo
     import matplotlib.pyplot as plt
+    import numpy as np
     from matplotlib.patches import FancyBboxPatch, Rectangle
 
-    # The design constants come from `experiment.py` beside this notebook (Marimo
-    # puts the notebook directory on sys.path). The skeleton quotes the frozen
-    # gates in prose, and that module carries the same numbers with each gate's
-    # wording in its docstring.
+    # The design constants and the result refs come from `experiment.py` beside
+    # this notebook (Marimo puts the notebook directory on sys.path). The prose
+    # quotes the frozen gates, and that module carries the same numbers with each
+    # gate's wording in its docstring.
+    import experiment as ex
     from mini.reports import report_bundle, use_publisher
+    from mini.store import project_store
     from mini.vis import light_dark, themed
 
     use_publisher(report_bundle(__file__))
 
+    POS_NAMES = ["op1", "+", "op2", "=", "ans", "⏎"]
+    INK = {
+        ex.FALLBACK.name: ("#d40000", "#f44"),
+        ex.NO_FALLBACK.name: ("#555", "#aaa"),
+        ex.CONTROL.name: ("#999", "#777"),
+        "fb-only": ("#e07000", "#fa4"),
+        "anti-only": ("#8030c0", "#c8f"),
+        "fb-w0.01": ("#f0a0a0", "#a04040"),
+        "fb-w0.25": ("#800000", "#f88"),
+        "recipe": ("#2060c0", "#7af"),
+        "lunar": ("#108060", "#5fd0a0"),
+    }
+    """One ink per condition (or E6's fitted row) the figures compare, as (light, dark) pairs for `light_dark`."""
+
     # A cell renders its last expression, and a trailing docstring is one.
     None
+
+
+@app.function(hide_code=True)
+def load_results() -> tuple[dict, dict[str, np.ndarray], dict[str, np.ndarray]] | None:
+    """Resolve the metrics, the stacked per-run arrays, and the trajectories from the store, or None if unpublished."""
+    store = project_store()
+    arts = store.get_refs([ex.METRICS_REF, ex.ARRAYS_REF, ex.TRAJ_REF])
+    if any(a is None for a in arts.values()):
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        m_path, a_path, t_path = store.get_many(
+            [
+                (arts[ex.METRICS_REF], Path(d) / "metrics.json"),
+                (arts[ex.ARRAYS_REF], Path(d) / "arrays.npz"),
+                (arts[ex.TRAJ_REF], Path(d) / "trajectories.npz"),
+            ]
+        )
+        with np.load(a_path) as z:
+            arrays = {k: z[k] for k in z.files}
+        with np.load(t_path) as z:
+            traj = {k: z[k] for k in z.files}
+        metrics = json.loads(m_path.read_text())
+    return metrics, arrays, traj
+
+
+@app.function(hide_code=True)
+def probe_lines() -> ex.Lines:
+    """The probe set as the scorer grouped it.
+
+    The tokenizer is a sorted vocabulary, so the one the runs used can be rebuilt from the palette alone;
+    `read_lines` checks that the probe set's op1 column walks that palette in order.
+    """
+    from sca.config import TokenizerConfig
+    from sca.data.named_colors import GRIDS, SYNTAX, WordTokenizer, grid_palette
+
+    store = project_store()
+    art = store.get_refs([ex.PROBE_REF])[ex.PROBE_REF]
+    assert art is not None
+    with tempfile.TemporaryDirectory() as d:
+        (path,) = store.get_many([(art, Path(d) / "probes.npz")])
+        with np.load(path) as z:
+            tokens, r1, r2, redness = z["probe_tokens"], z["r1"], z["r2"], z["redness"]
+    tokenizer = WordTokenizer(TokenizerConfig(vocabulary=[*SYNTAX, *grid_palette(GRIDS[ex.GRID])]))
+    return ex.read_lines(tokens, r1, r2, redness, tokenizer, tokenizer.vocab_size)
+
+
+@app.function(hide_code=True)
+def span(v: np.ndarray, fmt: str = ".3f") -> str:
+    """Seed mean with the seed range beside it."""
+    return f"{v.mean():{fmt}} ({v.min():{fmt}}–{v.max():{fmt}})"
 
 
 @app.cell(hide_code=True)

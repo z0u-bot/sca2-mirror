@@ -452,7 +452,7 @@ def prepare_corpus(grid: str, n_examples: int, holdout_frac: float, corpus_seed:
 
     redness, answer = fallback_tables(tokenizer, palette)
     n_colors = len(palette)
-    assert (redness > 0).sum() == n_colors - sum(1 for rgb in palette.values() if rgb[0] == 0)
+    assert (redness > 0).sum() == sum(1 for rgb in palette.values() if rgb[0] > 0 and rgb[1] + rgb[2] < 30)
     assert set(answer[answer > 0]) <= {tokenizer.stoi[n] for n in palette}
     return {
         "meta": meta,
