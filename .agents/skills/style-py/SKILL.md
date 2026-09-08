@@ -94,6 +94,7 @@ Utilities and setup:
 
 - In general, put imports and constants in a setup cell.
 - Put utility functions in their own reusable cells. Don't put them in the setup cell, or editing a function would invalidate every cell in the notebook.
+- Instead of returning function closures from a cell, use a reusable class definition.
 
 ```python
 with app.setup(hide_code=True):
@@ -108,12 +109,38 @@ with app.setup(hide_code=True):
     None  # Prevent the docstring from rendering
 
 
+@app.class_definition(hide_code=True)
+@dataclass(frozen=True)
+class Data:
+    data: tuple[dict[str, dict[str, np.ndarray]], np.ndarray]
+
+    def stat(self, key: str, cond: str) -> np.ndarray:
+        return np.array([r[key] for r in self.data[cond]], float)
+
+
 @app.function(hide_code=True)
-def load_margins() -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray] | None:
+def load_results() -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray]:
     # This is a "reusable function" cell
     ...
     return data
+
+
+@app.cell(hide_code=True)
+def _():
+    data: Data = Data(data=load_results())  # annotate, so downstream cells see the type
+    return (data,)
+
+
+@app.cell(hide_code=True)
+def _(data: Data):
+    _stat = data.stat(...)  # now properly typed
+    ...
+    return
 ```
+
+Method defaults and annotations may read the setup cell, and the class body and its methods are type-checked like any module-level class. Annotating the instance is what carries that to the call sites: Marimo copies `Data` onto every downstream signature, and `ty` then catches a misspelled method or a wrong argument in the cells that use it. Leave the instance bare and those cells go unchecked.
+
+This is for a bundle several cells share. A `_plot()` closure inside one figure cell stays where it is — it has one caller, and the state it reads is right above it.
 
 ### Matplotlib axes
 
