@@ -52,15 +52,12 @@ def load_results() -> tuple[dict, dict[str, np.ndarray], dict[str, np.ndarray]] 
     """Resolve the metrics, the stacked per-run arrays, and the trajectories from the store, or None if unpublished."""
     store = project_store()
     arts = store.get_refs([ex.METRICS_REF, ex.ARRAYS_REF, ex.TRAJ_REF])
-    if any(a is None for a in arts.values()):
+    m_art, a_art, t_art = arts[ex.METRICS_REF], arts[ex.ARRAYS_REF], arts[ex.TRAJ_REF]
+    if m_art is None or a_art is None or t_art is None:
         return None
     with tempfile.TemporaryDirectory() as d:
         m_path, a_path, t_path = store.get_many(
-            [
-                (arts[ex.METRICS_REF], Path(d) / "metrics.json"),
-                (arts[ex.ARRAYS_REF], Path(d) / "arrays.npz"),
-                (arts[ex.TRAJ_REF], Path(d) / "trajectories.npz"),
-            ]
+            [(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz"), (t_art, Path(d) / "trajectories.npz")]
         )
         with np.load(a_path) as z:
             arrays = {k: z[k] for k in z.files}

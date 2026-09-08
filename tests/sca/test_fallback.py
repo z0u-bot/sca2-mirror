@@ -30,7 +30,7 @@ from sca.fallback import (
     reflected_logits,
 )
 from sca.intervention import Subspace, apply, projection
-from sca.model import build_model
+from sca.model import NGPT, build_model
 
 # The miniature corpus of `test_anchoring`: syntax at 1..3, colors 4..11 as opaque tokens.
 PLUS, EQ, NEWLINE = 1, 2, 3
@@ -268,6 +268,7 @@ def test_fallback_training_records_its_terms_and_learns_the_answer(data_dir, tmp
     designed = ANSWER[COLORS[3:]]
     rows = np.arange(len(tokens))
     sub = Subspace.axis(32)
+    assert isinstance(model, NGPT)
     redirected = apply(model, tokens, projection(sub, gamma=2.0), slices=(0,))
     clean = apply(model, tokens, projection(sub), slices=())
     nll = lambda out: -np.asarray(jax.nn.log_softmax(out.logits[:, 3], axis=-1))[rows, designed].mean()  # noqa: E731
