@@ -182,9 +182,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.1/report.py -->
 
-- [2.2.2. A designed response to suppressing *red*](./m2/ex-2.2.2/report.py) (preregistration)
+- [2.2.2. A designed response to suppressing *red*](./m2/ex-2.2.2/report.py)
 
-    Fallback control from M1, adapted to the transformer. It's a training term that teaches the blocks what to answer once *red* is removed, at a designed fallback answer (continuation), with a stop-gradient protecting the placement. The fallback answer is the center of the operand-averaged null, the visible operand mixed with *mid-gray*. Scores whether the fallback answer appears, what the term costs, and how far a response trained at the antipode transfers to a state that was only projected to zero.
+    Fallback control from M1, adapted to the transformer. It's a training term that teaches the blocks what to answer once *red* is removed, at a designed fallback answer (continuation), with a stop-gradient protecting the placement. The fallback answer is the center of the operand-averaged null, the visible operand mixed with *mid-gray*. It worked: *red* behaved like *mid-gray*, and seed variance was reduced — but it also reduced selectivity.
 
     <span class="tags">`word-tokens` `intervention` `fallback` `training` `eval-contract`</span>
 
