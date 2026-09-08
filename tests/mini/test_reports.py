@@ -1,4 +1,5 @@
 import json
+import re
 
 import pytest
 
@@ -15,7 +16,9 @@ from mini.reports import (
     input_dir,
     insert_base,
     is_report_notebook,
+    lightbox_chrome,
     load_pins,
+    mark_figures,
     relative_urls,
     render_path,
     report_figures,
@@ -23,11 +26,13 @@ from mini.reports import (
     rewrite_links,
     save_pins,
     set_banner,
+    set_lightbox,
     set_provenance,
     set_report_styles,
     set_responsive,
     set_theme,
     stray_links,
+    write_thumbnails,
     use_publisher,
 )
 
@@ -89,6 +94,130 @@ def test_report_figures_reads_the_escaped_session_blob():
     # JSON-unescaped (\u2192 → the arrow), then HTML-unescaped (&quot; → "); the first alt seen wins.
     assert figs[0].alt == 'Margin → 1; "red" holds'
     assert (figs[0].width, figs[0].height) == (512, 384)  # read through the \" quoting
+
+
+def test_report_figures_reads_thumbnails_from_the_bundle_meta():
+    """An exported bundle declares its thumbnails in the one thing the build fetches: the HTML. Same leaf under the declared prefix, so no listing is needed; a bundle without the tag has none."""
+    figs = '<img src="_assets/grading-light.png" alt="a" /><img src="_assets/grading-dark.png" alt="a" /><img src="_assets/extra.png" />'
+    assert [(f.light_thumb, f.dark_thumb) for f in report_figures(figs)] == [(None, None), (None, None)]
+
+    html = f'<head><meta name="mini-thumbnails" content="_assets/thumbs/" /></head>{figs}'
+    assert [(f.light_thumb, f.dark_thumb) for f in report_figures(html)] == [
+        ("_assets/thumbs/grading-light.png", "_assets/thumbs/grading-dark.png"),
+        ("_assets/thumbs/extra.png", None),
+    ]
+
+
+@pytest.fixture
+def bundle(tmp_path):
+    """An exported bundle: a tall transparent figure pair, one already small, an SVG, and a dangling reference."""
+    from PIL import Image
+
+    assets = tmp_path / "_assets"
+    assets.mkdir()
+    big = Image.new("RGBA", (800, 600), (0, 0, 0, 0))
+    big.paste((200, 30, 30, 255), (100, 100, 700, 500))  # an opaque block on a transparent ground
+    big.save(assets / "cloud-light.png")
+    Image.new("RGBA", (800, 600), (20, 20, 20, 255)).save(assets / "cloud-dark.png")  # opaque, like a themed figure
+    Image.new("RGBA", (100, 50), (0, 0, 255, 255)).save(assets / "tiny.png")
+    (assets / "diagram.svg").write_text("<svg xmlns='http://www.w3.org/2000/svg'/>")
+    html = (
+        "<html><head><title>r</title></head><body>"
+        '<img src="_assets/cloud-light.png" alt="c" /><img src="_assets/cloud-dark.png" alt="c" />'
+        '<img src="_assets/tiny.png" /><img src="_assets/diagram.svg" /><img src="_assets/gone.png" />'
+        "</body></html>"
+    )
+    return html, assets
+
+
+def test_write_thumbnails_scales_declares_and_keeps_alpha(bundle):
+    from PIL import Image
+
+    html, assets = bundle
+    out, written = write_thumbnails(html, assets, height=192)
+    assert written == ["cloud-light.png", "cloud-dark.png", "tiny.png", "diagram.svg"]  # the dangling one is skipped
+    assert '<head>\n    <meta name="mini-thumbnails" content="_assets/thumbs/" />' in out
+    # The build reads the tag back into the same URLs the files were written at.
+    assert [f.light_thumb for f in report_figures(out)][:2] == [
+        "_assets/thumbs/cloud-light.png",
+        "_assets/thumbs/tiny.png",
+    ]
+
+    with Image.open(assets / "thumbs" / "cloud-light.png") as thumb:
+        assert thumb.size == (256, 192)  # 192 tall, aspect kept
+        assert thumb.mode == "P"  # palette-quantized: a few KB rather than tens
+        alpha = thumb.convert("RGBA").getchannel("A")
+        assert alpha.getpixel((1, 1)) == 0  # the transparent ground survived quantization
+        assert alpha.getpixel((128, 96)) in range(250, 256)  # the octree quantizer nudges alpha a little
+    with Image.open(assets / "thumbs" / "cloud-dark.png") as thumb:
+        assert thumb.mode == "P"
+        assert thumb.convert("RGBA").getchannel("A").getextrema() == (255, 255)  # opaque stays exactly so
+    assert (assets / "thumbs" / "cloud-light.png").stat().st_size < (assets / "cloud-light.png").stat().st_size
+
+
+def test_write_thumbnails_copies_what_it_cannot_shrink(bundle):
+    """The tag promises a thumbnail per figure, so an unscalable one is copied through rather than left to 404."""
+    html, assets = bundle
+    write_thumbnails(html, assets, height=192)
+    for leaf in ("tiny.png", "diagram.svg"):  # already small; not a raster
+        assert (assets / "thumbs" / leaf).read_bytes() == (assets / leaf).read_bytes()
+    assert not (assets / "thumbs" / "gone.png").exists()
+
+
+def test_write_thumbnails_is_deterministic_and_restamps(bundle):
+    """A republish of an unchanged report must be a no-op commit: same bytes, and one tag rather than a stack of them."""
+    html, assets = bundle
+    once, _ = write_thumbnails(html, assets, height=192)
+    first = (assets / "thumbs" / "cloud-light.png").read_bytes()
+    twice, _ = write_thumbnails(once, assets, height=192)
+    assert (assets / "thumbs" / "cloud-light.png").read_bytes() == first
+    assert twice.count("mini-thumbnails") == 1
+
+
+def test_mark_figures_defers_and_marks_asset_images_in_both_spellings():
+    """A report ships every figure on load, both variants of a themed pair included. The mark reaches the tags Marimo buries in its session blob as well as the ones written out as markup."""
+    html = (
+        '<img class="mini-themed-img-light" src="_assets/g-light.png" alt="A" width="640" height="480" />'
+        '<img src="data:image/png;base64,AA" alt="inline" />'
+        '<img src="https://example.com/off.png" alt="elsewhere" />'
+        '<script>{"outputs":"\\u003Cimg src=\\"_assets/c-dark.png\\" alt=\\"x\\" /\\u003E"}</script>'
+    )
+    out = mark_figures(html)
+    assert out.count("data-mini-zoom") == 2  # the two asset figures; not the inline or off-site ones
+    assert '<img loading="lazy" tabindex="0" data-mini-zoom class="mini-themed-img-light"' in out
+    # Inside the blob the tag's own quotes are escaped, so the added ones must be too —
+    # otherwise the attribute closes the JSON string the tag lives in.
+    assert '\\u003Cimg loading=\\"lazy\\" tabindex=\\"0\\" data-mini-zoom src=\\"_assets/c-dark.png\\"' in out
+    blob = re.search(r"<script>(.*)</script>", out, re.S)
+    assert blob and json.loads(blob.group(1))  # the tag still sits inside valid JSON
+
+
+def test_mark_figures_leaves_an_already_marked_tag_alone():
+    """Build steps re-run on their own output in a preview loop; a second pass must not stack attributes."""
+    once = mark_figures('<img src="_assets/a.png" alt="a" />')
+    assert mark_figures(once) == once
+
+
+def test_set_lightbox_injects_one_overlay_before_the_styles_close():
+    html = set_lightbox(_EXPORT_HTML)
+    assert html.count("mini-lightbox") > 1 and html.index("mini-lightbox") < html.index("</head>")
+    assert "showModal" in html  # a top-layer dialog, so no z-index race with Marimo's app layer
+    assert "<a " not in lightbox_chrome()  # nothing that navigates away from the report
+
+
+def test_lightbox_holds_the_box_open_while_the_full_size_figure_loads():
+    js = lightbox_chrome()
+    # The size the export stamped fixes the panel's shape *and* its width before any bytes
+    # arrive, so it can't open flat or resize under the reader; the image on screen stands
+    # in meanwhile, so the panel can't be left showing the figure opened before it.
+    assert "aspectRatio" in js and "getAttribute('width')" in js
+    assert "size(ar, w || " in js  # the physical size the report asked for is the ceiling
+    assert "mini-lightbox-loading" in js  # the placeholder reads as one until the real image lands
+    assert "big.src=full" in js and "pre.onload" in js  # swapped in only once decoded
+
+
+def test_set_lightbox_is_a_noop_without_a_head():
+    assert set_lightbox("<p>not a page</p>") == "<p>not a page</p>"
 
 
 def test_stray_links_flags_author_links_not_assets():
@@ -402,9 +531,6 @@ def test_externalize_html_writes_sidecar_and_stamps_the_inline_copy(tmp_path):
     assert inline == '<div data-mini-asset="_assets/sublines.html" role="img">' + html.split(">", 1)[1]
     assert (tmp_path / "_assets" / "sublines.html").read_text() == html  # …and the file is the figure itself
 
-    externalize_html("<svg xmlns='http://www.w3.org/2000/svg'/>", name="spark.svg", publish=pub)
-    assert (tmp_path / "_assets" / "spark.svg").exists()  # an explicit extension is kept as given
-
 
 def test_externalize_html_leaves_a_fragment_with_no_root_element_alone(tmp_path):
     # Nothing to hang the marker on, so the render can't swap it for a link; the sidecar
@@ -412,6 +538,9 @@ def test_externalize_html_leaves_a_fragment_with_no_root_element_alone(tmp_path)
     pub = Publisher(tmp_path / "_assets")
     assert externalize_html("bare text", name="odd", publish=pub) == "bare text"
     assert (tmp_path / "_assets" / "odd.html").read_text() == "bare text"
+
+    externalize_html("<svg xmlns='http://www.w3.org/2000/svg'/>", name="spark.svg", publish=pub)
+    assert (tmp_path / "_assets" / "spark.svg").exists()  # an explicit extension is kept as given
 
 
 def test_externalize_html_uses_the_default_publisher_when_there_is_one(tmp_path):
