@@ -21,6 +21,7 @@ from sca.compute.data_pipelines import load_data
 from sca.compute.model import save_checkpoint
 from sca.config import TrainingConfig
 from sca.data.batches import batches_per_epoch, sample_batches, split_data
+from sca.fallback import FallbackSpec, make_fallback_train_step
 from sca.model import LanguageModel, build_model
 from sca.training.loop import eval_step, make_train_step
 from sca.training.metrics import TrainingMetrics
@@ -105,7 +106,45 @@ def train_model(
     return model, all_metrics
 
 
-def train_anchored(
+def _anchored_step(
+    optimizer, anchor: AnchorSpec, n_lines: int, fallback: FallbackSpec | None, fb_w: float, aa_w: float
+):
+    """One call shape for both steps: (model, opt_state, task, anchor, anti, fallback, anti_anchor, fb_lines).
+
+    Without a fallback spec the last three are zeros, so the loop reads eight outputs either way.
+    """
+    if fallback is None:
+        step = make_anchored_train_step(optimizer, tau=anchor.tau, n_lines=n_lines)
+        return lambda *args: (*step(*args), 0.0, 0.0, 0.0)
+    step = make_fallback_train_step(optimizer, fallback, tau=anchor.tau, n_lines=n_lines)
+    fb_w_, aa_w_ = jnp.asarray(fb_w), jnp.asarray(aa_w)
+    return lambda *args: step(*args, fb_w_, aa_w_)
+
+
+class _Window:
+    """Running means of the fallback step's extra outputs between trajectory records."""
+
+    KEYS = ("fallback", "anti_anchor", "fb_lines")
+
+    def __init__(self):
+        self.values: dict[str, list[float]] = {k: [] for k in self.KEYS}
+        self.last: dict[str, float] = dict.fromkeys(self.KEYS, float("nan"))
+
+    def add(self, fb_loss: float, aa_loss: float, fb_lines: float) -> None:
+        # A crop with no qualifying line reports a zero loss; that is absence, not a value.
+        if fb_lines > 0:
+            self.values["fallback"].append(fb_loss)
+        self.values["anti_anchor"].append(aa_loss)
+        self.values["fb_lines"].append(fb_lines)
+
+    def flush(self) -> dict[str, float]:
+        """Means since the last flush; a key with nothing in its window repeats its last value."""
+        self.last = {k: float(np.mean(v)) if v else self.last[k] for k, v in self.values.items()}
+        self.values = {k: [] for k in self.KEYS}
+        return dict(self.last)
+
+
+def train_anchored(  # noqa: C901 — one loop with two optional terms; the branches are the options
     config: TrainingConfig,
     data_dir: Path,
     *,
@@ -115,6 +154,9 @@ def train_anchored(
     probe_tokens: np.ndarray,
     probe_weights: np.ndarray,
     probe_line_w: np.ndarray | None = None,
+    fallback: FallbackSpec | None = None,
+    fallback_weight: float = 0.0,
+    anti_anchor_weight: float = 0.0,
     checkpoint_dir: Path,
     checkpoint_every: int | None = None,
     traj_stride: int = 50,
@@ -147,6 +189,14 @@ def train_anchored(
         probe_line_w: (C,) per-*line* weights, summing to 1, for a labeller
             keyed on more than op1. When given, the trajectory also records
             `m_line`, the per-line margin the wider labeller's retention reads.
+        fallback: the fallback control's tables and thresholds (`sca.fallback`),
+            or None for the anchored step alone. With a spec the step runs the
+            reflected pass on every batch, whatever the weights, and the
+            trajectory adds `fallback` and `anti_anchor` (the two losses,
+            averaged over the steps since the last record) and `fb_lines` (the
+            mean number of qualifying lines per crop over the same window).
+        fallback_weight: constant weight of the fallback cross-entropy.
+        anti_anchor_weight: constant weight of the anti-anchor hinge.
         checkpoint_dir: Where to write checkpoints; sweep cells sharing a volume
             must each pass their own.
         checkpoint_every: Save a checkpoint every N epochs. None = about 50 in all.
@@ -171,7 +221,7 @@ def train_anchored(
     optimizer = configure_optimizer(model, config.optimizer, schedule)
     opt_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
     n_lines = config.model.block_size // LINE_TOKENS + 2  # a crop straddles at most this many lines
-    train_step = make_anchored_train_step(optimizer, tau=anchor.tau, n_lines=n_lines)
+    train_step = _anchored_step(optimizer, anchor, n_lines, fallback, fallback_weight, anti_anchor_weight)
 
     # A fixed validation sample, drawn off its own stream so the training crops
     # stay identical to what an unanchored run of the same seed would see.
@@ -182,8 +232,11 @@ def train_anchored(
     all_metrics: list[TrainingMetrics] = []
     keys = ("step", "epoch", "lr", "weight", "anti_weight", "m_op1", "m_span", "alpha_op1")
     traj: dict[str, list] = {k: [] for k in (*keys, "val_loss", "anchor", "anti", "pi", "alpha_roles")}
+    if fallback is not None:
+        traj |= {k: [] for k in _Window.KEYS}
     tau_eff = np.inf if anchor.tau is None else anchor.tau
     step = 0
+    window = _Window()
 
     def record(step: int, weight: float, anti_weight: float, anchor_loss: float, anti_loss: float) -> None:
         alpha = alignment(model, probe_tokens)[:, :, :PROMPT_SPAN]  # (L1, C, span roles)
@@ -212,11 +265,16 @@ def train_anchored(
         traj["val_loss"].append(float(np.mean([float(eval_step(model, x, y)) for x, y in val_batches])))
         traj["anchor"].append(anchor_loss)
         traj["anti"].append(anti_loss)
+        if fallback is not None:
+            for k, v in window.flush().items():
+                traj[k].append(v)
         emit_metrics(m_op1=m_op1, m_span=m_span)
 
     expected = dict(loss="down", anchor="down", m_op1="up", m_span="up")
     if probe_line_w is not None:
         expected["m_line"] = "up"
+    if fallback is not None and fallback_weight > 0:
+        expected["fallback"] = "down"
     expect_metrics(**expected)
     for epoch in range(config.scheduler.epochs):
         train_losses, anchor_losses, anti_losses = [], [], []
@@ -226,7 +284,7 @@ def train_anchored(
             at = epoch + len(train_losses) / epoch_length
             weight = float(anchor(at))
             anti_weight = float(anti(at)) if anti is not None else 0.0
-            model, opt_state, loss, anchor_loss, anti_loss = train_step(
+            model, opt_state, loss, anchor_loss, anti_loss, fb_loss, aa_loss, fb_lines = train_step(
                 model, opt_state, x, y, mask, line_id, jnp.asarray(weight), jnp.asarray(anti_weight)
             )
             train_losses.append(float(loss))
@@ -234,6 +292,9 @@ def train_anchored(
             anti_losses.append(float(anti_loss))
             step += 1
             emit_metrics(loss=float(loss), anchor=float(anchor_loss), anchor_weight=weight)
+            if fallback is not None:
+                window.add(float(fb_loss), float(aa_loss), float(fb_lines))
+                emit_metrics(fallback=float(fb_loss), anti_anchor=float(aa_loss))
             emit_progress(step, total_steps)
             if step % traj_stride == 0:
                 record(step, weight, anti_weight, float(anchor_loss), float(anti_loss))
