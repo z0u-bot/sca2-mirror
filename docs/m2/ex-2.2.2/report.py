@@ -124,7 +124,7 @@ def _(clean, floor, stat):
 
     - [The designed response (H1)](#the-designed-response-h1) — **holds.** Fallback accuracy on the red lines with a clean visible operand under `redirect`: {_fb:.3f}, against {_fb_ref:.3f} without the term; gate {ex.FALLBACK_ACC_GATE:g}, and the margin above the reference clears the {floor("redirect", "fb_acc", "red_clean"):.3f} floor.
     - [Task and placement intact (H2)](#task-and-placement-intact-h2) — **holds.** Clean accuracy gap from the no-fallback condition: {_gap:.4f} (gate {ex.TASK_GATE:g}). Margin at the end of training: {_ratio:.3f} of the no-fallback value (gate {ex.MARGIN_RATIO:g}).
-    - [Selectivity kept (H3)](#selectivity-kept-h3) — **partial.** Non-red deficit under `redirect`: {_d_red:.3f} (gate {ex.TASK_GATE:g}; the no-fallback condition loses {_d_red_ref:.3f} under the same edit). Under `projection`: {_d_proj:.3f} against {_d_proj_ref:.3f}, a difference under the {floor("projection", "deficit", "nonred"):.3f} floor, so the second clause holds as unresolved.
+    - [Selectivity kept (H3)](#selectivity-kept-h3) — **partial.** Non-red deficit under `redirect`: {_d_red:.3f} (gate {ex.TASK_GATE:g}; the no-fallback condition loses {_d_red_ref:.3f} under the same edit). Under `projection`: {_d_proj:.3f} against {_d_proj_ref:.3f}. That difference is smaller than the {floor("projection", "deficit", "nonred"):.3f} resolution floor, so the second clause holds, but as an unresolved difference.
     - [Transfer from the antipode to zero (H4)](#transfer-from-the-antipode-to-zero-h4) — **holds.** Fallback accuracy at γ = 1 is {_g[1] / _g[3]:.2f} of its value at γ = 2 (gate {ex.TRANSFER_FRAC:g}), and the sweep has no dip.
 
     <!-- REVIEW: a seed-agreement hypothesis (then H2) was cut: at the H1 gate it is close to implied by H1, and the case that separates them (seeds agreeing on an answer other than the fallback answer) is what E1's composition shows. Seed agreement is reported under E1, ungated. The later hypotheses moved up one number. -->
@@ -136,14 +136,18 @@ def _(clean, floor, stat):
 def _():
     mo.md(r"""
     /// admonition | How to read this draft
-    The hypotheses, their gates, and the method were frozen at commit `d72340e7`, before any run. Each hypothesis section opens with that frozen prediction, and its results follow in place. Two corrections landed after the freeze, each with a `REVIEW` note beside the text it changed: the count of red lines with a clean visible operand (296, from 298; one color sat on the 0.5 contour to roundoff), and the gradient paragraph in the method, which now accounts for the tied embedding. Anything conceived after seeing the data is under [Exploratory analyses](#exploratory-analyses), marked as post hoc. The [Discussion](#discussion) is still a placeholder, pending a discussion round.
+    The hypotheses, their gates, and the method were frozen at commit `d72340e7`, before any run. Each hypothesis section opens with that frozen prediction, and its results follow in place.
+
+    Two corrections landed after the freeze, each with a `REVIEW` note beside the text it changed. The first is the count of red lines with a clean visible operand, now 296 rather than 298, because one color sat on the 0.5 contour to roundoff. The second is the gradient paragraph in the method, which now accounts for the tied embedding.
+
+    Anything conceived after seeing the data is under [Exploratory analyses](#exploratory-analyses), marked as post hoc. The [Discussion](#discussion) is still a placeholder, pending a discussion round.
     ///
 
     ## Why this experiment
 
     [Ex-2.2.1](../ex-2.2.1/report.py) showed that projecting the anchor axis out of the D2.1 checkpoints suppresses *red*. Red-line accuracy falls from 1.0 to 0.09, in proportion to how red the line is, and stays inside the bound the placed geometry set.
 
-    It also measured what the model does instead. A red line still decodes to a color, about half the time a one-step neighbor of the true mix, and which neighbor it is varies by seed: at least five of the nine seeds agree on 13% of red lines. Nothing in training said what a removed concept should decode to, so the answer is whatever the untrained region of the stream happens to produce. M1 called that spoofing, and it is where the seed spread in [ex-2.9.1](/docs/m1/ex-2.9.1/report.py) came from.
+    A suppressed red line still decodes to a color, about half the time a one-step neighbor of the true mix. Which neighbor varies by seed: at least five of the nine seeds agree on 13% of red lines. Nothing in training said what a removed concept should decode to, so the answer is whatever the untrained region of the stream produces. M1 called that spoofing, and it is where the seed spread in [ex-2.9.1](/docs/m1/ex-2.9.1/report.py) came from.
 
     The remedy in M1 was fallback control ([ex-2.9.2](/docs/m1/ex-2.9.2/report.py)): one loss term, applied to the decoder only, that pins the antipode of the anchor axis to a designed null answer, mid-gray. Reflecting a state through the axis then collapsed the response to a tight cluster on the bound the null predicted, across 32 seeds. Under plain zeroing the term added little, and that report said a trained fallback should be paired with the redirect it was trained at.
 
@@ -399,7 +403,18 @@ def _():
     def seed_row(v: np.ndarray, fmt: str = ".3f") -> str:
         return span(v, fmt)
 
-    return CONDS, arrays, clean, floor, lines, metrics, per_line, runs, seed_row, stat, traj, trajectory
+    return (
+        CONDS,
+        clean,
+        floor,
+        lines,
+        metrics,
+        per_line,
+        runs,
+        seed_row,
+        stat,
+        trajectory,
+    )
 
 
 @app.cell(hide_code=True)
@@ -459,11 +474,13 @@ def _(CONDS, floor, lines, per_line, seed_row, stat):
     |---|---|---|---|---|
     {_rows}
 
-    Seed mean with the seed range, under `redirect`. The "clean visible" columns are H1's group of {lines.red_clean.sum()} lines; the "red visible" columns are the other {lines.red_both.sum()} red lines, whose fallback answer is undefined (the scorer reads it as the visible operand mixed with gray all the same, so the column says whether the model emits that anyway).
+    Seed mean with the seed range, under `redirect`. The "clean visible" columns are the {lines.red_clean.sum()} lines H1 gates. The "red visible" columns are the other {lines.red_both.sum()} red lines, which have no defined fallback answer; the scorer reads it as the visible operand mixed with gray all the same, so that column says whether the model emits that anyway.
 
     {_plot()}
 
-    Under `redirect`, the fallback condition emits the fallback answer on {_fb.mean():.3f} of the red lines with a clean visible operand, in every seed ({_fb.min():.3f} to {_fb.max():.3f}); the gate is {ex.FALLBACK_ACC_GATE:g}. The no-fallback condition emits it on {_ref.mean():.3f}. The resolution floor for the statistic is {_floor:.3f}, so the margin above the reference is resolved. The probability the model puts on the fallback answer is {stat("redirect", "p_fb", "red_clean").mean():.3f} on average over seeds and lines, and the strip shows no split: every seed puts nearly every line at the top. The un-anchored condition under the same edit keeps its true answer ({stat("redirect", "acc", "red_clean", ex.CONTROL.name).mean():.3f}), so the reflection does its work only where a concept was placed. On the {lines.red_both.sum()} red lines whose visible operand is itself red, the fallback condition emits neither the true answer nor the gray mix of the visible operand.
+    Under `redirect`, the fallback condition emits the fallback answer on {_fb.mean():.3f} of the red lines with a clean visible operand, in every seed; the gate is {ex.FALLBACK_ACC_GATE:g}. Its margin over the no-fallback condition, which emits it on {_ref.mean():.3f}, clears the {_floor:.3f} resolution floor.
+
+    The probability the model puts on the fallback answer is {stat("redirect", "p_fb", "red_clean").mean():.3f}, averaged over seeds and lines, and the strip shows no split: every seed puts nearly every line at the top. The un-anchored condition keeps its true answer under the same edit ({stat("redirect", "acc", "red_clean", ex.CONTROL.name).mean():.3f}), so the reflection does its work only where a concept was placed. On the {lines.red_both.sum()} red lines whose visible operand is itself red, the fallback condition emits neither the true answer nor the gray mix of the visible operand.
 
     **H1 holds.** The term trained the readout: the fallback loss over training (next section) reaches zero, and the reflected state decodes to the designed answer on every qualifying line.
     """)
@@ -540,15 +557,17 @@ def _(CONDS, clean, seed_row, trajectory):
     |---|---|---|---|---|---|
     {_rows}
 
-    Seed mean with the seed range on the clean pass. The margin is ex-2.1.10's `m_span`: the pooled alignment contrast between the labelled and unlabelled operand states. The last column is the mean alignment of every op1 state, the containment statistic of ex-2.1.10.
+    Seed mean with the seed range on the clean pass. The margin is `m_span` from ex-2.1.10: the pooled alignment contrast between the labelled and unlabelled operand states. The last column is the mean alignment of every op1 state, which is the containment statistic of ex-2.1.10.
 
     {_plot()}
 
-    Clean accuracy on all probe lines is {clean("acc", "all").mean():.3f} in the fallback condition against {clean("acc", "all", ex.NO_FALLBACK.name).mean():.3f} without the term, a gap of {_acc_gap:.4f} against a gate of {ex.TASK_GATE:g}. The margin at the end of training is {clean("m_span").mean():.3f} against {clean("m_span", cond=ex.NO_FALLBACK.name).mean():.3f}, a ratio of {_ratio:.3f} against a gate of {ex.MARGIN_RATIO:g}. Every fallback seed sits between {clean("m_span").min():.3f} and {clean("m_span").max():.3f}. The trajectories say where the margin went: the `fb-only` arm ends at {clean("m_span", cond="fb-only").mean():.3f} and the `anti-only` arm at {clean("m_span", cond="anti-only").mean():.3f}, so the loss of margin comes with the anti-anchor hinge, and the fallback term on its own costs none. The hinge also raises the mean alignment at op1, from {clean("alpha_mean_op1", cond=ex.NO_FALLBACK.name).mean():.3f} to {clean("alpha_mean_op1").mean():.3f}.
+    Clean accuracy on all probe lines is {clean("acc", "all").mean():.3f} in the fallback condition against {clean("acc", "all", ex.NO_FALLBACK.name).mean():.3f} without the term, a gap of {_acc_gap:.4f} against a gate of {ex.TASK_GATE:g}. The margin at the end of training is {clean("m_span").mean():.3f} against {clean("m_span", cond=ex.NO_FALLBACK.name).mean():.3f}, a ratio of {_ratio:.3f} against a gate of {ex.MARGIN_RATIO:g}. Every fallback seed sits between {clean("m_span").min():.3f} and {clean("m_span").max():.3f}.
+
+    The margin is lost to the anti-anchor hinge: the `fb-only` arm ends at {clean("m_span", cond="fb-only").mean():.3f} and the `anti-only` arm at {clean("m_span", cond="anti-only").mean():.3f}. The hinge also raises the mean alignment at op1, from {clean("alpha_mean_op1", cond=ex.NO_FALLBACK.name).mean():.3f} to {clean("alpha_mean_op1").mean():.3f}.
 
     The fallback loss switches on once the anchor has placed the concept, inside the warm-up, and reaches {trajectory("fallback")[:, -1].mean():.4f} by the end; in the `anti-only` arm, where it is measured and never trained, it stays at {trajectory("fallback", "anti-only")[:, -1].mean():.1f}. The anti-anchor hinge ends at {trajectory("anti_anchor")[:, -1].mean():.4f} where it is trained and {trajectory("anti_anchor", "fb-only")[:, -1].mean():.4f} where it is not.
 
-    **H2 holds.** Both clauses clear their gates: the term costs nothing on the task, and the margin stays above {ex.MARGIN_RATIO:g} of the no-fallback value, with the part it does lose attributable to the hinge rather than to the fallback term.
+    **H2 holds.** Both clauses clear their gates: the term costs nothing on the task, and the margin stays above {ex.MARGIN_RATIO:g} of the no-fallback value.
     """)
     return
 
@@ -624,15 +643,21 @@ def _(CONDS, clean, floor, lines, seed_row, stat):
 
     Seed mean with the seed range. The deficit is the drop in exact-match accuracy on the {lines.nonred.sum()} non-red lines from the clean pass; damage is the drop in probability on the true answer.
 
-    **First clause.** Under `redirect`, the fallback condition loses {_d_redirect.mean():.3f} of its non-red accuracy, with no seed under {_d_redirect.min():.3f}; the gate is {ex.TASK_GATE:g} and the partial band {ex.TASK_PARTIAL:g}. The reflection is no more selective without the term: the no-fallback condition loses {stat("redirect", "deficit", "nonred", ex.NO_FALLBACK.name).mean():.3f} under it, and the `recipe` arm {stat("redirect", "deficit", "nonred", "recipe").mean():.3f}. The un-anchored condition loses {stat("redirect", "deficit", "nonred", ex.CONTROL.name).mean():.3f}. So a full reflection of every embedding state is destructive on non-red lines in every anchored model, and the training-time exposure to flipped syntax states did not transfer to them. What those lines decode to is in the post-hoc row of the exploratory section.
+    **First clause.** Under `redirect`, the fallback condition loses {_d_redirect.mean():.3f} of its non-red accuracy, with no seed under {_d_redirect.min():.3f}; the gate is {ex.TASK_GATE:g} and the partial band {ex.TASK_PARTIAL:g}. The reflection is no more selective without the term: the no-fallback condition loses {stat("redirect", "deficit", "nonred", ex.NO_FALLBACK.name).mean():.3f} under it, the `recipe` arm {stat("redirect", "deficit", "nonred", "recipe").mean():.3f}, and the un-anchored condition {stat("redirect", "deficit", "nonred", ex.CONTROL.name).mean():.3f}.
 
-    **Second clause.** Under `projection`, the fallback condition's non-red deficit is {_d_proj.mean():.3f} against {_d_proj_ref.mean():.3f} without the term, which is what ex-2.2.1 reported on the same checkpoints. The difference, {_d_proj.mean() - _d_proj_ref.mean():.3f}, sits under the resolution floor of {_floor_proj:.3f}, so by the frozen rule the deficit is not resolved above the reference. The floor is wide because both conditions spread over seeds: the fallback seeds run from {_d_proj.min():.3f} to {_d_proj.max():.3f}, the reference seeds from {_d_proj_ref.min():.3f} to {_d_proj_ref.max():.3f}. Damage tells the same story ({stat("projection", "damage", "nonred").mean():.3f} against {stat("projection", "damage", "nonred", ex.NO_FALLBACK.name).mean():.3f}, floor {floor("projection", "damage", "nonred"):.3f}). The weight bracket is the sharper reading: the deficit under `projection` rises with the weight, from {stat("projection", "deficit", "nonred", "fb-w0.01").mean():.3f} at 0.01 through {_d_proj.mean():.3f} at {ex.FALLBACK_WEIGHT:g} to {stat("projection", "deficit", "nonred", "fb-w0.25").mean():.3f} at 0.25.
+    So a full reflection of every embedding state is destructive on non-red lines in every anchored model, and the training-time exposure to flipped syntax states did not transfer to them. What those lines decode to is in the post-hoc row of the exploratory section.
+
+    **Second clause.** Under `projection`, the non-red deficit in the fallback condition is {_d_proj.mean():.3f} against {_d_proj_ref.mean():.3f} without the term, which is what ex-2.2.1 reported on the same checkpoints. The difference, {_d_proj.mean() - _d_proj_ref.mean():.3f}, sits under the resolution floor of {_floor_proj:.3f}, so by the frozen rule the deficit is not resolved above the reference.
+
+    The floor is wide because both conditions spread over seeds: the fallback seeds run from {_d_proj.min():.3f} to {_d_proj.max():.3f}, the reference seeds from {_d_proj_ref.min():.3f} to {_d_proj_ref.max():.3f}. Damage tells the same story ({stat("projection", "damage", "nonred").mean():.3f} against {stat("projection", "damage", "nonred", ex.NO_FALLBACK.name).mean():.3f}, floor {floor("projection", "damage", "nonred"):.3f}).
+
+    The weight bracket is the sharper reading: the deficit under `projection` rises with the weight, from {stat("projection", "deficit", "nonred", "fb-w0.01").mean():.3f} at 0.01 through {_d_proj.mean():.3f} at {ex.FALLBACK_WEIGHT:g} to {stat("projection", "deficit", "nonred", "fb-w0.25").mean():.3f} at 0.25.
 
     {_plot()}
 
     The write map shows no re-writing at any site: every deeper slice arrives at the operator at or below its clean alignment. Whatever the term changed under `projection`, it did not widen where the edit acts on the axis.
 
-    **H3 is partial**, by the frozen rule that exactly one clause holds. The first clause fails outright and outside the partial band, which is the contrary case named above: the flipped syntax does not read as syntax. The second clause holds as an unresolved difference, with the bracket saying the difference is real and grows with the weight.
+    **H3 is partial**, by the frozen rule that exactly one clause holds. The first clause fails, and by more than the partial band allows. That is the contrary case named above: the flipped syntax does not read as syntax. The second clause holds, but as an unresolved difference, and the weight bracket suggests the difference is real and grows with the weight.
 
     <!-- REVIEW: the verdict follows the frozen rule ("exactly one clause holds"). The second clause holds only in the sense the rule defines, not resolved at nine seeds; the weight bracket, which the rule does not consult, shows the deficit under projection growing with the weight. Verify: the `projection` columns of the table, and the E4 row. -->
     """)
@@ -658,7 +683,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(seed_row, stat):
+def _(stat):
     _fb = {
         c.name: np.array([stat(f"gamma-{g}", "fb_acc", "red_clean", c.name) for g in ex.GAMMAS])
         for c in (ex.FALLBACK, ex.NO_FALLBACK)
@@ -721,7 +746,9 @@ def _(seed_row, stat):
     mo.md(rf"""
     {_plot()}
 
-    Along the sweep, the fallback condition's seed-mean fallback accuracy runs {", ".join(f"{v:.3f}" for v in _mean)} at γ = {", ".join(f"{g:g}" for g in ex.GAMMAS)}. It is non-decreasing (the largest drop between adjacent strengths is {max(_dip, 0):.3f}, against an allowance of {ex.GRADE_DIP:g}), and at γ = 1 it stands at {_half:.2f} of its value at γ = 2, against a gate of {ex.TRANSFER_FRAC:g}. The seed range at γ = 1 is wide, from {_g1.min():.2f} to {_g1.max():.2f}, and at γ = 1.5 every seed is above {_fb[ex.FALLBACK.name][2].min():.2f}. The no-fallback condition stays at {_fb[ex.NO_FALLBACK.name].mean(1).max():.3f} or below throughout. True-answer accuracy on red lines falls the same way in both conditions: the removal at γ = 1 is at least as complete with the term as without it ({_acc[ex.FALLBACK.name][1].mean():.3f} against {_acc[ex.NO_FALLBACK.name][1].mean():.3f}).
+    Along the sweep, the seed-mean fallback accuracy in the fallback condition runs {", ".join(f"{v:.3f}" for v in _mean)} at γ = {", ".join(f"{g:g}" for g in ex.GAMMAS)}. It is non-decreasing: the largest drop between adjacent strengths is {max(_dip, 0):.3f}, against an allowance of {ex.GRADE_DIP:g}. At γ = 1 it stands at {_half:.2f} of its value at γ = 2, against a gate of {ex.TRANSFER_FRAC:g}.
+
+    The seed range at γ = 1 is wide, from {_g1.min():.2f} to {_g1.max():.2f}, and at γ = 1.5 every seed is above {_fb[ex.FALLBACK.name][2].min():.2f}. The no-fallback condition stays at {_fb[ex.NO_FALLBACK.name].mean(1).max():.3f} or below throughout. True-answer accuracy on red lines falls the same way in both conditions: the removal at γ = 1 is at least as complete with the term as without it ({_acc[ex.FALLBACK.name][1].mean():.3f} against {_acc[ex.NO_FALLBACK.name][1].mean():.3f}).
 
     The `projection` row, γ = 1 at every slice, gives {_proj.mean():.3f} ({_proj.min():.2f} to {_proj.max():.2f}), a little under the embedding-only figure at the same strength. Removing the axis at the later slices as well costs the designed response {_g1.mean() - _proj.mean():.3f} on the seed mean.
 
@@ -731,7 +758,16 @@ def _(seed_row, stat):
 
 
 @app.cell(hide_code=True)
-def _(CONDS, clean, floor, lines, metrics, per_line, runs, seed_row, stat):
+def _(
+    CONDS,
+    clean,
+    lines,
+    metrics,
+    per_line,
+    runs,
+    seed_row,
+    stat,
+):
     _cats = ex.COMPOSITION
     _comp = {
         (c.name, iv): np.array([r["interventions"][iv]["composition_red_clean"] for r in runs[c.name]], float)
@@ -856,13 +892,13 @@ def _(CONDS, clean, floor, lines, metrics, per_line, runs, seed_row, stat):
 
     **E1 — composition.** {_plot()}
 
-    Under `redirect`, the fallback condition decodes {_comp[(ex.FALLBACK.name, "redirect")][:, 0].sum() / _comp[(ex.FALLBACK.name, "redirect")].sum():.3f} of red lines to the fallback answer, and the mass outside the color vocabulary is {_offvocab.mean():.3f} (the no-fallback condition puts {_offvocab_ref.mean():.3f} of its mass outside it under the same edit, with a seed range from {_offvocab_ref.min():.2f} to {_offvocab_ref.max():.2f}). Under `projection` the fallback condition splits between the fallback answer and a one-step neighbor of the true mix, in a proportion that varies by seed.
+    Under `redirect`, the fallback condition decodes {_comp[(ex.FALLBACK.name, "redirect")][:, 0].sum() / _comp[(ex.FALLBACK.name, "redirect")].sum():.3f} of red lines to the fallback answer, and puts {_offvocab.mean():.3f} of its mass outside the color vocabulary. The no-fallback condition puts {_offvocab_ref.mean():.3f} outside it under the same edit, with a seed range from {_offvocab_ref.min():.2f} to {_offvocab_ref.max():.2f}. Under `projection` the fallback condition splits between the fallback answer and a one-step neighbor of the true mix, in a proportion that varies by seed.
 
     | condition | agree, `redirect` | plurality, `redirect` | agree, `projection` | plurality, `projection` |
     |---|---|---|---|---|
     {_agree_rows}
 
-    Seed agreement on the red lines with a clean visible operand. "Agree" is the fraction of lines on which at least {ex.AGREE_SEEDS} of the nine seeds decode the same answer, ex-2.2.1's statistic (which put it at 13% under the projection); it is undefined for the three-seed conditions. "Plurality" is the mean over lines of the fraction of seeds decoding the line's plurality answer, defined for every condition.
+    Seed agreement on the red lines with a clean visible operand. "Agree" is the fraction of lines on which at least {ex.AGREE_SEEDS} of the nine seeds decode the same answer, the statistic from ex-2.2.1, which put it at 13% under the projection; it is undefined for the three-seed conditions. "Plurality" is the mean over lines of the fraction of seeds decoding the line's plurality answer, defined for every condition.
 
     **E2 — the antipode.** The fraction of clean states with negative alignment, per slice and averaged over positions:
 
@@ -872,15 +908,19 @@ def _(CONDS, clean, floor, lines, metrics, per_line, runs, seed_row, stat):
 
     The anti-subspace term alone leaves about a quarter of clean states past the antipode plane; the hinge takes that to about {clean("negative_frac").mean():.2f}, and the `fb-only` arm, without the hinge, sits where the no-fallback condition does.
 
-    **E3 — off-axis recoverability.** Held-out R² of a ridge probe for the concept operand's redness, fitted on the operand states with the axis deleted, per slice; fallback / no-fallback, with the resolution floor (two pooled between-seed sds) beside each:
+    **E3 — off-axis recoverability.** Held-out R² of a ridge probe for the concept operand's redness, fitted on the operand states with the axis deleted, per slice. (A ridge probe is a linear regression with a penalty on the weights; held-out R² is the share of variance it explains on lines it was not fitted to.) Fallback / no-fallback, fallback / no-fallback, with the resolution floor (two pooled between-seed sds) beside each:
 
     | states | emb. | block 1 | block 2 | block 3 | block 4 | floor: emb. | b1 | b2 | b3 | b4 |
     |---|---|---|---|---|---|---|---|---|---|---|
     {_r2_rows}
 
-    The floor the task itself sets, the same ridge fit to the raw RGB values, is {metrics["rgb_floor"]:.3f}. Every figure is above it. Under `redirect` and under `projection`, the fallback condition's R² sits above the no-fallback condition's at the deeper slices by 0.03 to 0.05, under the floor at every slice. The [follow-up at more seeds](/todo/science/off-axis-probe-r2-does-bound-intervention.md) is where that would be resolved.
+    The floor the task itself sets, the same ridge fit to the raw RGB values, is {metrics["rgb_floor"]:.3f}. Every figure is above it. Under `redirect` and under `projection`, the R² in the fallback condition sits above the no-fallback one at the deeper slices, by 0.03 to 0.05; that is under the floor at every slice. The [follow-up at more seeds](/todo/science/off-axis-probe-r2-does-bound-intervention.md) is where that would be resolved.
 
-    **E4 — arms.** The tables under H1, H2, and H3 carry every arm. Dropping the hinge (`fb-only`) leaves the fallback under `redirect` intact and the margin at the no-fallback level, and takes the transfer to γ = 1 from {stat("gamma-1.0", "fb_acc", "red_clean").mean():.3f} to {stat("gamma-1.0", "fb_acc", "red_clean", "fb-only").mean():.3f}. Dropping the fallback term (`anti-only`) leaves no designed response. Along the weight bracket, transfer to γ = 1 rises with the weight ({stat("gamma-1.0", "fb_acc", "red_clean", "fb-w0.01").mean():.3f}, {stat("gamma-1.0", "fb_acc", "red_clean").mean():.3f}, {stat("gamma-1.0", "fb_acc", "red_clean", "fb-w0.25").mean():.3f}) and so does the non-red deficit under `projection` (H3's table). The `recipe` arm reproduces the stored no-fallback checkpoints through the new code path: margin {clean("m_span", cond="recipe").mean():.3f} against {clean("m_span", cond=ex.NO_FALLBACK.name).mean():.3f}, red accuracy under `projection` {stat("projection", "acc", "red", "recipe").mean():.3f} against {stat("projection", "acc", "red", ex.NO_FALLBACK.name).mean():.3f}, non-red deficit under `projection` {stat("projection", "deficit", "nonred", "recipe").mean():.3f} against {stat("projection", "deficit", "nonred", ex.NO_FALLBACK.name).mean():.3f}. The recomputed clean alignment maps of the stored runs match ex-2.1.10's published ones to {max(metrics["alpha_max_diff"].values()):.4f}.
+    **E4 — arms.** The tables under H1, H2, and H3 carry every arm. Dropping the hinge (`fb-only`) leaves the fallback under `redirect` intact and the margin at the no-fallback level, and takes the transfer to γ = 1 from {stat("gamma-1.0", "fb_acc", "red_clean").mean():.3f} to {stat("gamma-1.0", "fb_acc", "red_clean", "fb-only").mean():.3f}. Dropping the fallback term (`anti-only`) leaves no designed response.
+
+    Along the weight bracket, transfer to γ = 1 rises with the weight ({stat("gamma-1.0", "fb_acc", "red_clean", "fb-w0.01").mean():.3f}, {stat("gamma-1.0", "fb_acc", "red_clean").mean():.3f}, {stat("gamma-1.0", "fb_acc", "red_clean", "fb-w0.25").mean():.3f}) and so does the non-red deficit under `projection` (see the table under H3).
+
+    The `recipe` arm reproduces the stored no-fallback checkpoints through the new code path: margin {clean("m_span", cond="recipe").mean():.3f} against {clean("m_span", cond=ex.NO_FALLBACK.name).mean():.3f}, red accuracy under `projection` {stat("projection", "acc", "red", "recipe").mean():.3f} against {stat("projection", "acc", "red", ex.NO_FALLBACK.name).mean():.3f}, non-red deficit under `projection` {stat("projection", "deficit", "nonred", "recipe").mean():.3f} against {stat("projection", "deficit", "nonred", ex.NO_FALLBACK.name).mean():.3f}. The recomputed clean alignment maps of the stored runs match the published ones from ex-2.1.10 to {max(metrics["alpha_max_diff"].values()):.4f}.
 
     **E5 — ride-along interventions.**
 
@@ -890,7 +930,11 @@ def _(CONDS, clean, floor, lines, metrics, per_line, runs, seed_row, stat):
 
     The `operands` edit, at the operand positions only, keeps its selectivity in the fallback condition and produces the fallback answer on {stat("operands", "fb_acc", "red_clean").mean():.2f} of lines. `ablate` is the one row where the fallback condition differs from the reference by a large amount: it emits the fallback answer on about half the red lines and loses {stat("ablate", "deficit", "nonred").mean():.3f} of its non-red accuracy, against {stat("ablate", "deficit", "nonred", ex.NO_FALLBACK.name).mean():.3f} without the term.
 
-    **E6 — a LUNAR-style redirect, fitted after training.** On each frozen no-fallback checkpoint we fit one 64×64 matrix at the embedding, applied at every position, on the qualifying red lines the fallback term uses, with two loss parts: the fallback cross-entropy at `=`, and an identity term on every other state (the mean squared distance from the unedited state). This model has no refusal region of its own, so the fallback answer stands in for it. The fitted matrix runs through the eval contract like any other operator, and gives fallback accuracy {seed_row(_lunar["fb_acc"])} on the red lines with a clean visible operand, red-line accuracy {seed_row(_lunar["acc"])}, a non-red deficit of {seed_row(_lunar["deficit"])}, and non-red damage of {seed_row(_lunar["damage"])}. Beside the fallback condition under `redirect` ({stat("redirect", "fb_acc", "red_clean").mean():.3f} and a deficit of {stat("redirect", "deficit", "nonred").mean():.3f}), the fitted edit reaches the same designed response at a smaller cost on non-red lines, with a wide seed spread. Its identity term was the only thing asking it to leave other positions alone, and at the weight used it did not do so.
+    **E6 — a LUNAR-style redirect, fitted after training.** On each frozen no-fallback checkpoint we fit one 64×64 matrix at the embedding, applied at every position, on the qualifying red lines the fallback term uses. The loss has two parts: the fallback cross-entropy at `=`, and an identity term on every other state, meaning the mean squared distance from the unedited state.
+
+    This model has no refusal region of its own, so the fallback answer stands in for it. The fitted matrix runs through the eval contract like any other operator, giving fallback accuracy {seed_row(_lunar["fb_acc"])} on the red lines with a clean visible operand, red-line accuracy {seed_row(_lunar["acc"])}, a non-red deficit of {seed_row(_lunar["deficit"])}, and non-red damage of {seed_row(_lunar["damage"])}.
+
+    Beside the fallback condition under `redirect` ({stat("redirect", "fb_acc", "red_clean").mean():.3f} and a deficit of {stat("redirect", "deficit", "nonred").mean():.3f}), the fitted edit reaches the same designed response at a smaller cost on non-red lines, with a wide seed spread. Its identity term was the only thing asking it to leave other positions alone, and at the weight used it did not do so.
 
     **E7 — non-red lines under the reflection (post hoc).** What the non-red lines decode to, as a fraction of (seed, line) pairs: the true answer, the fallback answer of the visible operand, the visible operand itself, or something else.
 
@@ -898,7 +942,7 @@ def _(CONDS, clean, floor, lines, metrics, per_line, runs, seed_row, stat):
     |---|---|---|---|---|---|---|---|---|
     {_nonred_rows}
 
-    Under `redirect`, the fallback condition emits the gray mix of the visible operand on {_nonred_split("redirect", ex.FALLBACK.name)[1]:.2f} of non-red (seed, line) pairs, so about a third of its loss on those lines is the designed response firing where no concept was removed; the rest, like the whole of the no-fallback condition's loss, is undesigned. Under `projection` the fallback fires on {_nonred_split("projection", ex.FALLBACK.name)[1]:.3f} of them, which is the size of the unresolved difference in H3's second clause.
+    Under `redirect`, the fallback condition emits the gray mix of the visible operand on {_nonred_split("redirect", ex.FALLBACK.name)[1]:.2f} of non-red (seed, line) pairs, so about a third of its loss on those lines is the designed response firing where no concept was removed. The rest is undesigned, as is the whole of the loss in the no-fallback condition. Under `projection` the fallback fires on {_nonred_split("projection", ex.FALLBACK.name)[1]:.3f} of them, which is the size of the unresolved difference in the second clause of H3.
 
     <!-- REVIEW: E7 is post hoc; it was added after the H3 result to say what the non-red lines decode to, using the per-line guesses the scorer already stores. The fallback answer for a non-red line is the scorer's own table (visible operand mixed with gray), with the true-answer and visible-operand coincidences removed first. Verify: the composition order in experiment.py, and the per-line `guess` arrays. -->
     """)
