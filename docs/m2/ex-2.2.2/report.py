@@ -10,12 +10,15 @@ app = marimo.App(
 
 with app.setup(hide_code=True):
     import marimo as mo
+    import matplotlib.pyplot as plt
+    from matplotlib.patches import FancyBboxPatch, Rectangle
 
     # The design constants come from `experiment.py` beside this notebook (Marimo
     # puts the notebook directory on sys.path). The skeleton quotes the frozen
     # gates in prose, and that module carries the same numbers with each gate's
     # wording in its docstring.
     from mini.reports import report_bundle, use_publisher
+    from mini.vis import light_dark, themed
 
     use_publisher(report_bundle(__file__))
 
@@ -70,22 +73,121 @@ def _():
 
     Here we bring the term into the transformer, keeping the D2.1 grammar and recipe. This comes before the operation work in the [D2.2 plan](../d2.2/design.md) changes the grammar.
 
-    The term <!-- is "term" the right word for something that has three parts? Maybe "algorithm" or so? --> has three parts, each acting in a different place:
-    the edit at the embedding, where every position is reflected through the axis and then detached;
-    the loss at the `=` position of each red line;
-    the gradient reaching the four blocks and the unembedding, but *not* the embedding.
+    The term is one loss, but it touches the model in three places:
+    the edit at the embedding, where every position is reflected through the axis and then held fixed;
+    the loss, read at the `=` position of each red line;
+    the gradient, which reaches the four blocks and the unembedding but not the embedding.
+    """)
+    return
 
-    <!-- Could do with a diagram here, like https://res.cloudinary.com/lesswrong-2-0/image/upload/v1787647820/lexical_client_uploads/eebfbbtdbqfgw2itwbf2.png but annotated to show where these things happen. -->
 
+@app.cell(hide_code=True)
+def _():
+    @themed(
+        name="fallback-term",
+        alt_text="""
+            A schematic of the residual stream as a grid: four columns for the positions of a red line (red, +, blue, =), and rows from the embedding at the bottom through blocks 1 to 4 to the unembedding, which has a logits box at the = position only. The embedding row is outlined in orange and labelled as the edit, reflecting every position; an orange dashed line above it is labelled stop-gradient. The block and unembedding rows are shaded blue. A blue arrow points down into the logits box from a label reading loss, cross-entropy at = against the fallback answer, and a second blue arrow runs down the right margin from the unembedding to the dashed line, labelled gradient reaches the blocks and unembedding.
+        """,
+        caption="""
+            **Where the fallback term acts.** One red line, `red + blue =`, as positions (columns) against slices (rows). The edit reflects every embedding state through the axis, α ↦ −α, and detaches it. The blocks run forward from there as usual, mixing positions through attention. The loss is read from the logits at `=`, and its gradient reaches the blocks and the unembedding and stops at the dashed line.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(7.2, 3.6), layout="constrained")
+        ink = light_dark("#333", "#ccc")
+        faint = light_dark("#0002", "#fff2")
+        edit = light_dark("#b5551d", "#ffab6e")
+        grad = light_dark("#2a6fdb", "#8fbaff")
+        cols = ["red", "+", "blue", "="]
+        rows = ["embedding\n(slice 0)", "block 1", "block 2", "block 3", "block 4", "unembedding"]
+        top = len(rows) - 1
+        w, h = 0.72, 0.5
+        right = len(cols) - 0.5
+        # The rows the gradient reaches: the blocks and the unembedding.
+        ax.add_patch(Rectangle((-0.5, 0.5), len(cols), top + 0.5, color=grad, alpha=0.08, lw=0, zorder=0))
+        for j, name in enumerate(rows):
+            for i, tok in enumerate(cols):
+                if j == top and i != 3:
+                    continue  # only the `=` position is decoded
+                ax.add_patch(
+                    FancyBboxPatch(
+                        (i - w / 2, j - h / 2),
+                        w,
+                        h,
+                        boxstyle="round,pad=0.02,rounding_size=0.08",
+                        fc=light_dark("#fff", "#1c1f1e"),
+                        ec=edit if j == 0 else ink,
+                        lw=1.2 if j == 0 else 0.8,
+                        zorder=2,
+                    )
+                )
+                label = tok if j == 0 else ("logits" if j == top else "")
+                ax.text(i, j, label, ha="center", va="center", fontsize=8, color=ink, zorder=3)
+            ax.text(-0.65, j, name, ha="right", va="center", fontsize=8, color=ink)
+        # The stream between rows, per position.
+        for i in range(len(cols)):
+            end = top if i == 3 else top - 1
+            ax.plot([i, i], [h / 2, end - h / 2], color=faint, lw=3, zorder=1, solid_capstyle="butt")
+        # The stop-gradient, between the embedding row and block 1.
+        ax.plot([-0.5, right], [0.5, 0.5], color=edit, lw=1.4, ls=(0, (4, 2)), zorder=4)
+        ax.text(right + 0.15, 0.5, "stop-gradient", ha="left", va="center", fontsize=8, color=edit)
+        ax.text(
+            right + 0.15,
+            0,
+            "1. edit: reflect every position\n(α ↦ −α), then detach",
+            ha="left",
+            va="center",
+            fontsize=8,
+            color=edit,
+        )
+        ax.annotate(
+            "2. loss: cross-entropy at =\nagainst the fallback answer",
+            xy=(3, top + h / 2),
+            xytext=(3, top + 1.05),
+            ha="center",
+            va="center",
+            fontsize=8,
+            color=grad,
+            arrowprops=dict(arrowstyle="-|>", color=grad, lw=1),
+        )
+        # The gradient runs down the right margin and stops at the bar.
+        ax.annotate(
+            "",
+            xy=(right + 0.08, 0.62),
+            xytext=(right + 0.08, top),
+            arrowprops=dict(arrowstyle="-|>", color=grad, lw=1.4),
+        )
+        ax.text(
+            right + 0.15,
+            (top + 0.6) / 2,
+            "3. gradient reaches the\nblocks and unembedding",
+            ha="left",
+            va="center",
+            fontsize=8,
+            color=grad,
+        )
+        ax.set_xlim(-2.2, len(cols) + 1.9)
+        ax.set_ylim(-0.6, top + 1.7)
+        ax.set_aspect("equal")
+        ax.axis("off")
+        return fig
+
+    mo.md(_plot())
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
     In M1 the decoder took a constant input, the antipode itself, so the term was decoder-only by construction. Here a stop-gradient[^sg] gives the reflected state that same role, so the placement of *red* gets no gradient from the term.
 
     [^sg]: A stop-gradient is an identity in the forward pass with a gradient of zero, so a loss downstream of it cannot move anything upstream of it (`.detach()` in PyTorch). Here it sits on the reflected embedding states, so the fallback loss trains the blocks and the unembedding and leaves the embedding table alone. The other losses see the clean pass and are unaffected.
 
-    The fallback answer also has to be chosen. Once the *red* operand is gone, the least committal answer is the visible operand mixed with an unknown partner, and averaged over every partner the corpus allows that comes out uniform over a 3x3 subgrid (27 colors). We take its center, which works out to be the visible operand mixed with *mid-gray*. That's similar to M1, in which the fallback answer was *mid-gray* (whereas here it's mixed with the visible operand).
+    The fallback answer also has to be chosen. Once the *red* operand is gone, the least committal answer is the visible operand mixed with an unknown partner, and averaged over every partner the corpus allows that comes out uniform over a 3×3×3 subgrid (27 colors). We take its center, which works out to be the visible operand mixed with *mid-gray*. That's similar to M1, in which the fallback answer was *mid-gray* (whereas here it's mixed with the visible operand).
 
-    This addresses the third risk in the plan, that the response to suppression is undesigned. One limitation carries over from M1: the response is trained at the antipode, while the ex-2.2.1 projection lands the state at zero. H4 reads how far it transfers between the two, so a limitation of this size should show up as a curve rather than a flat miss. <!-- needs style pass -->
+    This addresses the third risk in the plan, that the response to suppression is undesigned. One mismatch carries over from M1: the response is trained at the antipode, while the ex-2.2.1 projection lands the state at zero. H4 measures how far the response transfers between the two.
 
-    The nearest published analogue is LUNAR (arXiv:2502.07218): one matrix edit after training, redirecting the activations of the data to forget into the model's own refusal region. LUNAR designs the response by choosing a region the model already produces; ours is trained at a state the model never otherwise visits, which is where the limitation above comes from. E6 fits a LUNAR-style edit to the no-fallback checkpoints, so the two designs can be compared, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward the LUNAR choice.
+    The nearest published analogue is LUNAR (arXiv:2502.07218): one matrix edit after training, redirecting the activations of the data to forget into the model's own refusal region. LUNAR designs the response by choosing a region the model already produces; ours is trained at a state the model never otherwise visits, which is where the mismatch above comes from. E6 fits a LUNAR-style edit to the no-fallback checkpoints, so the two designs can be compared, and the [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would move toward the LUNAR choice.
 
     **Natural language.** The three parts all transfer to the natural language domain:
     the edit would be the reflection at the first anchored slice, applied at every position;
@@ -157,7 +259,7 @@ def _():
 
     - **`redirect`** — γ = 2 at the embedding, at every position, with no labels. This is the same edit training applied, so H1 reads the readout the term trained. An operand with nothing on the axis stays put; the syntax embeddings are the exception, since ex-2.2.1 found a constant component on them, below 0.5, that the reflection flips. Read by H1 and the first clause of H3.
     - **`projection`** — the ex-2.2.1 intervention: γ = 1 at every slice and every position. The fallback was never trained under it, so this row says whether a trained fallback needs the exact intervention it was trained on. Read by the second clause of H3 and the projection row of H4.
-    - **The transfer sweep** — γ ∈ {0.5, 1, 1.5, 2} at the embedding, every position. γ = 1 is the `embedding` arm of ex-2.2.1. Read by H4. <!-- Doesn't this overlap with `projection` and `redirect`? Should this be an arm, rather than an intervention? -->
+    - **The transfer sweep** — γ ∈ {0.5, 1, 1.5, 2} at the embedding, every position. Its γ = 2 point is `redirect`, and its γ = 1 point is the `embedding` arm of ex-2.2.1, which differs from `projection` in leaving the later slices alone. Read by H4.
     - **Ride-along rows** — the `operands`, `shaped`, and `ablate` arms from ex-2.2.1, run on the fallback condition without gates. That way the intervention-tuning pass in the design has the fallback rows to hand (E5). `operands` is the one row here that needs position labels; it stays so we can compare with ex-2.2.1.
 
     <!-- REVIEW: earlier drafts restricted `redirect` to operand positions, then to the concept operand of each line, to match a training term that reflected one state per line. Neither is an edit a model without labelled positions can run. Now `redirect` reflects every position at the embedding, training reflects the same, and the red lines with no defined fallback answer (a visible operand that is itself red) leave the term and the gate of H1 rather than the edit. Verify: the training paragraph in the method, and VISIBLE_RED_DOSE in experiment.py. -->
@@ -209,9 +311,11 @@ def _():
 
     ## Transfer from the antipode to zero (H4)
 
-    **H4.** The designed response transfers (generalizes) part of the way to zero. Along the transfer sweep, γ ∈ {0.5, 1, 1.5, 2} at the embedding, seed-mean fallback accuracy on red lines is non-decreasing in γ, allowing a dip of at most 0.02 between adjacent strengths, and at γ = 1 it is at least half its value at γ = 2. <!-- Hmm, but isn't γ = 1 degenerate? Or perhaps in practice it's not, since even *red* is not perfectly aligned? --> Partial: either clause holds on its own — monotone with γ = 1 below half, or γ = 1 at half or more with a dip larger than the allowance.
+    **H4.** The designed response transfers (generalizes) part of the way to zero. Along the transfer sweep, γ ∈ {0.5, 1, 1.5, 2} at the embedding, seed-mean fallback accuracy on red lines is non-decreasing in γ, allowing a dip of at most 0.02 between adjacent strengths, and at γ = 1 it is at least half its value at γ = 2. Partial: either clause holds on its own — monotone with γ = 1 below half, or γ = 1 at half or more with a dip larger than the allowance.
 
-    Contrary: fallback accuracy at γ = 1 sits at the no-fallback level and the rise is confined to γ > 1. That would be the known limitation showing in full, with the response living at the antipode and not reaching the projected state. The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would address it by targeting a state training already visits; widening the bracket here would not.
+    The γ = 1 point is a real removal, not an inert midpoint. It is the `embedding` arm of ex-2.2.1, where zeroing the axis at the embedding alone took red accuracy down to 0.16. The sweep adds how the fallback responds along the way from the trained state to that one.
+
+    Contrary: fallback accuracy at γ = 1 sits at the no-fallback level and the rise is confined to γ > 1. That would be the mismatch showing in full, with the response living at the antipode and not reaching the projected state. The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) filed for D2.3 would address it by targeting a state training already visits; widening the bracket here would not.
 
     <!-- REVIEW: H4's (then H5's) partial band covered only the monotone-but-short case, leaving no verdict for a run that transfers to γ = 1 through a dip; both single-clause cases are now partial. The D2.3 sentence was in the present indicative ("the remedy is"), which reads as a scheduled follow-up; softened to the conditional, since that item is a backlog entry. -->
 
@@ -238,7 +342,7 @@ def _():
 
     **E3 — off-axis recoverability.** This is the auditing row that the [D2.2 design](../d2.2/design.md) assigns here. We fit a ridge probe for the redness of the concept operand on the intervened operand states, per slice, under `projection` and under `redirect`, five-fold over lines. We report held-out R² for the fallback and no-fallback conditions beside the clean states, and beside the floor the task itself sets: the same ridge fit to the raw RGB values, which ex-2.1.7 put at 0.863. The number sizes what a linear readout can still find, and [it does not bound the intervention](/todo/science/off-axis-probe-r2-does-bound-intervention.md); the read here is the fallback figure against the no-fallback one, resolved or not.
 
-    If the fallback raised the off-axis R², it would be keeping red readable off the axis so it knows when to emit the fallback answer; that is the masked case rather than the removed one. The fallback answer depends only on the visible operand, so there is no need for it to. <!-- Might we need more seeds to determine this? A small shift might be hard to detect. I suppose we could run a follow-up experiment, if it's close. -->
+    If the fallback raised the off-axis R², that would mean it keeps red readable off the axis so that it knows when to emit the fallback answer. Red would then be masked rather than removed. It should not need to do this, since the fallback answer depends only on the visible operand. Nine seeds resolve only a shift larger than the noise floor, so a small shift may read as not resolved. If that happens, we file a follow-up at more seeds rather than reading the row either way.
 
     **E4 — arms.** The H1–H3 statistics for `fb-only`, `anti-only`, the weight bracket, and `recipe`. The `recipe` row is a regression check against the stored no-fallback checkpoints, at three seeds, on clean accuracy, margin, red accuracy under `projection`, and non-red damage.
 
@@ -263,13 +367,13 @@ def _():
 
     ### Training
 
-    We use the primary recipe from [ex-2.1.10](../ex-2.1.10/report.py) unchanged: the `v216` corpus, d64-L4, 100 epochs with a 10-epoch warm-up, the pooled either-operand labeller at τ = 0.1, the anchor at λ = 0.1 with its anneal, and the anti-subspace term at the ex-2.1.8 operating point. <!-- Remind me why we're not using the operating point suggested by 2.1.11? -->
+    We use the primary recipe from [ex-2.1.10](../ex-2.1.10/report.py) unchanged: the `v216` corpus, d64-L4, 100 epochs with a 10-epoch warm-up, the pooled either-operand labeller at τ = 0.1, the anchor at λ = 0.1 with its anneal, and the anti-subspace term at the ex-2.1.8 operating point. The [ex-2.1.11](../ex-2.1.11/report.py) survey proposed a different point. But survey numbers are proposals until they are re-measured at fresh seeds, and the design schedules that confirmation on the multi-op grammar. Keeping the ex-2.1.10 recipe also keeps its stored checkpoints as the no-fallback condition, so nothing has to be retrained for the comparison.
 
     We also use the same seeds as the primary of that experiment, so the fallback and no-fallback conditions differ only in the two new terms. Both are weights on the existing anchored train step.
 
     **The fallback term.** On each training crop, we reflect the embedding state of every position through the axis, $h \mapsto \mathrm{normalize}(h - 2\alpha\, e_1)$, and hold the reflected states fixed with a stop-gradient. We then run the blocks forward from there and take the cross-entropy at the `=` position of each qualifying line against its fallback token. A line qualifies on three counts: its dose is at least 0.8, the redness of its visible operand is below 0.5, and the clean embedding alignment of its concept operand is at least 0.5. The reflection singles out no positions, so it is the same edit `redirect` applies at eval, and it applies unchanged to a model whose positions are not labelled.
 
-    <!-- Can we add a paragraph about how this affects compute? It sounds like it would *double* training compute; is that right? Any potential improvements that would make this a realistic thing to do in a very large model? (maybe batches containing labeled examples would be tiny fraction of the corpus, for example) -->
+    **Compute.** The reflected pass is a second forward and backward through the blocks, so a step that carries a qualifying line costs about twice a plain step. A crop holds about ten lines, and about one line in twenty qualifies, so roughly 40% of crops carry one. Run per batch, that is nearly every step, and the budget below counts the term as a doubling. Three things should make it cheap at scale. The pass can be skipped when no position clears the alignment threshold, which the clean pass at the edit slice already reports, so it costs nothing before the anchor has placed the concept. It can run on a subsample of the qualifying sequences, or on every k-th step, since the term is a small weight on a slowly moving target. And it reruns only the part of the model after the edit, so an edit deeper than the embedding shares the earlier layers with the clean pass.
 
     The term is the mean over qualifying lines, at a constant weight of 0.05 from step 0. We take that weight from M1, as a starting point rather than a derived value: there it scaled a mean squared error on one decoder, and here it scales a cross-entropy through four blocks. Checking it is what the bracket arms are for.
 
@@ -279,9 +383,11 @@ def _():
 
     We reflect once, at the first anchored slice, which in this recipe is the embedding. Reflecting at every slice, as the ex-2.2.1 projection does, would need a detach at every slice, and then only the layers after the last detach would train; reflecting everywhere and detaching only the first edit is the rehearsal the design rejected. When a later experiment leaves the embeddings un-anchored, the reflection moves to the output of the first block, and the embedding and that block join the placement side of the stop-gradient.
 
-    <!-- Question: suppose the first anchored slice is 1, but the concept doesn't appear in the stream until slice 3. Then the fallback is not trained? Or perhaps worse: the it does train, but then the stop-gradient is still applied at slice 1, allowing gradients to flow past the edit, which would void MFT mitigation (a). -->
+    Two things follow from reflecting at one slice. First, if the concept were absent at the edit slice, the reflection there would move nothing, and no line would clear the alignment threshold. The term would then sit inert rather than train toward the wrong state. With the edit at an anchored slice, an absent concept is an anchoring failure, and the margin gate of H2 would report it. Second, the gradient stops at the detach whichever slice carries it, so the placement at and before the edit is safe.
 
-    **The anti-anchor term.** This is $\mathrm{mean}(\max(-\alpha, 0))$ over the same live positions and slices the anti-subspace term reads, on the clean forward pass only, at a constant weight of 0.1. The reflected states the fallback term runs are not live positions of that pass, so the two terms do not pull against each other. It is a hinge <!-- define --> on negative alignment, so it keeps clean states out of the hemisphere where the fallback lives, and being one-sided it does not oppose the anchor. The anti-subspace term already penalizes $\alpha^2$ there, so the arms that drop one term or the other say whether the hinge adds anything.
+    The stop-gradient does leave one thing open. The blocks after the edit are shared with the clean pass, so the term can reshape how the concept is carried downstream of the edit, including keeping it readable off the axis. That is what the off-axis row (E3) and the margin gate watch.
+
+    **The anti-anchor term.** This is $\mathrm{mean}(\max(-\alpha, 0))$ over the same live positions and slices the anti-subspace term reads, on the clean forward pass only, at a constant weight of 0.1. The reflected states that the fallback term produces are not live positions of that pass, so the two terms do not pull against each other. The term is a hinge on negative alignment: zero when the alignment is positive, and growing linearly as it goes negative. So it keeps clean states out of the half of the space where the fallback lives, and because it acts on one side only, it does not oppose the anchor. The anti-subspace term already penalizes $\alpha^2$ there, so the arms that drop one term or the other say whether the hinge adds anything.
 
     ### The fallback answer
 
@@ -289,7 +395,7 @@ def _():
 
     Its per-channel median is the mix with the middle partner. That coincides, at every level, with the visible operand mixed with mid-gray (7.5 on the 16-level channel) and rounded to the nearest grid level; `experiment.py` asserts the coincidence. That color is the fallback answer, and it is the gray fallback from M1 carried over.
 
-    The fallback answer depends on the visible operand alone, so it is defined only when that operand is clean. On a red line whose visible operand is itself red (redness ≥ 0.5), both operand states are reflected and there is no fallback answer. <!-- Is it not `gray + gray = gray`? --> Those 67 lines take no fallback loss and sit outside the gate of H1.
+    The fallback answer depends on the visible operand alone, so it is defined only when that operand is clean. On a red line whose visible operand is itself red (redness ≥ 0.5), both operand states are reflected. The answer would then be the mix with both operands replaced by mid-gray, which is 7.5 on every channel, halfway between grid levels 6 and 9. With nothing visible, the null has no center on the grid; when one operand is visible, its level always breaks the tie. Those 67 lines take no fallback loss and sit outside the gate of H1.
 
     ### Measurements
 
@@ -301,7 +407,7 @@ def _():
 
     ### Budget
 
-    Twenty-four training runs of the ex-2.1.10 recipe, each with a second forward pass per step for the fallback term, plus the scoring of twelve stored checkpoints. The scoring is CPU work, at about a second per run per intervention. E6 adds nine fits of a 64×64 matrix, one per no-fallback seed, at a few CPU minutes each.
+    Twenty-four training runs of the ex-2.1.10 recipe, each with a second forward and backward pass through the blocks on most steps for the fallback term, plus the scoring of twelve stored checkpoints. The scoring is CPU work, at about a second per run per intervention. E6 adds nine fits of a 64×64 matrix, one per no-fallback seed, at a few CPU minutes each.
     """)
     return
 
