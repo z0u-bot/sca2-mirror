@@ -25,7 +25,7 @@ with app.setup(hide_code=True):
     import experiment as ex
     from mini.reports import report_bundle, use_publisher
     from mini.store import project_store
-    from mini.vis import light_dark, themed
+    from mini.vis import figure_html, light_dark, themed
     from sca.vis import CUBE_VIEWS, draw_cube_bound, grid_diameter, project_cube
 
     use_publisher(report_bundle(__file__))
@@ -33,20 +33,93 @@ with app.setup(hide_code=True):
     SURVEY_STATS = ("m_line", "r2_sim", "contrast", "alpha_op1", "holdout_em", "retention")
     """The statistics the survey scored its trials on, in the order the H3 table prints them."""
 
+    SLICE_NAMES = ["emb", "1", "2", "3", "4"]
+    POS_NAMES = ["op1", "op", "op2", "=", "ans", "⏎"]
+    ROLES = POS_NAMES[: ex.SPAN]
+    """The span roles the softmin profiles run over; `op` is the op word, where D2.1 had `+`."""
+
+    EX221_METRICS_REF = "reports/m2/ex-2.2.1/metrics"
+    EX2110_PRIMARY = "either-t100"
+    EX2110_CONTROL = "lam0"
+    EX221_PROJECTION = "primary"
+    """Ex-2.2.1 named its full projection `primary`; the same row is `projection` here."""
+
+    INK = {
+        "control": ("#555", "#aaa"),
+        "control-short": ("#999", "#777"),
+        "recipe": ("#1f6fb4", "#5fa8dd"),
+        "recipe-short": ("#7fb3d8", "#4f7ea6"),
+        "t00": ("#d0461b", "#f07a50"),
+        "t48": ("#8030c0", "#c48cff"),
+        "t12": ("#1e8a5a", "#5ccf98"),
+        "ex-2.1.10": ("#00000033", "#ffffff3a"),
+    }
+    """One ink per condition, as (light, dark) pairs for `light_dark`; the D2.1 reference draws as a ghost."""
+
     # A cell renders its last expression, and a trailing docstring is one.
     None
 
 
 @app.function(hide_code=True)
-def load_survey() -> dict | None:
-    """The ex-2.1.11 survey's stored results, or None if unpublished."""
+def load_json(ref: str) -> dict | None:
+    """A published JSON result as a dict, or None before it exists."""
     store = project_store()
-    art = store.get_refs([ex.SURVEY_REF])[ex.SURVEY_REF]
+    art = store.get_refs([ref])[ref]
     if art is None:
         return None
     with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "survey.json")])
+        (path,) = store.get_many([(art, Path(d) / "data.json")])
         return json.loads(path.read_text())
+
+
+@app.function(hide_code=True)
+def load_npz(ref: str) -> dict[str, np.ndarray] | None:
+    """A published npz as a dict of arrays, or None before it exists."""
+    store = project_store()
+    art = store.get_refs([ref])[ref]
+    if art is None:
+        return None
+    with tempfile.TemporaryDirectory() as d:
+        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
+        with np.load(path) as z:
+            return {k: z[k] for k in z.files}
+
+
+@app.function(hide_code=True)
+def load_survey() -> dict | None:
+    """The ex-2.1.11 survey's stored results, or None if unpublished."""
+    return load_json(ex.SURVEY_REF)
+
+
+@app.function(hide_code=True)
+def span2(v: np.ndarray, fmt: str = ".3f") -> str:
+    """Seed mean with half the seed range beside it, in the shared `.range` style."""
+    return f"{v.mean():{fmt}} <span class='range'>±{(v.max() - v.min()) / 2:{fmt}}</span>"
+
+
+@app.function(hide_code=True)
+def ink(cond: str):
+    return light_dark(*INK[cond])
+
+
+@app.function(hide_code=True)
+def control_of(c: ex.Condition) -> ex.Condition:
+    """The un-anchored arm of the same length, which H1 reads a condition against."""
+    return ex.CONTROL if c.epochs == ex.EPOCHS else ex.CONTROL_SHORT
+
+
+@app.function(hide_code=True)
+def table_html(head: list[str], rows: list[list[str]], caption: str, *, ref_rows: frozenset[int] = frozenset()) -> str:
+    """A result table in the shared classes: numeric cells right-aligned, and `ref_rows` styled as references."""
+    ths = "".join(f"<th{' class=num' if i else ''}>{h}</th>" for i, h in enumerate(head))
+    body = "".join(
+        f"<tr{' class=ref' if r in ref_rows else ''}>"
+        + "".join(f"<td{' class=num' if i else ''}>{c}</td>" for i, c in enumerate(row))
+        + "</tr>"
+        for r, row in enumerate(rows)
+    )
+    table = f'<div class="report-table-scroll"><table class="report-table"><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table></div>'
+    return figure_html(table, caption=caption, class_="report-figure")
 
 
 @app.function(hide_code=True)
@@ -126,6 +199,20 @@ def candidates_md(survey: dict | None) -> str:
             sigma = f"{ex.NOISE_RUN[stat]:.4f}" if stat in ex.NOISE_RUN else "—"
             band = f"{ex.equiv_band(stat, 5, seeds):.3f}" if stat in ex.NOISE_RUN else "—"
             rows.append(f"| {label} | {stat} | {value} | {seeds} | — | {sigma} | {band} |")
+    return head + "\n".join(rows)
+
+
+@app.function(hide_code=True)
+def calibration_md() -> str:
+    """The pre-freeze read: holdout exact match per op for one seed of each control arm."""
+    cal = load_json(ex.CALIBRATION_REF)
+    if cal is None:
+        return "_The calibration has not been published yet._"
+    head = "| run | " + " | ".join(f"`{o}`" for o in ex.OP_NAMES) + " |\n|" + " ---: |" * (len(ex.OP_NAMES) + 1) + "\n"
+    rows = [
+        f"| `{r['label']}` | " + " | ".join(f"{r['holdout_em'][o]:.3f}" for o in ex.OP_NAMES) + " |"
+        for r in cal["runs"]
+    ]
     return head + "\n".join(rows)
 
 
@@ -602,10 +689,14 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""
+    mo.md(rf"""
     ### Before the freeze
 
     Before the freeze we run a calibration: one seed of each control arm on the six-op corpus. It checks that the grammar is learned at both lengths, which means holdout exact match per op near 1, the level the D2.1 control reached. The rounded ops are the ones to watch. If the grammar is not learned at one length or the other, we change the corpus size, the step count, or the set of arms before the freeze, and record the change with a `REVIEW` note. Nothing anchored runs before the freeze.
+
+    **The calibration ran.** One seed of each control arm, published under `{ex.CALIBRATION_REF}`; the table below reads it. Both lengths learn all six ops: holdout exact match is 1.0 on every op but one at each length, and that one misses a single line of its {ex.N_EVAL}. The rounded ops are as clean as the others, and held-out surprisal is below 0.02 nats everywhere. So the corpus, the step counts, and the set of arms stay as designed, and `control-short` stays too, since its numbers say it will read the proposals' task cost at their own length without a training deficit of its own. Nothing about the arms or the gates changed after this read.
+
+    {calibration_md()}
     """)
     return
 
