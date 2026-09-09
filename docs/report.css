@@ -12,7 +12,7 @@
  * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
  * visible one is display:block, so margin-inline:auto centres it. */
 .markdown figure,
- figure[class*="mini-themed-figure"] {
+figure[class*="mini-themed-figure"] {
   text-align: center;
 }
 .markdown figure img,
@@ -87,7 +87,9 @@ body.dark-theme .sw-themed {
   --sw: var(--sw-dark);
 }
 @media (prefers-color-scheme: dark) {
-  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(
+      .dark-theme
+    ):not(.light):not(.light-theme)
     .sw-themed {
     --sw: var(--sw-dark);
   }
@@ -129,13 +131,34 @@ body.dark-theme .sw-themed {
   white-space: nowrap;
 }
 
+/* Allow tables to be full-width, overflowing the containing column. */
+.output .markdown table {
+  width: auto;
+  max-width: 100vw;
+  margin-left: calc(50% - 50vw);
+  margin-right: calc(50% - 50vw);
+
+  > thead,
+  > tbody {
+    transform: translateX(calc(50vw - 50%));
+  }
+  /* Fake border because the transform leaves the border behind. */
+  > thead {
+    border-bottom: none;
+    > tr:last-child > :is(th, td) {
+      box-shadow: inset 0px -1px 0 color-mix(in srgb, var(--input), transparent 0%);
+    }
+  }
+}
+
 /* Make details elements usable. My default they are styled as admonitions, which are
  * designed to be eye-catching and is the opposite of what a details element should do.
  */
 .markdown details {
   border-width: 0;
   border-radius: 0;
-  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%) inset;
+  box-shadow: 4px 0px 0px 0px color-mix(in srgb, var(--border), transparent 0%)
+    inset;
   transition: 0.3s;
 
   > summary {
@@ -166,7 +189,7 @@ body.dark-theme .sw-themed {
 }
 
 .output .footnote {
-  >ol>li {
+  > ol > li {
     font-size: 0.9em;
     transition: 0.3s;
     opacity: 0.5;

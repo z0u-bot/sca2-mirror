@@ -1,8 +1,7 @@
 import marimo
 
-__generated_with = "0.23.16"
+__generated_with = "0.24.0"
 app = marimo.App(
-    width="medium",
     app_title="Ex 2.2.3: the multi-op grammar, with red anchored again",
     css_file="../../report.css",
     auto_download=["html"],
@@ -127,7 +126,7 @@ def _():
 
     /// tip |
     <!-- tl;dr -->
-    The grammar grows from one operation to six, each spelled as a word: `mix`, `add`, `screen`, `multiply`, `lighten`, `darken`. That means every D2.1 recipe has to be checked again before we anchor an operation. So we retrain three things on the new grammar at fresh seeds: the un-anchored control, the ex-2.1.10 recipe, and three proposals from the ex-2.1.11 survey. We also freeze the rule that picks the operating point for the rest of D2.2.
+    The grammar grows from one operation to six: `mix` (`+`), `add`, `screen`, `multiply`, `lighten`, `darken`. We retrain on the new grammar to check the recipes: the un-anchored control, the ex-2.1.10 recipe, and three proposals from the ex-2.1.11 survey. From that, we pick the operating point for D2.2.
     ///
     """)
     return
@@ -189,35 +188,48 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    # REVIEW: H3 had two gaps as drafted. (1) The grading margin was written as extra
-    # to feasibility, but the selection rule counts it inside feasibility, which made the
-    # old partial clause ("feasible, but exceeds without the grading margin") unreachable;
-    # feasibility now includes it in both places. (2) A feasible proposal sitting more
-    # than a band *below* the recipe named no outcome; it is now contrary, on the same
-    # reading as "no proposal is feasible" — the survey's point did not transfer.
-    # REVIEW: the proposals ran at half the recipe's steps, so a margin comparison carried
-    # a training-length difference; a recipe arm at the proposals' length (`recipe-short`)
-    # now makes H3's comparison length-matched, and the caveat is gone.
+    mo.md(r"""
+    ## Task cost on the new grammar (H1)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(rf"""
+    **H1.** Anchoring costs nothing on the task, on any op. We score the recipe at both lengths and the three proposals against the control of the same length, op by op, so the gate reads {len(ex.CANDIDATES) * len(ex.OPS)} condition-op comparisons. In each, seed-mean holdout exact-match accuracy is within {ex.TASK_GATE:g} of its control's. Partial: every comparison within {ex.TASK_PARTIAL:g}, or all but one within {ex.TASK_GATE:g} and that one within {ex.TASK_PARTIAL:g}. Contrary: a condition more than {ex.TASK_PARTIAL:g} below its control on some op, which would say that the anchor and reading the op compete with each other. A condition that far *above* its control on some op misses the gate too, and we would report it as an anomaly, since nothing in the design predicts one.
+
+    This gate only means something if the controls learn the grammar in the first place. We check that at both lengths in the calibration runs described in the [method](#before-the-freeze), before the freeze, rather than gating it here.
+
+    /// admonition | TODO
+    A table of holdout exact-match accuracy per op for every condition, seed mean with the seed range, with the two control rows first and, on each other row, the gap from the control of the same length. Beside it, the validation loss over training for the control and the recipe, five thin lines each, with the ex-2.1.10 primary drawn behind them on the step axis.
+    <!-- Would be nice to have a figure here too (easier to read) -->
+    ///
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ## Placement under the recipe reproduces (H2)
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
     # REVIEW: H2's contrary clause read a latch or containment miss as the op word alone,
     # while the paragraph under it names exposure as a second reading; the clause now says
     # "something in the new grammar" and the paragraph carries both. The added arithmetic
     # (6.4% of all pairs against 6.3% of the on-grid ones are red by dose) is what says the
     # anchor's own exposure is near unchanged. Verify: `line_counts` against ex-2.2.1's
     # 365 red of 5,832 mix probe lines.
+    # The gate list is ordered seed-mean criteria first, then the two per-run ones
+    # (retention, latch), so the "unless the criterion says otherwise" carries; ex-2.1.10
+    # aggregated the same way. Don't reword to imply every criterion is scored at every run.
     mo.md(rf"""
-    ## Task cost on the new grammar (H1)
-
-    **H1.** Anchoring costs nothing on the task, on any op. We score the recipe at both lengths and the three proposals. For each of them, seed-mean holdout exact-match accuracy on each op is within {ex.TASK_GATE:g} of the control of the same length on the same op. Partial: within {ex.TASK_PARTIAL:g} on every op, or within {ex.TASK_GATE:g} on all but one. Contrary: a condition more than {ex.TASK_PARTIAL:g} below its control on some op, which would say that the anchor and reading the op compete with each other.
-
-    This gate only means something if the controls learn the grammar in the first place. We check that at both lengths in the calibration runs described in the [method](#before-the-freeze), before the freeze, rather than gating it here.
-
-    /// admonition | TODO
-    A table of holdout exact-match accuracy per op for every condition, seed mean with the seed range, with the two control rows first and, on each other row, the gap from the control of the same length. Beside it, the validation loss over training for the control and the recipe, five thin lines each, with the ex-2.1.10 primary drawn behind them on the step axis.
-    ///
-
-    ## Placement under the recipe reproduces (H2)
-
-    **H2.** The ex-2.1.10 recipe places *red* on the new grammar as it did on the old one. On the `mix` probe lines, at five fresh seeds, every one of the ex-2.1.10 placement gates holds: containment $\bar\alpha$ at op1 at most {ex.MEAN_ALIGN_GATE:g}; retention at least {ex.RETENTION_GATE:g} of the running peak for every seed whose peak reaches {ex.RETENTION_FLOOR:g}; a leading softmin weight of the red group at the embedding of at least {ex.LEAD_GATE:g}; contrast at least {ex.CONTRAST_GATE:g}; grading $r^2$ no more than {ex.GRADE_R2_DROP:g} below the {ex.REF_R2_SIM:.3f} the survey measured on this recipe; seed-mean m_line at least {ex.MARGIN_RATIO:g} of its ex-2.1.10 value of {ex.REF_M_LINE:.3f}; and no latched run.
+    **H2.** The ex-2.1.10 recipe places *red* on the new grammar as it did on the old one. On the `mix` probe lines, with five fresh seeds, all of the ex-2.1.10 placement gates hold. Each statistic is a seed mean unless the criterion says otherwise: containment $\bar\alpha$ at op1 at most {ex.MEAN_ALIGN_GATE:g}; a leading softmin weight of the red group at the embedding of at least {ex.LEAD_GATE:g}; contrast at least {ex.CONTRAST_GATE:g}; grading $r^2$ no more than {ex.GRADE_R2_DROP:g} below the {ex.REF_R2_SIM:.3f} the survey measured on this recipe; m_line at least {ex.MARGIN_RATIO:g} of its ex-2.1.10 value of {ex.REF_M_LINE:.3f}; and, read per run rather than on the seed mean, retention at least {ex.RETENTION_GATE:g} of the running peak for every run whose peak reaches {ex.RETENTION_FLOOR:g}, and no latched run.
 
     Partial: every criterion holds except one of m_line in the {ex.MARGIN_PARTIAL:g}–{ex.MARGIN_RATIO:g} band or contrast in the {ex.CONTRAST_PARTIAL:g}–{ex.CONTRAST_GATE:g} band. Contrary: a latch or a containment miss. That would mean something in the new grammar changed what the pull finds. If instead the margin fell below the partial band while the other criteria held, the placement would be there but weaker, and the H3 selection would lean toward the proposals.
 
@@ -230,9 +242,21 @@ def _():
     /// admonition | TODO
     A table of the seven statistics for the recipe on the `mix` lines, seed mean with the seed range, beside the nine-seed values of the ex-2.1.10 primary and the band between them. Then the m_line trajectory over training, five thin lines drawn over the nine from ex-2.1.10 on the step axis, and the softmin profile over roles per slice for the red and non-red groups, in the ex-2.1.10 layout.
     ///
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
     ## The plateau from the survey transfers (H3)
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(rf"""
     **H3.** The plateau found in the survey belongs to the recipe rather than to the one-op grammar. At least one proposal is feasible at fresh seeds on the new grammar, and its seed-mean m_line on the `mix` probe lines exceeds `recipe-short` (the recipe at the same step count) by more than one band. Feasibility is read as the survey read it, with the constraints listed once in the selection rule below. The grading margin is one of them.
 
     Partial: a proposal is feasible and its m_line sits within a band of `recipe-short`; or a proposal clears every survey constraint and exceeds `recipe-short` by more than a band, but misses the grading margin. Contrary: no proposal is feasible, or every feasible proposal sits more than a band below `recipe-short`. Either would say the plateau was specific to the one-op grammar, and the recipe would carry D2.2.
@@ -246,9 +270,21 @@ def _():
     /// admonition | TODO
     The table above filled in, with the feasibility checks for each candidate as a row of ticks and the adopted point marked. Then m_line against grading $r^2$ for the five candidates, one point per seed with the seed mean ringed, the survey point for each drawn hollow beside it, and the band for `recipe-short` drawn as a horizontal strip.
     ///
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
     ## Suppression transfers (H4)
+    """)
+    return
 
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(rf"""
     **H4.** Projecting the axis out removes *red* on every op, at the selectivity ex-2.2.1 reached. On the recipe and on the adopted point, under `projection`, seed-mean accuracy on the red lines of each op falls to at most {ex.RED_ACC_GATE:g}, and the seed-mean non-red deficit on the `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}. Partial: exactly one clause holds, or removal holds on all but one op, or the deficit sits in the {ex.NONRED_DEFICIT_GATE:g}–{ex.NONRED_DEFICIT_PARTIAL:g} band.
 
     The deficit gate is the band ex-2.2.1 landed in (0.024, partial at its 0.02 gate), and we report the 0.02 read beside it. That cost came from the syntax rows, and E2 reads the rows of the six op words.

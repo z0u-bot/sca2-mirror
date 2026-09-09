@@ -420,7 +420,9 @@ TASK_GATE = 0.02
 condition. The width every D2.1 task gate used."""
 
 TASK_PARTIAL = 0.05
-"""H1 partial: "within 0.05"."""
+"""H1 partial: "every condition-op comparison within 0.05, or all but one within TASK_GATE and that one within
+0.05". The unit is one condition read against its control on one op, as it is for the gate and the contrary
+clause, rather than a whole op or a whole condition."""
 
 REF_M_LINE = 0.4202
 """Ex-2.1.10's primary, nine seeds: the seed-mean m_line every margin gate here is quoted against. The report
