@@ -340,7 +340,7 @@ def _():
 
     /// tip |
     <!-- tl;dr -->
-    The grammar grows from one operation to six: `mix` (`+`), `add`, `screen`, `multiply`, `lighten`, `darken`. We retrain on the new grammar to check the recipes: the un-anchored control, the ex-2.1.10 recipe, and three proposals from the ex-2.1.11 survey. From that, we pick the operating point for D2.2.
+    The grammar grows from one operation to six: `mix` (`+`), `add`, `screen`, `multiply`, `lighten`, `darken`. We retrain on the new grammar to check the recipes: the un-anchored control, the ex-2.1.10 recipe, and three proposals from the ex-2.1.11 survey. The recipe carried over as it was, and one proposal took the operating point for D2.2. Suppression is the part that did not carry: at the adopted point, projecting the axis out takes non-red lines with it.
     ///
     """)
     return
@@ -719,7 +719,7 @@ def _(res: Results):
         return [
             name,
             v,
-            span2(ref, fmt),
+            span2(ref, fmt) if len(ref) > 1 else f"{ref.mean():{fmt}}",
             ref_note,
             f"{d:+{fmt}}{resolved}",
             _band(stat, n_b),
@@ -805,7 +805,7 @@ def _(res: Results):
     _caption = """
     The placement statistics of the recipe on the <code>mix</code> probe lines, five fresh seeds, beside the D2.1 reference. The reference is the ex-2.1.10 primary's nine seeds where its stored metrics carry the statistic, and the survey's three-seed re-run of the same recipe (its <code>ref</code> arm) for contrast and grading, which ex-2.1.10 did not store per run; the lead weight and the latch have no stored reference. Δ is fresh minus reference; a ✓ beside it means the difference clears the band (2σ√(1/5 + 1/n) with the frozen per-run σ), a dot that it does not. Bold marks a value inside its gate. Retention and the latch are read per run, so their rows print the worst run.
     """
-    _head = ["statistic", "fresh (5 seeds)", "D2.1 reference", "ref. seeds", "Δ", "band", "gate"]
+    _head = ["statistic", "fresh (5 seeds)", "D2.1 reference", "ref. seeds", "Δ (✓ clears band)", "band", "gate"]
     mo.Html(table_html(_head, _rows, _caption))
     return
 
@@ -1040,7 +1040,7 @@ def _(res: Results, task_ok: dict[str, bool]):
 
 @app.cell(hide_code=True)
 def _(res: Results):
-    _head = ["candidate", "statistic", "survey", "seeds", "fresh (5 seeds)", "Δ", "σ per run", "band"]
+    _head = ["candidate", "statistic", "survey", "seeds", "fresh (5 seeds)", "Δ (✓ clears band)", "σ per run", "band"]
     _rows = []
     for _c in ex.CANDIDATES:
         _seeds, _sv = res.survey_point(_c)
@@ -1211,11 +1211,13 @@ def _(adopted: str, res: Results, task_ok: dict[str, bool]):
         _v = Verdict(
             "partial",
             f"{_txt}. "
-            + " ".join(f"Removal misses on `{', '.join(_removal_misses[c])}`." for c in h4_conds if _removal_misses[c])
             + " ".join(
-                f"The deficit sits in the {ex.NONRED_DEFICIT_GATE:g}–{ex.NONRED_DEFICIT_PARTIAL:g} band on `{c}`."
-                for c in h4_conds
-                if _select_band[c]
+                [f"Removal misses on `{', '.join(_removal_misses[c])}`." for c in h4_conds if _removal_misses[c]]
+                + [
+                    f"The deficit sits in the {ex.NONRED_DEFICIT_GATE:g}–{ex.NONRED_DEFICIT_PARTIAL:g} band on `{c}`."
+                    for c in h4_conds
+                    if _select_band[c]
+                ]
             ),
         )
     else:
@@ -1223,14 +1225,16 @@ def _(adopted: str, res: Results, task_ok: dict[str, bool]):
             "contrary",
             f"{_txt}. "
             + " ".join(
-                f"Removal misses on `{', '.join(_removal_misses[c])}` for `{c}`."
-                for c in h4_conds
-                if _removal_misses[c]
-            )
-            + " ".join(
-                f"The `mix` deficit on `{c}` is above {ex.NONRED_DEFICIT_PARTIAL:g}."
-                for c in h4_conds
-                if _reads[c][1] > ex.NONRED_DEFICIT_PARTIAL
+                [
+                    f"Removal misses on `{', '.join(_removal_misses[c])}` for `{c}`."
+                    for c in h4_conds
+                    if _removal_misses[c]
+                ]
+                + [
+                    f"The `mix` deficit on `{c}` is above {ex.NONRED_DEFICIT_PARTIAL:g}."
+                    for c in h4_conds
+                    if _reads[c][1] > ex.NONRED_DEFICIT_PARTIAL
+                ]
             ),
         )
     h4: Verdict = _v
@@ -1356,7 +1360,7 @@ def _(res: Results):
     @themed(
         name="h4-write-bound-maps",
         alt_text="""
-            Six small line charts, one per op, over the six token positions, with one line per residual slice in shades from light to dark. Solid lines are the clean 99th-percentile non-red alignment; dashed lines are the alignment arriving at the operator under projection, which sit at or below the solid ones at the prompt positions. The six panels look alike.
+            Six small line charts, one per op, over the six token positions, with one line per residual slice in shades from light to dark. Solid lines are the clean 99th-percentile non-red alignment; dashed lines are the alignment arriving at the operator under projection, mostly below the solid ones but above them at a few sites, notably the op word. The six panels look alike.
         """,
         caption=f"""
             **The bound and the write, per site and per op, for the recipe under <code>projection</code>.** For each op's probe lines, the 99th-percentile |α| over the non-red lines at each (slice, position), seed mean: solid is the clean map, whose arcsine is the bound; dashed is the alignment arriving at the operator, whose arcsine is the write. The embedding line is the same in both by construction. Slices run from the embedding (lightest) to the last block (darkest), and all six panels share one scale, as ex-2.2.1's figure did. Sites where the seed-mean write exceeds the seed-mean bound, per op: {", ".join(f"<code>{op}</code> {n}" for op, n in _over.items())} of 24 post-embedding sites.
@@ -1449,7 +1453,7 @@ def _(e1_spread: dict[tuple[str, str], float]):
     _r = max(e1_spread[c.name, "r2_sim"] for c in ex.CANDIDATES)
     _k = max(e1_spread[c.name, "contrast"] for c in ex.CANDIDATES)
     mo.md(rf"""
-    Across the six ops, the widest spread of seed-mean m_line on any candidate is {_m:.3f} (band {ex.equiv_band("m_line"):.3f}), of grading r² {_r:.3f} (band {ex.equiv_band("r2_sim"):.3f}), and of contrast {_k:.3f} (band {ex.equiv_band("contrast"):.3f}). A spread inside the band means the placement reads the same on every op's lines, which is what an op-blind labeller predicts.
+    Across the six ops, the widest spread of seed-mean m_line on any candidate is {_m:.3f} (band {ex.equiv_band("m_line"):.3f}), of grading r² {_r:.3f} (band {ex.equiv_band("r2_sim"):.3f}), and of contrast {_k:.3f} (band {ex.equiv_band("contrast"):.3f}). A spread inside the band means the placement reads the same on every op's lines, which is what an op-blind labeller predicts. Grading, containment, and the lead weight are read at op1, which precedes the op word, so under causal attention they cannot differ by op at all; the per-op reads are m_line and contrast, which involve op2 and the answer.
     """)
     return
 
@@ -1812,12 +1816,51 @@ def _(e5_md: str):
 
 @app.cell(hide_code=True)
 def _():
+    # REVIEW: "the anchored-op experiments carry `t00` with the `operands` edit" was stated as
+    # settled; the frozen prereg only sends the intervention-tuning pass to the `operands` and
+    # `shaped` rows, so which edit is carried is that pass's call. Rewritten as what these numbers
+    # favor. Verify: H4's contrary-on-selectivity clause, and the `t00, operands` rows.
+    # REVIEW: softened "accounts for its whole H1 gap" for `t00` to "most of". The stated
+    # arithmetic gives 0.06 x 0.11 = 0.007, against the -0.0094 in the H1 table, and the two
+    # numbers are read on different sets (clean red accuracy on the probe lines, the gap on the
+    # holdout), so the red lines account for about three quarters of it rather than all.
+    # Verify: the t00 clean row of the H4 red-accuracy table, and the t00 mix gap in H1.
     mo.md(r"""
     ## Discussion
 
-    /// admonition | TODO
-    Interpretation only, after the results. Whether the D2.1 recipe belongs to the anchor or to the grammar it was tuned on, and what the gaps between the survey and the fresh runs say about how much of the plateau was luck. What the adopted point is, and what it costs against the recipe. Whether the six op words repeat the syntax-row cost of ex-2.2.1, and what that means for the intervention the anchored-op experiments should use. What the redder-than-both lines say about the blind span. Which op the relevance distributions favor anchoring. No re-derivation of the findings.
-    ///
+    **The recipe belongs to the anchor.** H1 and H2 hold at a fiftieth of the per-pair exposure used in D2.1, on a corpus where five sixths of the lines follow rules the labeller has never seen. The placement reads the same on the lines of every op (E1).
+
+    What the anchor needs is its own exposure per step, and the corpus kept that. So the "recipe is grammar-specific" row of the [D2.2 risk table](../d2.2/design.md) closes on this result.
+
+    **The plateau is real, and lower.** Every proposal came in 0.05 to 0.06 of m_line below its survey value, about five bands; the recipe came in 0.02 below its own. That is the winner's curse the H3 section priced in: the survey picked its proposals for their margin, so the margin was the number most likely to be flattered.[^curse] Two thirds of the advantage the survey showed over `recipe-short` survived (+0.075 of +0.112).
+
+    The fresh proposals also grade better than the survey said (r² 0.83 against 0.69 for `t00`), the other side of the same selection: a trial promoted for its margin at the grading floor was as likely to be unlucky on grading as lucky on margin. The proposals spread more across seeds than the recipe does (0.032 against 0.009 on m_line for `t00`), and the frozen band, built from the σ of the recipe, does not see that; E5 says the H3 differences resolve under the wider band too.
+
+    [^curse]: The winner's curse: when you pick the top result out of many noisy trials, you tend to pick one whose noise ran in its favor, so a fresh run of it usually scores lower.
+
+    **What `t00` costs.** The selection rule adopts `t00`, and D2.2 carries it, as the rule says. Its contrast is 0.36 against 0.86 for the recipe, and its leading weight at the embedding is 0.33, under the 0.4 that H2 gates the recipe at; the selection rule reads feasibility as the survey did, and the survey had no lead gate.
+
+    Its clean accuracy on the red `mix` lines is 0.89 against 1.00 for the recipe, and that accounts for most of its H1 gap: red lines are 6% of the holdout, and 6% of an 11-point loss comes to 0.007, against the 0.009 in the H1 table.
+
+    Its syntax rows carry the axis at more than twice the level the recipe does (E2: `=` at 0.93 against 0.40 at the embedding, the op words at 0.33 against 0.17). That is the mechanism E8 named in [ex-2.2.2](../ex-2.2.2/report.py), here at five times the anchor weight (λ_a 0.56 against 0.1), and it is what H4 then measures.
+
+    **Two different H4 misses.** On the recipe, selectivity transfers: the `mix` deficit is the 0.024 from ex-2.2.1, and the other ops lose nothing. Removal misses its gate on four of the six ops. The decoded answer moves 1.5 to 2 grid steps away from the true one on every op, so the edit lands everywhere; what varies is whether the moved answer still counts as wrong.
+
+    Red accuracy is a coarse read on ops where the red channel of the answer can come from either operand, and seed ranges of ±0.1 to ±0.2 say it is deciding lines near a boundary. The follow-up is per line: which red lines survive the projection on each op, and whether their true answer depends on the red channel of the red operand at all.
+
+    On `t00` it is the other clause. Removal is complete on every op, and the full-position edit takes 0.4 to 0.6 of the non-red lines, with seeds ranging from near zero to near total. Editing the operand positions only brings that to 0.017 on `mix`, and holds removal at 0.08 on `mix` and 0.15 to 0.32 on the others, about where the recipe stands under the full edit.
+
+    The syntax rows are the difference, as the E2 numbers say, and the contrary clause of the prereg already named the consequence, which is that the intervention-tuning pass goes to the `operands` and `shaped` rows before anything is anchored. On these numbers the `operands` edit is the one that would carry `t00`, and the [tied-readout item](/todo/science/syntax-rows-carry-the-axis-via-tied-readout.md) is the thing to settle before a rotation at every position (the D2.3 swap) is on the table. `t12` is the fallback if that prereg decides the syntax-row cost matters more than 0.016 of m_line: its contrast is 0.44, its lead weight 0.48, and its H1 gap 0.002.
+
+    **The blind span is where the answer is red on its own.** On the redder-than-both lines, the redness of the answer moves the axis at `=` and at the answer by 0.15 at most, and the projection leaves 78% to 98% of those lines intact (E3). The anchor never sees the answer, so that redness is computed off the axis, as the ex-2.1.10 scope note said it would be.
+
+    `multiply` has the most such lines and the largest shift, so it is the op where a labeller that reads the answer would show up first; that labeller is filed under [the span variants](/todo/science/labeling-pull-span-variants-ex-2-1.md).
+
+    **More rules did not sharpen the cube.** At six ops the operand is less linearly decodable at its own slot than at three (0.52 against 0.85 to 0.87), in both matchings, which reads as the op count; the six-op seeds spread widely (±0.14). The answer at `=` gives no such read: the two matchings move in opposite directions with the op count (0.57 to 0.65 in `corpus`, 0.74 to 0.65 in `per-op`), within seed spreads of up to ±0.09, so the change is at the operand (E4).
+
+    A representation shared by six rules is under more constraints than one rule needs, and here those constraints left the RGB cube less straight at the operand, on this probe. Whether the model builds op-specific readings of its operands is a probe question for the anchored-op experiments, which read those sites anyway.
+
+    **Which op to anchor.** The [relevance table](#the-grammar) favors `mix` (94% of its lines have an answer no other op gives) and, among the new ops, `multiply` (62%, with almost nothing at k = 2). E3 adds that `multiply` is also where the redness of the answer shows on the axis most. The suppression prereg can choose on what it wants to show: `mix` for the sharpest test, `multiply` for a rule the anchor has never seen.
     """)
     return
 
@@ -1939,7 +1982,7 @@ def _():
             Six hexagonal color-cube panels, one per op, with a mark on each grid color sized by how many pairs answer there. mix, lighten, and darken spread their answers through the whole cube; add sends a fifth of its pairs to one large white mark at the top, screen crowds the light half, and multiply the dark half.
         """,
         caption=f"""
-            Where each op's answers land. One mark per grid color, with area proportional to the number of unordered pairs whose answer is that color, on one scale for all six panels: a mark that fills its grid cell stands for {_full_cell} pairs, out of {len(_pairs):,}.
+            **Where each op's answers land.** One mark per grid color, with area proportional to the number of unordered pairs whose answer is that color, on one scale for all six panels: a mark that fills its grid cell stands for {_full_cell} pairs, out of {len(_pairs):,}.
         """,
     )
     def _plot() -> plt.Figure:
@@ -2056,7 +2099,7 @@ def _():
 @app.cell(hide_code=True)
 def _():
     mo.md(rf"""
-    {ex.N_RUNS} training runs: {ex.CONTROL.seeds + ex.RECIPE.seeds} at the full length of the recipe, {sum(c.seeds for c in ex.PROPOSALS) + ex.RECIPE_SHORT.seeds + ex.CONTROL_SHORT.seeds} at half of it, and {sum(c.seeds for c in ex.RICHER_OP_ARM)} for the richer-op arms at the full length as well, each at a plain D2.1 step count on an L4. Scoring is one clean pass plus four operator passes over six probe sets per run, taking CPU seconds each, and the cube probes of E4 are ridge fits on 216 rows. That is well under the cost of ex-2.2.2, which trained 24 runs at twice the step cost.
+    {ex.N_RUNS} training runs: {ex.CONTROL.seeds + ex.RECIPE.seeds} at the full length of the recipe, {sum(c.seeds for c in ex.PROPOSALS) + ex.RECIPE_SHORT.seeds + ex.CONTROL_SHORT.seeds} at half of it, and {sum(c.seeds for c in ex.RICHER_OP_ARM)} for the richer-op arms at the full length as well, each at a plain D2.1 step count on an L4. Scoring is one clean pass plus four operator passes over six probe sets per run, taking CPU seconds each, and the cube probes of E4 are ridge fits on 216 rows. That is well under the cost of ex-2.2.2, which trained 24 runs at twice the step cost. The run took 41 minutes of wall-clock on Modal at twelve containers, 15 of them training, and cost $2.33, with no task failed or retried.
     """)
     return
 

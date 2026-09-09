@@ -190,9 +190,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.2/report.py -->
 
-- [2.2.3. The multi-op grammar, with *red* anchored again](./m2/ex-2.2.3/report.py) (preregistration)
+- [2.2.3. The multi-op grammar, with *red* anchored again](./m2/ex-2.2.3/report.py)
 
-    The grammar grows to six operations spelled as words (`mix`, `add`, `screen`, `multiply`, `lighten`, `darken`, each rounded to the grid), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe at two lengths, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts.
+    The grammar grows to six operations spelled as words (`mix`, `add`, `screen`, `multiply`, `lighten`, `darken`, each rounded to the grid), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe at two lengths, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts. The recipe transferred (H1, H2), and the rule adopted the survey's `t00` (H3), a heavier anchor that trades contrast and syntax-row cleanliness for margin. Suppression did not transfer as stated (H4): the recipe's removal is partial on four of the new ops, and `t00` needs the operand-only edit to keep the non-red lines. Six ops left the operand cube less linearly decodable than three (E4).
 
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 
