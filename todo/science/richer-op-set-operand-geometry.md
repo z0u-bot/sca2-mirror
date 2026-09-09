@@ -14,3 +14,5 @@ From the [D2.2 design](/docs/m2/d2.2/design.md), Sandy's suggestion at the incep
 ## Notes
 
 **2026-08-31, Claude** — a sibling item now carries the cross-form half of this question: [does op diversity buy hex/named sharing](./does-op-diversity-buy-cross-form-sharing.md), motivated by the task-diversity phase-transition results (arXiv:2306.15063, arXiv:2405.11751). It needs the two-form corpus on top of this item's sweep; the two could run as one arm.
+
+**2026-09-08, ex-2.2.3 prereg** — runs as exploratory row E4 of [ex-2.2.3](/docs/m2/ex-2.2.3/report.py): un-anchored models at one, three, and six ops (the six-op point is that experiment's control), each on D2.1's 100k lines at the recipe's step count, probed with ex-2.1.12's cube probes. The line count is held fixed rather than lines per op, so a better cube at six ops is a clean positive and a worse one is confounded with lines per op; the prereg says so. Stays open until E4 is read.
