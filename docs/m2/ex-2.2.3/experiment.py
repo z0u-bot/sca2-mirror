@@ -49,11 +49,23 @@ LEVELS = GRIDS[GRID]
 TOP = N_LEVELS - 1
 
 
+# REVIEW: `mix` was D2.1's round-half-up mean, (x + y + 1) // 2 on the 0..15 scale. On this grid a
+# channel sum is always a multiple of 3, so where it is odd the rule rounded up by half a unit and the snap
+# by another whole one: the answer rose by 1.5 on half of every op1-op2 channel sum, a lightening bias
+# on the 87% of pairs that round. `mix` is now the plain mean, and the snap sends a tie to the even level
+# index (0, 6, 12), so ties round down on 10 of the 18 channel-sum cases and up on 8: the mean signed
+# error per channel is −0.08 rather than +0.75. No other op ties. The on-grid pairs, and so the probe
+# set, are unchanged. Verify: `check_table` still asserts `MIX` agrees with D2.1's `mix` on every probe
+# line, and `on_grid(MIX)` is unchanged.
 def snap(v: float) -> int:
-    """The grid level nearest to *v*, ties upward. No pair of levels ties on this grid for any op below,
-    so the tie rule is there for completeness.
+    """The grid level nearest to *v*. A tie (only `mix` has them, on channel sums with an odd multiple of 3)
+    goes to the even level index, 0, 6, or 12, so ties round down about as often as up.
     """
-    return min(LEVELS, key=lambda level: (abs(level - v), -level))
+    lo = max((level for level in LEVELS if level <= v), default=LEVELS[0])
+    hi = min((level for level in LEVELS if level >= v), default=LEVELS[-1])
+    if abs(v - lo) != abs(hi - v):
+        return lo if abs(v - lo) < abs(hi - v) else hi
+    return lo if LEVELS.index(lo) % 2 == 0 else hi
 
 
 @dataclass(frozen=True)
@@ -63,7 +75,9 @@ class Op:
     The rule is computed on the continuous scale and snapped to the nearest grid level, so every op is
     defined on every pair and each answer is a vocabulary token. Where the rule already lands on a level
     (every pair for `add`, `lighten`, and `darken`; the on-grid fraction for the rest) no rounding happens,
-    and on those pairs `mix` is D2.1's op unchanged.
+    and on those pairs `mix` is D2.1's op unchanged. The five rules are the blend modes of the same names
+    in Photoshop and Krita (`add` is *linear dodge* in Photoshop), on the 0..15 scale; `mix` is a normal
+    blend at half opacity, the per-channel mean.
     """
 
     name: str
@@ -82,21 +96,25 @@ class Op:
 
 
 OPS = (
-    Op("mix", lambda x, y: (x + y + 1) // 2, "⌊(x + y + 1) / 2⌋"),
+    Op("mix", lambda x, y: (x + y) / 2, "(x + y) / 2"),
     Op("add", lambda x, y: min(x + y, TOP), "min(x + y, 15)"),
     Op("screen", lambda x, y: TOP - (TOP - x) * (TOP - y) / TOP, "15 − (15 − x)(15 − y) / 15"),
     Op("multiply", lambda x, y: x * y / TOP, "x · y / 15"),
     Op("lighten", max, "max(x, y)"),
     Op("darken", min, "min(x, y)"),
 )
-"""The op table: the four blend modes the D2.2 design named (`mix` is D2.1's round-half-up mean, spelled `+`
-there and `mix` here; saturating `add`; `screen`; `multiply`), plus the per-channel `max` and `min`
-(Photoshop's *lighten* and *darken*). Each is computed on the 0..15 scale and snapped to the nearest level of
-the grid, the "defined rounding" the design's deps section asks for.
+"""The op table: the four blend modes the D2.2 design named (`mix` is D2.1's mean, spelled `+` there and
+`mix` here, and the same answer on every pair D2.1 defined it on; saturating `add`; `screen`; `multiply`),
+plus the per-channel `max` and `min` (Photoshop's *lighten* and *darken*). Each is computed on the 0..15
+scale and snapped to the nearest level of the grid, the "defined rounding" the design's deps section asks
+for. The snap is unbiased on average: `screen` and `multiply` never tie, and their mean signed rounding
+error per channel is zero over the pairs; `mix` ties on half its channel sums, and `snap` sends those to
+the even level index.
 
-All six are commutative, so operand order carries no information, as in D2.1. They are distinct rules: no two
-agree on more than 38% of pairs (`agreement()`), and every op but `lighten` has lines whose answer is redder
-than both operands (`line_counts()`)."""
+All six are commutative, so operand order carries no information, as in D2.1. A `subtract` to balance
+`add` would be the first op where it did, which is why the set leans light (three ops lighten, two darken,
+`mix` is neutral). They are distinct rules: no two agree on more than 38% of pairs (`agreement()`), and
+every op but `lighten` has lines whose answer is redder than both operands (`line_counts()`)."""
 
 MIX, ADD, SCREEN, MULTIPLY, LIGHTEN, DARKEN = OPS
 OP_NAMES = tuple(op.name for op in OPS)
@@ -173,13 +191,15 @@ def line_counts(op: Op) -> dict[str, int]:
 
 def check_table() -> None:
     """The table's invariants: every answer is a grid color, every op is commutative, `mix` is D2.1's op where
-    D2.1 defined it, and the three exact ops never round.
+    D2.1 defined it, only `mix` ties, and the three exact ops never round.
     """
     cs = set(colors())
     for a, b in unordered_pairs()[::97]:
         for op in OPS:
             assert op(a, b) in cs, op.name
             assert op(a, b) == op(b, a), op.name
+            if op is not MIX:
+                assert not any(abs(v - snap(v)) == 1.5 for v in op.raw(a, b)), op.name
     for a, b in mix_probe_lines()[::37]:
         assert MIX(a, b) == mix(a, b)
     for op in (ADD, LIGHTEN, DARKEN):
@@ -282,20 +302,26 @@ class Condition:
     """Ex-2.1.10 anneals the anchor weight over the last tenth of training; the survey's trials ran it flat
     (its ablation found the two within a band), so its proposals are flat here too."""
     ops: tuple[str, ...] = OP_NAMES
-    """Which ops the corpus carries. Only the richer-op arm narrows this, and its corpus keeps the full line
-    count, so fewer ops means more lines per op at the same step count."""
+    """Which ops the corpus carries. Only the richer-op arms narrow this."""
+    n_lines: int = N_LINES
+    """Corpus size. D2.1's for every condition but the per-op-matched arms, whose corpus shrinks with the op
+    set so that lines per op stay at the six-op value."""
     survey_trial: int | None = None
     """For a proposal, the ex-2.1.11 trial it re-measures; the report reads that trial's five-seed numbers
     from `SURVEY_REF` and prints them beside the fresh ones."""
 
     @property
     def steps(self) -> int:
-        return self.epochs * steps_per_epoch()
+        return self.epochs * steps_per_epoch(self.n_lines)
+
+    @property
+    def lines_per_op(self) -> int:
+        return self.n_lines // len(self.ops)
 
 
 CONTROL = Condition("control", 5, "un-anchored", lam=0.0)
 """Nothing placed on the axis: the anchor and anti-subspace weights at zero. The task reference for H1 at the
-full length, and the six-op point of the richer-op arm."""
+full length, and the six-op point of both richer-op arms."""
 
 # REVIEW: added `control-short`, so H1 reads every 50-epoch condition against an un-anchored model of the
 # same length. Per-pair exposure fell about fiftyfold from D2.1, so a 50-epoch arm could miss the task gate
@@ -389,18 +415,38 @@ SURVEY_RECIPE = {
 as (seeds, seed means), so the H3 table can print every candidate's one-op value beside its fresh one. The
 proposals' values are read from `SURVEY_REF` at render time."""
 
+ONE_OP = ("mix",)
+THREE_OPS = ("mix", "add", "multiply")
+
+
+def per_op_matched(name: str, seeds: int, title: str, ops: tuple[str, ...]) -> Condition:
+    """An un-anchored arm at the six-op lines per op and the recipe's step count. The corpus shrinks with the
+    op set, and the epoch count grows to fill the same steps, so what differs from the control is the op set
+    and how often each line repeats. The loader rounds steps per epoch, so the three-op arm lands two steps
+    short of 3,300; the conditions table prints the actual count.
+    """
+    n_lines = N_LINES * len(ops) // len(OPS)
+    epochs = round(EPOCHS * steps_per_epoch() / steps_per_epoch(n_lines))
+    return Condition(name, seeds, title, lam=0.0, ops=ops, n_lines=n_lines, epochs=epochs)
+
+
 RICHER_OP_ARM = (
-    Condition("ops-1", 3, "un-anchored, mix only", lam=0.0, ops=("mix",)),
-    Condition("ops-3", 3, "un-anchored, mix, add, multiply", lam=0.0, ops=("mix", "add", "multiply")),
+    Condition("ops-1-corpus", 3, "un-anchored, mix only, D2.1's corpus size", lam=0.0, ops=ONE_OP),
+    Condition("ops-3-corpus", 3, "un-anchored, mix, add, multiply, D2.1's corpus size", lam=0.0, ops=THREE_OPS),
+    per_op_matched("ops-1-per-op", 3, "un-anchored, mix only, six-op lines per op", ONE_OP),
+    per_op_matched("ops-3-per-op", 3, "un-anchored, mix, add, multiply, six-op lines per op", THREE_OPS),
 )
-"""Un-anchored models at one and three ops, on a corpus of the same size at the same step count, probed for
-the cube as ex-2.1.12 probed D2.1's; the control is the six-op point. Unscored (E4). Holding the line count
-fixed means the one-op model sees each `mix` pair six times as often, so a better cube at six ops would be a
-clean positive, and a worse one is confounded with lines per op."""
+"""Un-anchored models at one and three ops, probed for the cube as ex-2.1.12 probed D2.1's; the control is
+the six-op point of both arms. Unscored (E4). Every arm runs at the recipe's step count. The `corpus` arms
+keep D2.1's line count, so fewer ops means more lines per op; the `per-op` arms keep the six-op lines per op,
+so fewer ops means a smaller corpus repeated over more epochs. Corpus size, lines per op, and step count
+cannot all be held while the op set changes, and the two matchings put the remaining difference on opposite
+sides: a cube that is better at six ops in the corpus arm, or worse at six ops in the per-op arm, is read
+against the confound, and the pair together reads in both directions."""
 
 CONDITIONS = (CONTROL, CONTROL_SHORT, *CANDIDATES, *RICHER_OP_ARM)
 N_RUNS = sum(c.seeds for c in CONDITIONS)
-assert N_RUNS == 41
+assert N_RUNS == 47
 
 # --- The probe set ---------------------------------------------------------------------------
 
@@ -438,7 +484,8 @@ MARGIN_RATIO = 0.8
 """H2: "the recipe's seed-mean m_line on the mix lines is at least 0.8 of its ex-2.1.10 value"."""
 
 MARGIN_PARTIAL = 0.6
-"""H2 partial: "between 0.6 and 0.8 of it"."""
+"""H2 partial: "between 0.6 and 0.8 of it". H3's feasibility also reads it per run: a candidate with any seed
+below 0.6 of the reference m_line is not adopted, whatever its seed mean."""
 
 MEAN_ALIGN_GATE = 0.1
 """H2 and H3 (containment): "ᾱ, the mean alignment over all 216 colors at op1 on the mix lines, at most 0.1".
@@ -510,15 +557,23 @@ def equiv_band(stat: str, n_a: int = 5, n_b: int = 5, noise: dict[str, float] = 
 # the feasible set with no fallback named; it now falls to the full-length recipe, as an empty
 # feasible set already did. Verify: none of these changes which candidate wins in the case where
 # one feasible candidate leads by more than a band.
+# REVIEW: added a per-run m_line floor at the partial margin. The band is built from the frozen
+# per-run σ, so a candidate's own spread could not change its verdict, and a seed mean can win
+# with one seed well below the margin. A floor on the worst run is the same shape as the
+# retention and latch checks and reads cleanly at five seeds, where a fresh-σ gate would not.
+# The feasibility list is now split by what it is read on. Verify: the floor is read against
+# REF_M_LINE, the same reference as the seed-mean margin, and applies to the recipe arms too.
 SELECTION_RULE = """\
-Among the candidates (the recipe at both lengths and the three proposals), keep those feasible at fresh seeds \
-on every seed mean: task within the gate on every op against the control of the same length, containment, retention, no latched run, contrast at \
-least the partial floor, and grading r² no more than 0.10 below the full-length recipe's fresh value, clearing \
-that floor by at least one per-run σ. Among those, require contrast at the full gate, and take the highest \
+Among the candidates (the recipe at both lengths and the three proposals), keep those feasible at fresh seeds. \
+On the seed mean: task within the gate on every op against the control of the same length, containment, \
+contrast at least the partial floor, and grading r² no more than 0.10 below the full-length recipe's fresh \
+value, clearing that floor by at least one per-run σ. On every run: retention, no latch, and m_line at least \
+the partial margin of its ex-2.1.10 value. Among those, require contrast at the full gate, and take the highest \
 seed-mean m_line on the mix probe lines. Every candidate within one m_line band of that highest value ties \
 with it, and the tie goes to the larger grading margin, then to the full-length recipe, then to \
 `recipe-short`. If no other candidate is feasible, or none of the feasible candidates clears the full contrast \
-gate, the full-length recipe is adopted. Whichever point is adopted, the D2.2 experiments carry it."""
+gate, the full-length recipe is adopted, and if it is not itself feasible the report says which check it \
+missed beside the adoption. Whichever point is adopted, the D2.2 experiments carry it."""
 
 # --- Interventions ---------------------------------------------------------------------------
 
