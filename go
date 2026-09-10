@@ -6,6 +6,19 @@ SELF="${BASH_SOURCE[0]}"
 PROJECT_ROOT="$( cd -- "$( dirname -- "$SELF" )" &> /dev/null && pwd )"
 SCRIPT_DIR="$PROJECT_ROOT/scripts"
 
+# uv older than this can't parse the relative `exclude-newer` cooldown in
+# pyproject.toml: it silently drops the cutoff, re-resolves, and rewrites
+# uv.lock. Fail loudly instead. (`required-version` in [tool.uv] can't do this
+# job, because the same parse failure discards that whole table.)
+MIN_UV='0.11'
+if command -v uv >/dev/null 2>&1; then
+    have_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
+    if [[ "$(printf '%s\n%s\n' "$MIN_UV" "$have_uv" | sort -V | head -n1)" != "$MIN_UV" ]]; then
+        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv self update" >&2
+        exit 1
+    fi
+fi
+
 is_marimo_notebook() {
     [[ "${1:-}" == *.py && -f "${1:-}" ]] && grep -q 'marimo\.App(' "$1"
 }
