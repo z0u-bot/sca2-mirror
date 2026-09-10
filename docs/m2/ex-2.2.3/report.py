@@ -28,7 +28,16 @@ with app.setup(hide_code=True):
     import experiment as ex
     from mini.reports import report_bundle, use_publisher
     from mini.store import project_store
-    from mini.vis import AxesGrid, AxesRow, figure_html, light_dark, smooth_step, smooth_step_area, themed
+    from mini.vis import (
+        AxesGrid,
+        AxesRow,
+        figure_html,
+        light_dark,
+        smooth_step,
+        smooth_step_area,
+        smooth_step_band,
+        themed,
+    )
     from sca.anchoring import softmin_weights
     from sca.vis import CUBE_VIEWS, draw_cube_bound, grid_diameter, project_cube
     from sca.vis_probes import draw_traces
@@ -88,6 +97,16 @@ def load_npz(ref: str) -> dict[str, np.ndarray] | None:
         (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
         with np.load(path) as z:
             return {k: z[k] for k in z.files}
+
+
+@app.function(hide_code=True)
+def order_stat(a: np.ndarray, q: float, axis: int) -> np.ndarray:
+    """The *q*-th percentile as an order statistic, as `experiment.top_quantile` reads it: no interpolation,
+    so a monotone map of the values commutes with the quantile.
+    """
+    n = a.shape[axis]
+    k = int(np.ceil(n * (1 - q / 100)))
+    return np.take(np.sort(a, axis=axis), n - k, axis=axis)
 
 
 @app.function(hide_code=True)
@@ -309,6 +328,22 @@ class Results:
             nonred = self.arrays[f"{r['label']}/eval/{op}/dose"] <= ex.NONRED_DOSE + 1e-9
             out.append(softmin_weights(1.0 - cos[:, nonred, : ex.SPAN], r["tau"]).mean(axis=1))
         return np.stack(out)
+
+    def clean_alpha_band(self, cond: str, op: str, q: float = 99.0) -> tuple[np.ndarray, np.ndarray]:
+        """(lower, upper) signed tails of the clean alignment over the non-red lines, each (slices, positions)
+        and seed-meaned: the *q*-th percentile and its reflection.
+
+        The scorer stores only `alpha_q99_nonred`, the same percentile of |α|, which folds the two tails
+        together; the per-line alignments the eval stage stores keep the sign, on the same probe lines.
+        """
+        hi, lo = [], []
+        for r in self.runs(cond):
+            cos = self.arrays[f"{r['label']}/eval/{op}/alpha_lines"].astype(np.float32)
+            nonred = self.arrays[f"{r['label']}/eval/{op}/dose"] <= ex.NONRED_DOSE + 1e-9
+            a = cos[:, nonred]
+            hi.append(order_stat(a, q, axis=1))
+            lo.append(-order_stat(-a, q, axis=1))
+        return np.mean(lo, axis=0), np.mean(hi, axis=0)
 
     def latched(self, cond: str) -> np.ndarray:
         """Per run: the non-red group's op1 weight over the post-attention slices, above `LATCH_PI`."""
@@ -1501,6 +1536,8 @@ def _(res: Results):
         op: np.array([r["ops"][op]["clean"]["alpha_q99_nonred"] for r in res.scored(_c)], float).mean(0)
         for op in ex.OP_NAMES
     }
+    # The two signed tails behind each |α| above, from the per-line alignments the eval stage keeps.
+    _band = {op: res.clean_alpha_band(_c, op) for op in ex.OP_NAMES}
     _arr = {op: res.score(_c, op, _iv, "q99_alpha_nonred", None).mean(0) for op in ex.OP_NAMES}
     _ratio = {
         op: res.score(_c, op, _iv, "q99_write_nonred", None).mean(0) / np.arcsin(_clean[op]) for op in ex.OP_NAMES
@@ -1511,10 +1548,10 @@ def _(res: Results):
     @themed(
         name="h4-write-bound-maps",
         alt_text="""
-            A grid of thirty small panels, five rows for the residual slices with the embedding at the bottom and six columns for the ops, each over the six token positions. The shaded step is the clean 99th-percentile non-red alignment; the dashed line is the alignment arriving at the operator under projection, mostly inside the shading but above it at a few sites, notably the op word. The six columns look alike.
+            A grid of thirty small panels, five rows for the residual slices with the embedding at the bottom and six columns for the ops, each over the six token positions, drawn around a zero line. The shaded band spans the clean alignment's two signed tails over the non-red lines; at the color positions it straddles zero, leaning negative at the embedding and positive on op2 in the deeper slices, while at the op word and the equals sign it sits wholly above zero and pinches to a line at the embedding, where every non-red line shares one token. The dashed pair is the arriving alignment's magnitude envelope under projection, mirrored about zero. The six columns look alike.
         """,
         caption=f"""
-            **The bound and the write, per site and per op, for the recipe under <code>projection</code>.** For each op's probe lines, the 99th-percentile |α| over the non-red lines at each (slice, position), seed mean: solid is the clean map, whose arcsine is the bound; dashed is the alignment arriving at the operator, whose arcsine is the write. The embedding line is the same in both by construction. One row per slice with the embedding at the bottom, one column per op, and every panel on the same scale, so a write that pokes above its bound reads as the dashed line clearing the shaded step. Sites where the seed-mean write exceeds the seed-mean bound, per op: {", ".join(f"<code>{op}</code> {n}" for op, n in _over.items())} of 24 post-embedding sites.
+            **The bound and the write, per site and per op, for the recipe under <code>projection</code>, signed.** For each op's probe lines, at each (slice, position), seed mean. The shaded band runs from the 1st to the 99th percentile of the signed clean alignment over the non-red lines; the bound is the arcsine of whichever edge lies further from zero, so this is the map the earlier version drew folded onto one side. The dashed pair is the 99th-percentile |α| arriving at the operator, whose arcsine is the write, mirrored about zero because the scorer keeps only its magnitude. The embedding row matches the clean band by construction. One row per slice with the embedding at the bottom, one column per op, and every panel on the same scale, so a write that pokes above its bound reads as a dashed line clearing the further band edge. Sites where the seed-mean write exceeds the seed-mean bound, per op: {", ".join(f"<code>{op}</code> {n}" for op, n in _over.items())} of 24 post-embedding sites.
         """,
     )
     def _plot() -> plt.Figure:
@@ -1532,10 +1569,20 @@ def _(res: Results):
             for row in range(len(SLICE_NAMES)):
                 sl = len(SLICE_NAMES) - 1 - row  # the embedding at the bottom, as the profile figures draw it
                 ax = axes[row][col]
-                smooth_step_area(ax, x, _clean[op][sl], ramp=0.3, color=bound_c, alpha=light_dark(0.2, 0.26))
-                smooth_step(ax, x, _clean[op][sl], ramp=0.3, color=bound_c, lw=1.1)
-                smooth_step(ax, x, _arr[op][sl], ramp=0.3, color=write_c, lw=1.0, ls=(0, (2, 1.5)))
-                ax.set(ylim=(0, top), xlim=(-0.5, len(POS_NAMES) - 0.5), yticks=[0, round(top / 2, 2)])
+                lo, hi = _band[op][0][sl], _band[op][1][sl]
+                ax.axhline(0, c="#888", lw=0.5, alpha=0.5)
+                smooth_step_band(ax, x, lo, hi, ramp=0.3, color=bound_c, alpha=light_dark(0.2, 0.26), fillet=1.5)
+                for edge in (lo, hi):
+                    smooth_step(ax, x, edge, ramp=0.3, color=bound_c, lw=1.1, fillet=1.5)
+                for sign in (1, -1):
+                    smooth_step(
+                        ax, x, sign * _arr[op][sl], ramp=0.3, color=write_c, lw=1.0, ls=(0, (2, 1.5)), fillet=1.5
+                    )
+                ax.set(
+                    ylim=(-top, top),
+                    xlim=(-0.5, len(POS_NAMES) - 0.5),
+                    yticks=[-round(top / 2, 2), 0, round(top / 2, 2)],
+                )
                 ax.spines[:].set_visible(False)
                 ax.grid(axis="y", c="#888", alpha=0.2)
                 ax.tick_params(axis="x", length=0, labelsize=7)
@@ -1547,8 +1594,8 @@ def _(res: Results):
         from matplotlib.lines import Line2D
 
         handles = [
-            Line2D([], [], color=bound_c, lw=1.1, label="bound (clean)"),
-            Line2D([], [], color=write_c, lw=1.0, ls=(0, (2, 1.5)), label="write (projected)"),
+            Line2D([], [], color=bound_c, lw=1.1, label="clean α, 1st–99th percentile"),
+            Line2D([], [], color=write_c, lw=1.0, ls=(0, (2, 1.5)), label="±|α| arriving (projected)"),
         ]
         fig.legend(handles=handles, fontsize=6.5, frameon=False, ncol=2, loc="outside upper left")
         return fig
