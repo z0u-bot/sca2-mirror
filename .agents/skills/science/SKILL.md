@@ -14,7 +14,9 @@ Conventions:
 
 - Placeholders are admonitions marked `TODO`, one under each section's prediction. Each states what its figure or table will show (axes, panels); the prediction above it already says what pattern is expected and what a contrary result looks like, so the placeholder does not repeat them. The marker is greppable, so no placeholder survives to publication; results replace placeholders in place, so review reads as a prediction → observation diff.
 - Almost always, tabular data should be accompanied by a figure. Tables look like a wall of text to a human; charts are easier to interpret.
-- Hypotheses are falsifiable: state the measurement, the threshold, and which outcomes count as partial.
+- Hypotheses are falsifiable and plainly worded. Each is an expectation a colleague could restate from memory: what we expect to see, the one number we will look at, and what would change our mind. Reserve a hard gate, with a partial band and tie-breaks, for a hypothesis a decision hangs on (which operating point is adopted, whether a risk row closes); the others are predictions written down before the run and checked after it, in a sentence. Precision in the wording does not buy correctness in the design, and the trial-protocol register has cost days per experiment without catching the misses that mattered.
+- Where a selection rule adopts a point or a condition, it carries every gate the hypotheses do. A rule that checks most of them adopts a point that fails the rest (ex-2.2.3).
+- A result section reads as expectation, then what we saw, then what we make of it. The gate arithmetic goes in a `details` block or the method.
 - A prediction lives at the top of its own result section and nowhere else: no standalone `## Hypotheses` block. A reviewer reads them in sequence through the `Findings` index, and in a draft the sections are consecutive anyway, with only a placeholder between them. A block up front would state every gate a second time before its section states it again.
 - A constants-only `experiment.py` is marked `DESIGN_ONLY = True`. Landing the design constants — grid sizes, thresholds, schedules — as a module during preregistration lets the report import them instead of restating numbers the code will later own. But `tests/mini/test_experiments_e2e.py` globs every `docs/**/experiment.py` and asserts it loads into a named experiment with a callable `main(ctx)`, which a design module doesn't have yet; `DESIGN_ONLY = True` at module level skips that check. Delete the line in the same change that adds the DAG, or the implemented experiment silently loses its load coverage.
 - Freeze the hypotheses once the skeleton is agreed (immaterial edits aside), and say so in the report under "How to read this draft", quoting the commit — with the predictions spread over their sections, that hash is what says they were fixed in advance. Results replace placeholders, and anything conceived after seeing the data goes under "Exploratory analyses", marked as post hoc.
@@ -36,9 +38,10 @@ Example:
 ## Short name for H1 (H1)
 
 **H1.** The prediction: the measurement, the gate, the partial band, and what a contrary result would mean.
+<!-- Note: outdated; see todo/style/lighter-preregistration-hypotheses.md -->
 
 /// admonition | TODO
-What the figure or table will show (axes, panels).
+What the figure and table will show (axes, panels).
 ///
 ```
 
@@ -90,6 +93,8 @@ The human wants to be involved in the writing, so the skeleton is a review artif
 
 When results arrive, fill the report in order of stakes rather than all at once. The mechanical sections, where the number either clears its threshold or it doesn't, can be filled in one pass. Pause for a discussion round before writing the prose where interpretation lives, since that is the part the human most wants a hand in, and the part most likely to over-reach.
 
+Write the interpretive prose as an explanation first. Before touching the notebook, write the Findings and Discussion as a message to the human, as if explaining the results to them over lunch: lead with what we found in one plain sentence, say what each number means before giving it, use the same everyday words throughout (the model loses *red*; the answer stops depending on the red operand) rather than the statistic names, gloss each statistic once in a phrase, and say what we make of it and what we would do next. Paste that into the report as the first draft of those sections and add the template expressions afterwards. The polishing passes then run on the result. This is a workflow rule rather than a style rule, because the chat explanation is the register the report should have had from the first draft, and sentence-level polish does not change the register a draft was written in.
+
 Whatever you have written, run a review round over it before handing back to the human, covering the sections that are done. Say in the request which sections are in scope, so a `TODO` in a section whose turn hasn't come isn't read as an omission.
 
 Any prose you write gets two passes on the same turn, whether or not a review round is warranted: `prose-simplifier` to lower reader effort, then the `report-restructure` skill to give the result a shape that can be skimmed. Run them in that order: the simplifier makes dense sentences parseable, and the restructure pass then groups them and cuts what repeats. Stage your changes first so you can see what each pass did, then read the edits for correctness. Both get the path and line range and nothing else. This applies to a single filled-in section as much as to a whole draft, so treat it as a habit of writing rather than a step in the review. The sequence, and the checks each pass leaves to you, are in [references/review-passes.md](references/review-passes.md).
@@ -125,6 +130,8 @@ Directly under the tl;dr, and above the intro prose. Every preregistered hypothe
 ```md
 ## Findings
 
+<!-- Note: outdated; see todo/style/report-register-explain-it-over-lunch.md -->
+
 **H1 (task cost) — holds.** Largest `named_holdout` exact-match gap from
 control, across all seven conditions: 0.0013. Gate: 0.02.
 
@@ -133,7 +140,7 @@ anti-subspace effect (+0.141) is smaller than the op1-only effect (+0.221),
 not larger; the ordering holds within every seed.
 ```
 
-The tl;dr says which way it came out; this says what happened. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
+The tl;dr says which way it came out; this says what happened, in words that could be read aloud to a colleague. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
 
 Verdicts only. Interpretation, mechanism, and whether an outcome was named in advance belong to the analysis sections. Link each line to its section, so this doubles as the report's index. In a preregistration draft it is only that: one line per hypothesis, ID and short name linking to the section, verdict blank. That is where a reviewer sees every prediction in one place, and writing the verdicts in is the first thing to do when results land.
 

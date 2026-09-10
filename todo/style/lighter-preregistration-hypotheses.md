@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [methodology, reports, skills]
 opened: 2026-09-10
 ---
@@ -14,3 +14,5 @@ Concretely: (1) the science skill's preregistration template gets a short form a
 ## Notes
 
 **2026-09-10, Sandy, ex-2.2.3 review** — "I still think we should preregister, but I wonder if we can be less precise? Hypotheses more Thoughtworks/Fowler-like and less $1B-pharma-trial-like?" Agreed on the results-discussion side; this item is the plan.
+
+**2026-09-10, Claude** — the science skill's preregistration conventions now describe the lighter form (expectation, the one number, what would change our mind; hard gates only where a decision hangs on them), the section shape (expectation, read, what it means, with gate arithmetic in a details block or the method), and the rule that a selection rule carries every gate. The prereg-reviewer checks both. Left partial: the next preregistration is the trial, and the skill's example block still shows the long form, which is worth replacing with a short-form example once one exists.

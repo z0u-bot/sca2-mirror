@@ -22,6 +22,7 @@ Anti-patterns:
 - Adversarial or aggressive framing
 - Excessive use of lists, em dashes, and bold and italic text
 - Contrastive conclusions and verdict kickers
+- Statistic names standing in for the thing they measure, and verbs like "reads as" and "carries" where "is" or "has" would do
 - Committing to unplanned future work
 - Possessives on abstract terms
 
@@ -34,6 +35,8 @@ Anti-patterns:
 - Cut tangents; don't repeat information in several sections
 
 ## Clarity
+
+Write the explanation a colleague would get over lunch, and start from that draft. Lead with the finding in one plain sentence, say what a number means before giving it, and use the same everyday word for a thing throughout rather than switching to the statistic's name.
 
 Write plain English, as though explaining to an intelligent person with technical skill who is _not_ an expert in machine learning. Allow the reader to infer information from figures, context, and a few exemplar results; draw their attention to key details.
 

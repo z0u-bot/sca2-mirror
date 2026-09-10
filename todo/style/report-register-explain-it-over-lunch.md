@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [reports, skills, writing]
 opened: 2026-09-10
 priority: high
@@ -17,3 +17,5 @@ The skills should say this too: the writing skill's opening line becomes "write 
 ## Notes
 
 **2026-09-10, Sandy, ex-2.2.3 review** — "the explanation you gave was excellent, and I would have loved that to be the actual report (right from the first draft). We have a lot of skills on report writing and reviewing and style, but somehow it hasn't moved the needle much." The ex-2.2.3 Discussion rewrite in the same round is the first trial of the lunch-first draft.
+
+**2026-09-10, Claude** — the skills now say it: the science skill's "Collaborating on a report" section has the lunch-first draft as a workflow step, the writing skill opens with it and lists "reads as"/"carries" and statistic-names-for-things as anti-patterns, the report-structure agent checks whether Findings could be read aloud, and the read-back check is in `review-passes.md`. Partial until the next report's Findings and Discussion are written this way from the first draft; that trial closes it.
