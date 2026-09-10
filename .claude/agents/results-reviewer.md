@@ -25,6 +25,8 @@ Whether the experiment was worth running is settled; don't reopen it. The questi
 
 - Claims are proportionate to the evidence: one seed, one task, one architecture, in a synthetic setting, supports a narrower statement than the discussion often reaches for. Trim over-claiming rather than adding hedges.
 - Alternative explanations for the headline result are named and, where the data can, addressed.
+- A verdict that was never in doubt is not evidence for a mechanism. Where a scored statistic is the quantity the treatment optimizes, or a monotone function of it, the pass says only that the weight was large enough; a claim built on it ("the repulsive term contains ᾱ, so it explains the selectivity gain") outruns the data. Flag such a gate, and check the claim against a statistic the treatment does not touch by construction.
+- A factor's side effects are accounted for in the reading. Where a factor also changes a normalizer, a denominator, or the size of a set something is averaged over, a result attributed to the factor's named effect may belong to the side effect instead. Say so unless another arm separates the two, and name which arm does.
 - Negative and null results are reported as findings in their own right, with what they rule out.
 - The report should not prescribe future work, nor state plans we haven't made. "The next experiment will test X" — written in the present indicative, these read as established facts. The report should say what _this_ experiment demonstrated, and stop there. If a follow-up genuinely belongs in the text, mark it as a possibility, not a promise ("this could be tested by..."), and keep the claim to what we actually know.
 

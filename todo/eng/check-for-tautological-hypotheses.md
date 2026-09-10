@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [agents, methodology, skills]
 opened: 2026-07-31
+closed: 2026-09-10
 ---
 # Teach the skills and review agents to check for tautologies
 
@@ -10,6 +11,8 @@ Ex-2.1.7's H4(a) scored the containment of ᾱ in conditions carrying a term tha
 Same family, second instance, found the same day. Ex-2.1.7's op1-only factor is not the pure narrowing H3 reads it as: the anchor term normalizes by the _realized_ mask, so pulling one position instead of four divides the same λ among ~3.9× fewer positions and makes each ~3.9× stronger. The factor changes which positions are pulled and how hard, and nothing in the design said so. The reading survived only because the ceiling arm happens to disambiguate it (10× the per-position gradient made selectivity worse, so strength is not the active ingredient) — luck, not design. So the reviewer check should be broader than tautology: for each factor, enumerate everything it changes, not just the thing it is named for, and pay particular attention to normalizers, denominators, and anything averaged over a set whose size the factor alters. A useful prompt: "if I renamed this factor after its side effect instead of its intent, would the hypothesis still read as written?" The design-side fix here is to normalize by a fixed count rather than the realized mask, which `sca.anchoring` should probably offer.
 
 ## Notes
+
+**2026-09-10, Claude** — Done for the skill and both reviewer agents: `science` carries the two rules under Best practices (predictability-from-method as the test for a tautological gate; enumerate a factor's side effects, normalizers first), `prereg-reviewer` checks both per hypothesis and per factor, and `results-reviewer` carries the mirror checks for claims built on such gates. The fixed-count normalizer for `sca.anchoring` is split out as `todo/eng/anchor-term-fixed-count-normalizer.md`. I did not sweep earlier reports for the same shape; the lighter-hypotheses item notes a tautology was already caught in ex-2.2.2.
 
 **2026-09-09, housekeeping** — unstarted on all three fixes, and the shape of how it stayed unstarted is the useful part. Checked: neither `.agents/skills/science/SKILL.md` nor `.claude/agents/prereg-reviewer.md` nor `.claude/agents/results-reviewer.md` mentions the check in any form, and `src/sca/anchoring.py` still has no fixed-count normalizer beside the realized mask. What makes that worth recording is #144, which on 09-04 edited two of those three files — the science skill and `prereg-reviewer` — to land the findings-first skeleton. The files were open and the paragraph did not go in, so this reads as being missed rather than deferred on purpose, and the cheapest moment to fold it in is whenever either file is next edited.
 
