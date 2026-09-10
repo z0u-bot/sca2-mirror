@@ -15,3 +15,5 @@ Candidates, roughly in the order they bear on D2.2: (1) the diverse op set ([ite
 ## Notes
 
 **2026-09-10, ex-2.2.3 results discussion** — raised by Sandy after the ex-2.2.3 review: "we need to scout the terrain first", with the record kept plainly. The 20-seed recipe comparison (E6 of ex-2.2.3) was the first of these and ran as an addendum arm on the existing experiment, which is a cheap pattern worth reusing: add a condition, keep the frozen arms untouched, and label the section post hoc.
+
+**2026-09-10, Claude** — the round is [ex-2.2.4](/docs/m2/ex-2.2.4/report.py). Candidate (1), the op set, is in; it needed no training. The record for it proposes a commutative table and a dependence filter for the removal statistic. (2) to (4) are still to run and land as further sections.

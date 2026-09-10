@@ -11,6 +11,7 @@ The table is the specification ex-2.2.3 preregistered; that experiment's design 
 
 from __future__ import annotations
 
+import colorsys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import NamedTuple
@@ -63,11 +64,17 @@ class Op:
 
     name: str
     """The op's name in code and prose, and its surface form: the one token between the operands."""
-    channel: Callable[[int, int], float]
+    channel: Callable[[int, int], float] | None
+    """The per-channel rule on the 0..15 scale, or None for an op whose rule reads the whole color."""
     rule: str
-    """The per-channel rule, for the method's table."""
+    """The rule, for the method's table."""
+    color: Callable[[Rgb, Rgb], tuple[float, float, float]] | None = None
+    """A whole-color rule on the 0..15 scale, for the ops that go through another color space."""
 
     def raw(self, a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        if self.color is not None:
+            return self.color(a, b)
+        assert self.channel is not None
         r, g, b_ = (self.channel(x, y) for x, y in zip(a, b, strict=True))
         return (r, g, b_)
 
@@ -99,6 +106,112 @@ All six are commutative, so operand order carries no information, as in D2.1. A 
 MIX, ADD, SCREEN, MULTIPLY, LIGHTEN, DARKEN = OPS
 OP_NAMES = tuple(op.name for op in OPS)
 OP_BY_NAME = {op.name: op for op in OPS}
+
+
+# --- Candidate ops, scouted for the next grammar ---------------------------------------------
+# Not in `OPS`: ex-2.2.3's table, vocabulary, and memo keys stay as they were. Ex-2.2.4 reads these on
+# the grid, with no training, to decide which the anchored-op experiments should run on.
+
+
+def _hsv(c: Rgb) -> tuple[float, float, float]:
+    return colorsys.rgb_to_hsv(*(x / TOP for x in c))
+
+
+def _rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
+    r, g, b = colorsys.hsv_to_rgb(h % 1.0, s, v)
+    return (r * TOP, g * TOP, b * TOP)
+
+
+def _hsv_take(which: int) -> Callable[[Rgb, Rgb], tuple[float, float, float]]:
+    """Op1's HSV with one component (0 = H, 1 = S, 2 = V) taken from op2: Krita's HSV blend modes."""
+
+    def rule(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        hsv = list(_hsv(a))
+        hsv[which] = _hsv(b)[which]
+        return _rgb(*hsv)
+
+    return rule
+
+
+def _hsv_mix(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+    """`mix` in HSV: the chroma-weighted circular mean of the hues, and the means of S and V.
+
+    A gray operand has no hue, so its hue gets no weight; when neither operand has any, the hue is op1's.
+    """
+    (ha, sa, va), (hb, sb, vb) = _hsv(a), _hsv(b)
+    wa, wb = sa * va, sb * vb
+    z = wa * np.exp(2j * np.pi * ha) + wb * np.exp(2j * np.pi * hb)
+    h = float(np.angle(z) / (2 * np.pi)) if abs(z) > 1e-9 else ha
+    return _rgb(h, (sa + sb) / 2, (va + vb) / 2)
+
+
+def _lum(c: np.ndarray) -> float:
+    return float(0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2])
+
+
+def _clip_color(c: np.ndarray) -> np.ndarray:
+    lum, lo, hi = _lum(c), c.min(), c.max()
+    if lo < 0:
+        c = lum + (c - lum) * lum / (lum - lo)
+    if hi > TOP:
+        c = lum + (c - lum) * (TOP - lum) / (hi - lum)
+    return c
+
+
+def _set_lum(c: np.ndarray, lum: float) -> np.ndarray:
+    return _clip_color(c + (lum - _lum(c)))
+
+
+def _set_sat(c: np.ndarray, sat: float) -> np.ndarray:
+    lo, hi = c.min(), c.max()
+    return (c - lo) * sat / (hi - lo) if hi > lo else np.zeros(3)
+
+
+def _w3c(mode: str) -> Callable[[Rgb, Rgb], tuple[float, float, float]]:
+    """The non-separable blend modes of the W3C compositing spec (Photoshop's *hue*, *saturation*,
+    *luminosity*), with op1 as the backdrop and op2 as the source. `sat` is max − min and `lum` the
+    Rec. 601 weights, so these are not HSV; a gray source under *hue* gives a gray of the backdrop's lum.
+    """
+
+    def rule(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        cb, cs = np.array(a, float), np.array(b, float)
+        match mode:
+            case "hue":
+                out = _set_lum(_set_sat(cs, cb.max() - cb.min()), _lum(cb))
+            case "saturation":
+                out = _set_lum(_set_sat(cb, cs.max() - cs.min()), _lum(cb))
+            case _:
+                out = _set_lum(cb, _lum(cs))
+        r, g, b_ = (float(v) for v in out)
+        return (r, g, b_)
+
+    return rule
+
+
+CANDIDATES = (
+    Op("difference", lambda x, y: abs(x - y), "|x − y|"),
+    Op("exclusion", lambda x, y: x + y - 2 * x * y / TOP, "x + y − 2xy / 15"),
+    Op("hsvmix", None, "mean in HSV: circular mean of H, means of S and V", color=_hsv_mix),
+    Op("hue", None, "W3C hue: op2's hue at op1's sat and lum", color=_w3c("hue")),
+    Op("saturation", None, "W3C saturation: op2's sat at op1's hue and lum", color=_w3c("saturation")),
+    Op("luminosity", None, "W3C luminosity: op2's lum at op1's hue and sat", color=_w3c("luminosity")),
+    Op("hue-hsv", None, "op2's H at op1's S and V", color=_hsv_take(0)),
+    Op("sat-hsv", None, "op2's S at op1's H and V", color=_hsv_take(1)),
+    Op("value-hsv", None, "op2's V at op1's H and S", color=_hsv_take(2)),
+)
+"""Candidates for a more diverse table, each snapped to the grid like the ops of `OPS`.
+
+Three are per-channel and commutative: `difference` and `exclusion` (the blend modes of those names), and
+`hsvmix`, which is `mix` done in HSV. The other six take one attribute of op2 at the rest of op1, so they
+are the first ops where operand order carries information: the W3C trio (Photoshop's non-separable modes)
+and the HSV trio (Krita's *Hue HSV*, *Saturation HSV*, *Value*). All are total on the grid."""
+
+CANDIDATE_BY_NAME = {op.name: op for op in CANDIDATES}
+
+
+def commutativity(op: Op) -> float:
+    """The fraction of unordered pairs on which swapping the operands leaves the answer unchanged."""
+    return sum(op(a, b) == op(b, a) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
 def colors() -> list[Rgb]:
@@ -137,17 +250,17 @@ def agreement(p: Op, q: Op) -> float:
     return sum(p(a, b) == q(a, b) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
-def relevance(anchored: Op) -> dict[int, float]:
+def relevance(anchored: Op, ops: tuple[Op, ...] = OPS) -> dict[int, float]:
     """How often reading the op word is worth something on the anchored op's lines.
 
-    For a line, count the *other* ops whose answer equals the anchored op's. At 0 the answer names the op;
-    at k the op word only rules out 5 − k of the six. Returned as {k: fraction of lines}. The D2.2 design asks
-    for this per candidate anchored op, under the table's own rounding.
+    For a line, count the *other* ops in the table whose answer equals the anchored op's. At 0 the answer
+    names the op; at k the op word only rules out n − 1 − k of the n. Returned as {k: fraction of lines}.
+    The D2.2 design asks for this per candidate anchored op, under the table's own rounding.
     """
-    counts = np.zeros(len(OPS), dtype=int)
+    counts = np.zeros(len(ops), dtype=int)
     for a, b in unordered_pairs():
         answer = anchored(a, b)
-        counts[sum(op(a, b) == answer for op in OPS if op is not anchored)] += 1
+        counts[sum(op(a, b) == answer for op in ops if op is not anchored)] += 1
     return {k: float(c) / len(unordered_pairs()) for k, c in enumerate(counts) if c}
 
 

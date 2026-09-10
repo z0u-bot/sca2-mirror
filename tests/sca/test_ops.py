@@ -109,3 +109,39 @@ def test_encode_and_roundtrip():
     )
     sets = ops.eval_sets(3, 0, ops=(ops.MIX,))
     assert ops.load_lines(ops.dump_lines(sets)) == sets
+
+
+@pytest.mark.parametrize(
+    ("name", "a", "b", "expected"),
+    [
+        ("difference", RED, GREEN, (15, 15, 0)),
+        ("difference", (3, 15, 15), WHITE, (12, 0, 0)),  # redder than both operands
+        ("exclusion", (9, 9, 9), (9, 9, 9), (6, 6, 6)),  # 18 − 162/15 = 7.2 → 6
+        ("hsvmix", RED, GREEN, (15, 15, 0)),  # hues 0° and 120° average to 60°: yellow
+        ("hue", (15, 15, 0), GREY, (12, 12, 12)),  # a gray source has no hue: gray at the backdrop's lum
+        ("hue-hsv", RED, GREEN, GREEN),
+        ("hue-hsv", GREEN, RED, RED),  # operand order carries information
+        ("value-hsv", GREY, RED, WHITE),  # gray at full value is white
+    ],
+)
+def test_candidate_ops(name, a, b, expected):
+    assert ops.CANDIDATE_BY_NAME[name](a, b) == expected
+
+
+def test_candidates_are_total_and_snapped():
+    grid = set(ops.colors())
+    for op in ops.CANDIDATES:
+        assert all(op(a, b) in grid for a, b in ops.unordered_pairs()[::211]), op.name
+
+
+def test_commutativity():
+    assert ops.commutativity(ops.MIX) == 1.0
+    assert ops.commutativity(ops.CANDIDATE_BY_NAME["difference"]) == 1.0
+    assert ops.commutativity(ops.CANDIDATE_BY_NAME["hue-hsv"]) < 0.05
+
+
+def test_relevance_over_a_wider_table():
+    table = ops.OPS + ops.CANDIDATES[:2]
+    dist = ops.relevance(ops.MIX, table)
+    assert pytest.approx(sum(dist.values())) == 1.0
+    assert max(dist) < len(table)

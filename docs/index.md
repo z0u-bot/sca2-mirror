@@ -197,3 +197,11 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 
     <!-- mini:figures ./m2/ex-2.2.3/report.py -->
+
+- [2.2.4. A scouting round before the anchored-op experiments](./m2/ex-2.2.4/report.py)
+
+    A scouting pass over the open questions ex-2.2.3 left, no hypotheses and no training: each section runs the cheapest read of one question and says whether it changes the D2.2 design. The first covers the op set. Nine candidate ops are read on the grid beside the current six: where their answers land, how evenly they spread, whether the answer depends on the red operand, and how often the op word matters. The hue, saturation, and brightness blend modes spread their answers well and are the first ops where operand order carries information, and they are no more sensitive to the red operand than the saturating ops; three commutative ops (`difference`, `exclusion`, and `mix` done in HSV) spread and depend on both operands. Proposed table: drop `add`, add those three. The E8 dependence rule turns out to read rounding as much as the op.
+
+    <span class="tags">`scouting` `multi-op` `grammar`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.4/report.py -->
