@@ -94,7 +94,7 @@ Utilities and setup:
 
 - In general, put imports and constants in a setup cell.
 - Put utility functions in their own reusable cells. Don't put them in the setup cell, or editing a function would invalidate every cell in the notebook.
-- Instead of returning function closures from a cell, use a reusable class definition.
+- Instead of returning function closures from a cell, use a reusable class definition. Prefer smaller classes so edits invalidate fewer cells.
 
 ```python
 with app.setup(hide_code=True):
