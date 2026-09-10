@@ -243,20 +243,34 @@ class Results:
 
 
 @app.cell(hide_code=True)
-def _():
-    mo.md(r"""
+def _(e3: dict[str, dict[str, dict[str, np.ndarray]]], res: Results):
+    _ops = list(ex.ex223.OP_NAMES)
+    _em_floor = min(res.em(_c, _op).mean() for _c in ARMS for _op in _ops)
+    _ml = {_c: res.stat(_c, "m_line") for _c in ARMS}
+    _pilot_ml = [_ml[_c].mean() for _c in ARMS if _c != ex.REFERENCE]
+    _ref = _ml[ex.REFERENCE]
+    _ans_w = {_c: float(res.profile(_c, KEYING[_c])[:, 1:, 4].mean()) for _c in ARMS}
+    _d_ans = {_c: e3[_c]["multiply"]["ans"] for _c in ARMS}
+    _proj_mul = [res.score(_c, "multiply", PROJECTION, "acc", "redder").mean() for _c in ARMS]
+    _proj_mix = [res.score(_c, MIX, PROJECTION, "acc", "redder").mean() for _c in ARMS]
+    _deficit = [res.deficit(_c, MIX, PROJECTION).mean() for _c in ARMS]
+    mo.md(rf"""
     # Pilot: the whole-span labeller
 
     /// tip |
     <!-- tl;dr -->
-    A scouting run, no gates. Ex-2.2.3's labeller reads only the operands and pulls only the prompt span, so a line whose answer is the reddest thing in it never draws a label for that answer and is never pulled there. We retrained the adopted point under labellers that also read the answer, also pull the whole line, or both, and read where the pull lands, what happens on the redder-than-both lines, and what it costs.
+    A scouting run, with no gates. The labeller in ex-2.2.3 reads only the operands, and pulls only the prompt span. So on a line whose answer is the reddest thing in it, that answer never draws a label and nothing ever pulls its position. We retrained the adopted point under labellers that also read the answer, or also pull the whole line, or both.
+
+    Pulling the whole line puts between a tenth and a quarter of the pull on the answer, and doubles the alignment the redder lines have there, at no cost to the task or to placement. Reading the answer changes nothing visible. Neither change makes the answers on those lines depend on the axis, because the answer is read out at `=`, one position before the pull lands.
     ///
 
     ## Observations
 
-    /// admonition | TODO
-    One line per observation, each with its deciding number and the noise it was read against.
-    ///
+    - **No task cost.** Held-out exact match is at least {_em_floor:.3f} on every op of every arm, the same level as the twenty production seeds ([table](#task-cost)).
+    - **Placement stays in the production band.** Under the labeller of each arm, m_line runs {min(_pilot_ml):.3f}–{max(_pilot_ml):.3f}, against {_ref.mean():.3f} <span class='range'>±{(_ref.max() - _ref.min()) / 2:.3f}</span> on `{ex.REFERENCE}`. Lead, contrast, grading, latch and retention behave the same way ([table](#where-the-pull-lands)).
+    - **The span moves the pull; the keying does not.** With a whole-line pull, the softmin weight on the answer role, averaged over the four residual slices, is {_ans_w["line-whole"]:.2f} on `line-whole` and {_ans_w["either-whole"]:.2f} on `either-whole`, against {_ans_w[ex.REFERENCE]:.2f} on production. `line-prompt` pulls only the prompt span, and sits at {_ans_w["line-prompt"]:.2f} with the production profile ([figure](#where-the-pull-lands)).
+    - **The redder lines carry more redness at the answer under the whole-line pull.** On the redder lines of `multiply`, Δα at the answer is {_d_ans["line-whole"].mean():.2f} and {_d_ans["either-whole"].mean():.2f} on the two whole-line arms, {_d_ans["line-prompt"].mean():.2f} on `line-prompt`, and {_d_ans[ex.REFERENCE].mean():.2f} <span class='range'>±{(_d_ans[ex.REFERENCE].max() - _d_ans[ex.REFERENCE].min()) / 2:.2f}</span> on production. At `=` and at the newline, nothing moves ([figure](#the-redder-than-both-lines)).
+    - **Projection still leaves those answers intact on every arm.** Across the four arms, redder-line accuracy under `projection` is {min(_proj_mul):.2f}–{max(_proj_mul):.2f} on `multiply` and {min(_proj_mix):.2f}–{max(_proj_mix):.2f} on `mix`. Red-line removal and the non-red `mix` deficit ({min(_deficit):.3f}–{max(_deficit):.3f}) are unchanged within the noise of two or three seeds ([table](#suppression-and-selectivity)).
     """)
     return
 
@@ -560,9 +574,19 @@ def _():
     mo.md(r"""
     ## What we make of it
 
-    /// admonition | TODO
-    What each corner bought and cost, whether the answer position stops being blind, and what the whole-span item should do next.
-    ///
+    The blind span has two halves, and the pilot separates them: the keying (does a line whose answer is the reddest thing in it draw a label at all?) and the span (can the answer position be pulled once the line has drawn?). The profiles say the span is what moves the pull. With six roles the softmin puts between a tenth and a quarter of its weight on the answer at every depth, whichever slots draw, and answer-drawing keying with a prompt-span pull reproduces the production profile.
+
+    On the `mix` probe lines that is what we would expect the mellowmax to do: a labelled line has a red operand and so a reddish answer, and the answer position is about as cheap to align as the operand.
+
+    The extra alignment does not make the answer depend on the axis. Under `projection` the redder lines keep their answers on every arm, at the production rate. The reason is the causal structure of the model rather than the labeller: the answer token is predicted from the stream at `=`, and the stream at the answer position feeds only the newline. So an anchor at the answer position sits downstream of the readout it might have changed, and no labeller that pulls there can close the gap E3 found.
+
+    Δα at `=` could close it, but it is small on every arm and unchanged. The redder lines lose nothing under `projection` because the operands that compute the answer are not red, and so not on the axis; ex-2.2.3 gave the same reading of this table.
+
+    For D2.2 the whole-line pull is harmless: no task cost, placement within band, and free to adopt when the document shape calls for it. But nothing we read here recommends it for the anchored-op experiments. There the prompt-span pull keeps the pulled positions away from the positions the answer is read from, and that separation is what makes the `=` and operand reads interpretable. So we keep the production labeller.
+
+    If the whole-line pull is adopted later, the number to watch is containment: ᾱ at op1 is a little higher on both whole-line arms than on production, inside the twenty-seed band but on its upper side. For M3 the lesson is that a document-level label will put alignment on positions that carry the concept as an output, and an intervention that aims to change behaviour has to reach the positions whose stream feeds the readout.
+
+    What we would do differently: a single arm, `line-whole` against production, answers the question. Also, the one place an answer-position pull could act causally is the prediction of the newline, and the scorer in ex-2.2.3 does not read that; a follow-up that cares would add it.
 
     ## Method notes
 

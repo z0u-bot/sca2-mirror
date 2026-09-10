@@ -167,20 +167,57 @@ class Results:
 
 
 @app.cell(hide_code=True)
-def _():
-    mo.md(r"""
+def _(res: Results):
+    def _hs(c: str, op: str, k: str) -> float:
+        return float(res.round_stat(c, op, "holdout", k).mean())
+
+    _ceil = {op: _hs("control-near", op, "ceiling") for op in ROUNDED_OPS}
+    _gap = max(
+        abs(_hs(_c, op, "expected_em") - _ceil[op]) for _c in ("control-stoch", "recipe-stoch") for op in ROUNDED_OPS
+    )
+    _draw_se = max(np.sqrt(_ceil[op] * (1 - _ceil[op]) / _hs("control-stoch", op, "n")) for op in ROUNDED_OPS)
+    _pm = {
+        op: (_hs("control-stoch", op, "p_mode_rounded"), _hs("control-stoch", op, "ceiling_rounded"))
+        for op in ROUNDED_OPS
+    }
+    _kl = [_hs(_c, op, "kl_rounded") for _c in ("control-stoch", "recipe-stoch") for op in ROUNDED_OPS]
+    _kl_near = [_hs("control-near", op, "kl_rounded") for op in ROUNDED_OPS]
+    _supp = min(_hs(_c, op, "support_rounded") for _c in ("control-stoch", "recipe-stoch") for op in ROUNDED_OPS)
+    _mode_mix = _hs("control-stoch", "mix", "em_mode_rounded")
+    _mode_rest = [_hs("control-stoch", op, "em_mode") for op in ("screen", "multiply")]
+    _ml, _ml_p = res.stat(res.runs("recipe-stoch"), "m_line"), res.stat(res.prod_runs("recipe-short"), "m_line")
+    _iv = ex.ex223.PROJECTION.name
+    _sc, _sp = res.scored("recipe-stoch"), res.prod_scored("recipe-short")
+    _clean_mul = res.score(_sc, "multiply", None, "acc", "red").mean()
+    _redder = {
+        n: (
+            res.score(s, "multiply", None, "acc", "redder").mean(),
+            res.score(s, "multiply", _iv, "acc", "redder").mean(),
+        )
+        for n, s in (("stoch", _sc), ("prod", _sp))
+    }
+    _g = res.metrics["grammar"]
+    _dredder = {op: _g[op]["redder_stochastic"] / _g[op]["redder_nearest"] - 1 for op in ROUNDED_OPS}
+    _r2 = {n: res.r2(n)[:, :, 3:5, 2].mean((0, 3)).max(0) for n in ("control-stoch", "control-near")}
+    mo.md(rf"""
     # Pilot: stochastic rounding of off-grid answers
 
     /// tip |
     <!-- tl;dr -->
-    A scouting run, no gates. We retrained the six-op grammar's un-anchored control and the adopted recipe on a corpus whose off-grid answers round *stochastically* (the upper level with probability equal to the fraction of the way up), and read what that does to the exact-match ceiling, to where the model puts its answer mass, to anchoring, and to the redder-than-both counts.
+    A scouting run, no gates. We retrained two models on a new corpus: the un-anchored control for the six-op grammar, and the adopted recipe. In this corpus an answer that lands between grid levels rounds *stochastically*, going to the upper level with probability equal to how far up it sits. The model learns the rule's answer distribution rather than a rounding: it puts as much mass on each candidate as the coin does, so exact match against a drawn answer sits at the ceiling the rule sets. Read the expected exact match and the calibration instead. Anchoring is unchanged. The geometry of the answer looked no more graded, though the probes were on lines that never round.
     ///
 
     ## Observations
 
-    /// admonition | TODO
-    One line per observation, each with its deciding number and the noise it was read against.
-    ///
+    - **The models reach the ceiling a stochastic target sets.** Expected exact match on the held-out pairs sits on the holdout ceiling on `mix`, and within {_gap:.2f} of it on `screen` and `multiply`, for the control and the recipe alike ([table](#exact-match-against-a-moving-target)). Exact match against the drawn answer adds the noise of a single draw, about ±{_draw_se:.2f} over {int(_hs("control-stoch", "mix", "n"))} lines. Model seeds share that noise, so it does not average away.
+    - **The answer distribution is calibrated to the rule.** On the rounded held-out lines the control puts {_pm["mix"][0]:.2f} / {_pm["screen"][0]:.2f} / {_pm["multiply"][0]:.2f} of its mass on the mode for `mix` / `screen` / `multiply`, against {_pm["mix"][1]:.2f} / {_pm["screen"][1]:.2f} / {_pm["multiply"][1]:.2f} for the rule. KL from the rule[^kl] runs {min(_kl):.2f}–{max(_kl):.2f} nats on the stochastic arms, against {min(_kl_near):.1f}–{max(_kl_near):.1f} on the nearest-rounded control, which commits to one level. At least {_supp:.3f} of the mass is on the candidate colors ([figure](#exact-match-against-a-moving-target)).
+    - **Exact match against the mode is an argmax read, and on `mix` a coin toss.** It is {_mode_rest[0]:.2f} / {_mode_rest[1]:.2f} on `screen` / `multiply`, and {_mode_mix:.2f} on the rounded pairs of `mix`, where half-way ties make the mode arbitrary.
+    - **Anchoring does not notice the corpus.** The m_line of `recipe-stoch` is {_ml.mean():.3f} <span class='range'>±{(_ml.max() - _ml.min()) / 2:.3f}</span>, against {_ml_p.mean():.3f} <span class='range'>±{(_ml_p.max() - _ml_p.min()) / 2:.3f}</span> in production. Every other placement statistic is inside the seed band of production ([table](#anchoring-on-the-stochastic-corpus)).
+    - **Suppression reads shift through their clean baseline.** On the nearest-rounded probe lines of `multiply`, the clean red-line accuracy of the recipe is {_clean_mul:.2f}: the argmax of a calibrated model lands on the nearest level only where the mode is clear. The redder lines go {_redder["stoch"][0]:.2f} → {_redder["stoch"][1]:.2f} under `projection`, against {_redder["prod"][0]:.2f} → {_redder["prod"][1]:.2f} in production. On `mix`, whose probe lines are on-grid, nothing moves.
+    - **Redder-than-both counts rise on the ops that round up.** With no model in the loop, the expected count changes by {_dredder["screen"]:+.1%} on `screen`, {_dredder["multiply"]:+.1%} on `multiply`, and {_dredder["mix"]:+.1%} on `mix` ([table](#the-grammar-under-each-rounding)).
+    - **No clearer gradedness at the answer, on probes that could not show it.** Peak strict R² of the answer RGB over the slices is {_r2["control-stoch"][0]:.2f} at `=` and {_r2["control-stoch"][1]:.2f} at the answer on the stochastic control, against {_r2["control-near"][0]:.2f} and {_r2["control-near"][1]:.2f} on the nearest one. At the deep slices, the two nearest-rounded seeds differ from each other by more than the corpora differ. The probe lines come from `mix`, which never rounds ([figure](#the-answers-geometry)).
+
+    [^kl]: Kullback–Leibler divergence, in nats: how much surprise you take on average by predicting with the model's distribution when the rule's is the truth. Zero means the two match.
     """)
     return
 
@@ -310,7 +347,7 @@ def _(res: Results):
         axes[0].legend(fontsize=7, loc="lower left", frameon=False)
         return fig
 
-    _plot()
+    mo.Html(_plot())
     return
 
 
@@ -324,14 +361,22 @@ def _(res: Results):
                 [
                     f"<code>{_c}</code>",
                     f"<code>{_op}</code>",
-                    f"{res.metrics['grammar'][_op]['ceiling']:.3f}",
+                    f"{res.round_stat(_c, _op, 'holdout', 'ceiling').mean():.3f}",
                     span2(res.em(res.runs(_c), _op)),
                     span2(res.round_stat(_c, _op, "holdout", "expected_em")),
                     span2(res.round_stat(_c, _op, "holdout", "em_mode")),
                     span2(res.round_stat(_c, _op, "holdout", "em_mode_rounded")),
                 ]
             )
-    _head = ["condition", "op", "ceiling", "EM vs drawn", "expected EM", "EM vs mode", "EM vs mode, rounded pairs"]
+    _head = [
+        "condition",
+        "op",
+        "holdout ceiling",
+        "EM vs drawn",
+        "expected EM",
+        "EM vs mode",
+        "EM vs mode, rounded pairs",
+    ]
     mo.Html(
         table_html(
             _head,
@@ -392,7 +437,7 @@ def _(res: Results):
         axes[0].legend(fontsize=7, frameon=False, loc="upper left")
         return fig
 
-    _plot()
+    mo.Html(_plot())
     return
 
 
@@ -521,7 +566,7 @@ def _(res: Results):
     @themed(
         name="answer-r2",
         alt_text="""
-            Two panels, one for the equals position and one for the answer position, each with the five residual-stream slices on the horizontal axis and strict-holdout R-squared from 0 to 1 on the vertical. Lines for the stochastic-corpus control and the nearest-rounded control track each other closely in both panels, with production's full-length control pale beside them.
+            Two panels, one for the equals position and one for the answer position, each with the five residual-stream slices on the horizontal axis and strict-holdout R-squared from 0 to 1 on the vertical. In the equals panel the stochastic-corpus control sits at or above the nearest-rounded control at every slice, peaking near 0.9 at slice 2. In the answer panel the two overlap through slice 2 and fall together after it, with the two nearest-rounded seeds far apart at the deepest slice. Production's full-length control is pale beside them, lower in both panels.
         """,
         caption="""
             **Strict-holdout R² of the answer's RGB, by slice, at `=` and at the answer position.** Mean over the three channels; one line per seed. Production's `control` ran twice as long as the two pilot arms.
@@ -544,7 +589,7 @@ def _(res: Results):
         axes[0].legend(fontsize=7, frameon=False, loc="upper left")
         return fig
 
-    _plot()
+    mo.Html(_plot())
     return
 
 
@@ -553,9 +598,19 @@ def _():
     mo.md(r"""
     ## What we make of it
 
-    /// admonition | TODO
-    What we would do differently, and whether this changes the D2.2 design: which statistic to read under a stochastic target, and whether the variant earns a place in an anchored-op experiment.
-    ///
+    A model trained on a coin-flip target learns the coin. Its answer distribution mirrors the one the rule defines, so the ceiling the item asked about is a fact about the corpus, and the model sits on it. That settles question (a).
+
+    Exact match against the drawn answer is the wrong statistic twice over: it is capped, and it carries the noise of a single draw that every seed shares. Read instead the expected exact match against the holdout ceiling, the calibration of the answer mass (P(mode) against the same quantity for the rule, or the KL), and, on ops without ties, exact match against the mode. The off-grid channels of `mix` are always half-way ties, so there the mode read is a coin toss and the calibration read is the one to keep.
+
+    The corpus changes nothing on the prompt side. The labeller reads operands, the anchor pulls the prompt span, and the placement statistics on the stochastic corpus match production to the third decimal.
+
+    The answer side does move. Every clean accuracy on a rounded line falls to the level a calibrated argmax can reach, and the suppression reads follow it down. They are still a deficit measured from clean, which the contract already handles, and the redder lines go on holding their answers under `projection` at the same ratio as production.
+
+    Redder-than-both counts on `screen` and `multiply` rise by a fifth, because a line that would round down under nearest rounding sometimes rounds up. An E3 on those ops would have more lines to read and the same finding.
+
+    Question (b), whether the representation of the answer becomes more graded, is still open. The cube probes come from ex-2.2.3, which runs them on the on-grid lines of `mix`, where nothing rounds. A pilot that could answer it would probe the rounded lines of `screen` or `multiply` and compare the spread of the answer distribution against the raw value: a graded representation would show up as a smooth function of the odds of the coin.
+
+    For D2.2 we would keep nearest rounding: it keeps every accuracy read simple, and the anchored-op experiments read the prompt side, where the corpus makes no difference. What the variant adds, a calibrated answer distribution, is not something those experiments ask about. It earns a place when a question is about the representation of the answer itself, and then it comes with the reads above and probes on the lines that round.
 
     ## Method notes
 
