@@ -1,7 +1,6 @@
 ---
-status: open
+status: done
 tags: [D2.2, task-grammar]
-priority: high
 ---
 # Make the operation a variable before D2.2
 
@@ -20,3 +19,5 @@ Still the only code-shaped item on the shortlist, still unstarted, and I re-chec
 **2026-09-01, design review** — two corrections to the 08-30 note. The design's latest revision dropped the "anchor `screen` first" decision: the choice of anchored op is now recorded as open until this item lands, so read the design's Decisions section rather than that note. And the gradedness rationale was wrong, checked numerically: with round-to-nearest on the 0..15 grid, *all three* ops depart from `mix` on 98–99% of pairs (the only sizable agreement anywhere is `add`–`screen`, ≈36% of pairs, at low intensities and saturation), so *op-relevance* occupies {0, ½, ¾} at roughly 1%/35%/64% of lines when anchoring `add` or `screen`, and is nearly binary (98% of lines at ¾) when anchoring `mix` or `multiply`. The numbers shift a little with the rounding rule this item defines, so the design now asks for the relevance distribution per candidate anchored op to be computed and quoted when the table lands; partly because of this, the design's dose axis moved from stimulus (relevance) to intervention strength.
 
 **2026-09-08, ex-2.2.3 prereg** — the op table is specified in [ex-2.2.3's design module](/docs/m2/ex-2.2.3/experiment.py) as `mix`, saturating `add`, `screen`, `multiply`, `lighten` (per-channel max), and `darken` (per-channel min), each computed on the 0..15 scale and snapped to the nearest level of the six-level grid, the rounding rule this item and the design's deps section ask for. (A first draft of the prereg kept D2.1's closed-pair rule, under which `screen` and `multiply` are degenerate, and dropped them; review restored them with the rounding rule.) The ops as words, the `op` field, (op, pair) bookkeeping, and the kept infix frame are the prerequisite that prereg's method names; implement to that module's `Op` table so the report's rendered counts and the data code agree. Relevance distributions per candidate anchored op render in that report's method.
+
+**2026-09-09, landed** — `src/sca/data/ops.py` is the grammar module: the six-op table from ex-2.2.3's prereg (each op computed on the 0..15 scale and snapped to the nearest grid level, ties to the even level index), ops spelled as words in the kept infix frame, and the corpus bookkeeping keyed on (op, unordered pair) with the holdout drawn per op. The `op` field lives on a new `Line` NamedTuple (op, lhs, rhs, result) rather than D2.1's `Example`, which keeps carrying the one-op language unchanged; `Line.words` and `Line.prompt` give the token lists the eval and probe code read. Ex-2.2.3's design module imports the table from there, so the report's rendered counts and the corpus code are one source. Relevance per candidate anchored op renders in that report's method. Tests in `tests/sca/test_ops.py`.

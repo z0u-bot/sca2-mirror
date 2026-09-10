@@ -33,6 +33,7 @@ Whether the experiment was worth running is settled; don't reopen it. The questi
 - **Captions read like captions.** A caption decodes the ink — what the rows, columns, marks, and shading mean, and how to read an unusual encoding. Extended analysis, findings, and interpretation belong in prose cells near the figure, in paragraph form. When a caption has grown into an argument, move the argument into prose and leave the decoding behind.
 - **Figure titles belong in the caption**, as its opening phrase, not drawn inside the figure with `fig.suptitle`. Panel labels within a figure (`ax.set_title`) are a different thing and should stay.
 - **Every table has a caption too**, on the same terms as a figure's.
+- **Tabular data is displayed in a chart too**, or a comment says why not.
 - **Panels that don't need to share axes should be separate nested figures**, each with a short subtitle-only caption, grouped under one outer caption. Only a shared scale, axis, or colorbar justifies packing them into one image.
 - Every figure has alt text (see the `alt-text` skill), and the alt text does not merely restate the caption.
 - Each figure and table is referenced from the prose, and the reference says what to look at.

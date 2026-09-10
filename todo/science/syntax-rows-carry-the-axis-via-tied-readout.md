@@ -1,6 +1,6 @@
 ---
 status: open
-tags: [D2.2, anchoring, selectivity, ex-2.2.2]
+tags: [D2.2, anchoring, selectivity, ex-2.2.2, ex-2.2.3]
 opened: 2026-09-08
 ---
 # The syntax rows carry the axis, and the tied readout may be why
@@ -12,3 +12,9 @@ The hypothesis: nGPT ties the readout to the embedding table. The token after op
 The test: train the recipe with an untied readout (or exclude the syntax rows from the shared table), and read the same E8 table. If the component vanishes, the projection's non-red cost should go with it, and the intervention-tuning pass would no longer need the thresholded or operand-only edits to route around it. If it stays, the component is placed by the blocks' use of the syntax states, and the anchor weight and schedule are the next dial.
 
 Either way the rows should be clean before the D2.3 concept swap, since a rotation at every position moves them too.
+
+## Notes
+
+**2026-09-09, ex-2.2.3 results** — a second data point, at a heavier anchor. The adopted point `t00` (λ_a 0.56 against the recipe's 0.1) carries the axis on its syntax rows at more than twice the recipe's level: E2 reads `=` at 0.93 against 0.40 at the embedding, and the op words at 0.33 against 0.17. The cost follows the rows: under the full-position projection `t00` loses 0.60 of the non-red `mix` lines (seeds from near zero to near total), and the operand-only edit brings that to 0.017. So the row component scales with the anchor weight, and the operand-only edit routes around it for now. The untied-readout test here is what would decide whether the rows can be made clean instead. [ex-2.2.3 Discussion](/docs/m2/ex-2.2.3/report.py#discussion).
+
+**2026-09-10, ex-2.2.3 results discussion** — Sandy's concern, on the untying proposal: tied embeddings are common in real models, so a method that needs an untied readout is a harder sell for adoption, even though our nGPT is already unusual and the angular-bounds argument holds in a standard GPT too. So the untied run is a diagnostic, to learn whether the syntax rows pick up the axis through the shared table, and the fix we would carry forward should work with a tied table: exclude the syntax rows from the anchor and anti-subspace terms, or put an anti-subspace term of their own on them, or accept the operand-only edit as the operator. The scouting round ([item](scouting-round-before-the-anchored-op-experiments.md)) should run the diagnostic and one tied-table fix side by side.

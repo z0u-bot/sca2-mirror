@@ -42,6 +42,8 @@ Two things are ours rather than the library's. Pass `css="svg { --bg-color: ligh
 
 Authored HTML tables (built by hand and wrapped in `mo.md`) use the shared classes in `docs/report.css` rather than inline `style=`, so central edits restyle every report at once: `report-table` on the `<table>`, `num` on numeric `<th>`s and their `<td>`s, a `report-table-scroll` wrapper for wide data, and a caption via `figure_html(..., class_="report-figure")` on the same terms as a figure. In a scored table, make it visible at a glance what counts as good: mark each column's desired direction (↑ or ↓, matching the report's glossary) in its header, and bold the values that pass their gate.
 
+Tabular data is great for precision, but it requires a lot of effort to read and interpret. Tables should almost always be accompanied by at least one chart.
+
 ## Theming
 
 Every figure goes through `@themed` (see `mini.vis`), which renders the plot function once per theme — its docstring explains why data gets computed outside it. Inside, pick theme-dependent values with `light_dark(light, dark)`. That includes colormaps: a light-only map's pale end disappears on dark, so pick the map itself per theme — `light_dark("RdBu_r", "berlin")` for diverging (`berlin` ships with matplotlib ≥3.11), or a `LinearSegmentedColormap.from_list` running near-background → theme accent for sequential.
