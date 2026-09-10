@@ -57,7 +57,7 @@ with app.setup(hide_code=True):
         "t00": ("#d0461b", "#f07a50"),
         "t48": ("#8030c0", "#c48cff"),
         "t12": ("#1e8a5a", "#5ccf98"),
-        "ex-2.1.10": ("#00000033", "#ffffff3a"),
+        "ex-2.1.10": ("#0000001a", "#ffffff22"),
     }
     """One ink per condition, as (light, dark) pairs for `light_dark`; the D2.1 reference draws as a ghost."""
 
@@ -257,6 +257,19 @@ class Results:
         """Clean exact-match accuracy minus intervened accuracy, per seed, the statistic ex-2.2.1 gated on."""
         return self.score(cond, op, None, "acc", group) - self.score(cond, op, iv, "acc", group)
 
+    def pooled(self, cond: str, key: str) -> np.ndarray:
+        """A recipe arm's frozen seeds and its addendum seeds together: twenty values of one statistic."""
+        v = (
+            self.em(c, ex.PRIMARY_OP.name) if key == "holdout_em" else self.stat(c, key) for c in (cond, f"{cond}-more")
+        )
+        return np.concatenate(list(v))
+
+    def pooled_score(self, cond: str, op: str, iv: str | None, key: str, group: str = "red") -> np.ndarray:
+        return np.concatenate([self.score(c, op, iv, key, group) for c in (cond, f"{cond}-more")])
+
+    def pooled_deficit(self, cond: str, op: str, iv: str, group: str = "nonred") -> np.ndarray:
+        return np.concatenate([self.deficit(c, op, iv, group) for c in (cond, f"{cond}-more")])
+
     def ref_cells(self, cond: str = EX2110_PRIMARY) -> list[dict]:
         return [c for c in self.ex2110["cells"] if c["condition"] == cond]
 
@@ -314,7 +327,7 @@ def _():
     # The design the DAG ran is the one this notebook quotes.
     assert res.metrics["design"]["n_runs"] == ex.N_RUNS
     assert len(res.metrics["runs"]) == ex.N_RUNS, len(res.metrics["runs"])
-    assert {r["condition"] for r in res.metrics["scores"]} == {c.name for c in ex.CANDIDATES}
+    assert {r["condition"] for r in res.metrics["scores"]} == {c.name for c in (*ex.CANDIDATES, *ex.ADDENDUM)}
     # The reference the margin gates quote, to three decimals.
     assert round(float(res.ref_stat("m_line").mean()), 3) == round(ex.REF_M_LINE, 3)
     return (res,)
@@ -347,13 +360,20 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(adopted: str, h1: Verdict, h2: Verdict, h3: Verdict, h4: Verdict):
+def _(
+    adopted: str,
+    adopted_post: str,
+    h1: Verdict,
+    h2: Verdict,
+    h3: Verdict,
+    h4: Verdict,
+):
     mo.md(rf"""
     ## Findings
 
     - [Task cost on the new grammar (H1)](#task-cost-on-the-new-grammar-h1) — {h1.md}
     - [Placement under the recipe reproduces (H2)](#placement-under-the-recipe-reproduces-h2) — {h2.md}
-    - [The plateau from the survey transfers (H3)](#the-plateau-from-the-survey-transfers-h3) — {h3.md} The adopted operating point for D2.2 is **`{adopted}`**.
+    - [The plateau from the survey transfers (H3)](#the-plateau-from-the-survey-transfers-h3) — {h3.md} The frozen rule adopts **`{adopted}`**; a [post hoc amendment](#post-hoc-the-selection-rule-with-the-gates-it-left-out) that adds H2's lead gate and H4's selectivity gate, with the tie between the recipe lengths broken at twenty seeds (E6), adopts **`{adopted_post}`**, which is the point D2.2 carries.
     - [Suppression transfers (H4)](#suppression-transfers-h4) — {h4.md}
     """)
     return
@@ -515,7 +535,7 @@ def _(h1_gaps: dict[tuple[str, str], float]):
 
 @app.cell(hide_code=True)
 def _(res: Results):
-    _conds = [c for c in ex.CONDITIONS if c not in ex.RICHER_OP_ARM]
+    _conds = [c for c in ex.CONDITIONS if c not in ex.RICHER_OP_ARM and c not in ex.ADDENDUM]
     _em = {(c.name, op): res.em(c.name, op) for c in _conds for op in ex.OP_NAMES}
     _ctrl = {c.name: {op: float(res.em(control_of(c).name, op).mean()) for op in ex.OP_NAMES} for c in _conds}
 
@@ -1074,6 +1094,44 @@ def _(res: Results):
 
 
 @app.cell(hide_code=True)
+def _(res: Results):
+    _stats = [k for k in SURVEY_STATS if k in ex.NOISE_RUN]
+
+    @themed(
+        name="h3-survey-vs-fresh",
+        alt_text="""
+            Four small panels, one per statistic, listing the five candidates down the side. In each row a hollow marker is the survey value and a filled dot with a range bar is the fresh five-seed read; a grey strip around the survey value is the band. The fresh m_line dots sit left of their survey markers on every proposal.
+        """,
+        caption="""
+            **Survey against fresh, per candidate.** The same numbers as the table above, drawn: the hollow marker is the survey value, the filled dot the fresh seed mean with a bar for the seed range, and the grey strip the band around the survey value for those seed counts. A dot outside its strip is a difference the resolution rule counts.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, len(_stats), figsize=(7.6, 1.8), sharey=True, layout="constrained")
+        axes = cast(AxesRow, axes)
+        strip = light_dark("#00000014", "#ffffff1a")
+        ys = np.arange(len(ex.CANDIDATES))[::-1]
+        for ax, k in zip(axes, _stats, strict=True):
+            for y, c in zip(ys, ex.CANDIDATES, strict=True):
+                n, sv = res.survey_point(c)
+                v = res.em(c.name, ex.PRIMARY_OP.name) if k == "holdout_em" else res.stat(c.name, k)
+                if sv and k in sv:
+                    b = ex.equiv_band(k, 5, n)
+                    ax.fill_betweenx([y - 0.42, y + 0.42], sv[k] - b, sv[k] + b, color=strip, lw=0, zorder=1)
+                    ax.plot(sv[k], y, "o", ms=4.2, mfc="none", mec=ink(c.name), mew=1.0, zorder=3)
+                ax.plot([v.min(), v.max()], [y, y], color=ink(c.name), lw=1.2, zorder=2, solid_capstyle="round")
+                ax.plot(v.mean(), y, "o", ms=3.6, color=ink(c.name), zorder=4)
+            ax.set_yticks(ys, [c.name for c in ex.CANDIDATES], fontsize=7)
+            ax.set_title(k, fontsize=9)
+            ax.tick_params(axis="x", labelsize=7)
+            ax.grid(axis="x", alpha=0.2)
+        return fig
+
+    mo.Html(_plot())
+    return
+
+
+@app.cell(hide_code=True)
 def _(
     adopted: str,
     adoption_note: str,
@@ -1155,11 +1213,104 @@ def _(adopted: str, res: Results):
 
 
 @app.cell(hide_code=True)
+def _(res: Results):
+    _stride = ex.N_PROBE  # every color sits at op1 once per partner; op1 precedes the partner, so one read per color
+    _x = ex.SIM_TARGET
+
+    def _op1(cond: str) -> np.ndarray:
+        """(seeds, colors) mean post-attention alignment at op1 on the `mix` lines."""
+        a = res.arr(cond, "eval", f"{ex.PRIMARY_OP.name}/alpha_lines").astype(np.float32)  # (seeds, slices, N, T)
+        return a[:, 1:, ::_stride, 0].mean(axis=1)
+
+    @themed(
+        name="h3-grading-clouds",
+        alt_text="""
+            Five small scatter panels, one per candidate. Each has 216 points, one per grid color drawn in that color, with similarity to red along the bottom and the alignment at op1 up the side. On every panel the points rise from left to right, tightest on the recipe and looser on the proposals, with the reds at the top right.
+        """,
+        caption="""
+            **What grading looks like.** One panel per candidate: each point is one of the 216 grid colors, drawn in its own color, at its similarity-to-red target (sim^1.5) along the bottom and its seed-mean alignment at op1 up the side, averaged over the four post-attention slices. The grading r² in the tables is the squared correlation of these two axes; a cloud that rises in a line is graded, one that steps from a floor to a ceiling is thresholded.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(
+            1, len(ex.CANDIDATES), figsize=(7.6, 1.9), sharex=True, sharey=True, layout="constrained"
+        )
+        axes = cast(AxesRow, axes)
+        for ax, c in zip(axes, ex.CANDIDATES, strict=True):
+            y = _op1(c.name).mean(axis=0)
+            ax.scatter(_x, y, s=9, c=ex.GRID_RGB, edgecolors=light_dark("#00000033", "#ffffff44"), linewidths=0.3)
+            r2 = float(np.corrcoef(_x, y)[0, 1] ** 2)
+            ax.set_title(f"{c.name}  r² {r2:.2f}", fontsize=8.5, color=ink(c.name))
+            ax.tick_params(labelsize=7)
+            ax.grid(alpha=0.2)
+        axes[0].set_ylabel("α at op1", fontsize=7.5)
+        axes[len(axes) // 2].set_xlabel("similarity to red, sim^1.5", fontsize=7.5)
+        return fig
+
+    mo.Html(_plot())
+    return
+
+
+@app.cell(hide_code=True)
 def _(h3: Verdict):
     mo.md(rf"""
     **H3, {h3.status}.** {h3.line}
     """)
     return
+
+
+@app.cell(hide_code=True)
+def _(
+    e6_reads: dict[str, tuple[float, float, float]],
+    feas: dict[str, dict[str, bool]],
+    res: Results,
+):
+    # Post hoc, after the results were read (2026-09-10). The frozen selection rule carries every H2
+    # gate but the lead weight at the embedding, and none of H4; the point it adopts misses the first
+    # and, under the plain projection, fails the second. This cell re-runs the rule with each gate
+    # added, and the Findings entry names the outcome beside the frozen one.
+    _mix = ex.PRIMARY_OP.name
+    _m = {c.name: float(res.stat(c.name, "m_line").mean()) for c in ex.CANDIDATES}
+    _lead = {c.name: float(res.stat(c.name, "lead_emb").mean()) for c in ex.CANDIDATES}
+    _cost = {c.name: float(res.deficit(c.name, _mix, ex.PROJECTION.name).mean()) for c in ex.CANDIDATES}
+    _band = ex.equiv_band("m_line")
+    _lead_ok = [c for c in ex.CANDIDATES if all(feas[c.name].values()) and _lead[c.name] >= ex.LEAD_GATE]
+    _pick_lead = max(_lead_ok, key=lambda c: _m[c.name]).name if _lead_ok else ex.RECIPE.name
+    _sel_ok = [c for c in _lead_ok if _cost[c.name] <= ex.NONRED_DEFICIT_GATE]
+    _top = max(_m[c.name] for c in _sel_ok) if _sel_ok else float("nan")
+    _tied = [c for c in _sel_ok if _m[c.name] >= _top - _band]
+    _d, _fb, _ff = e6_reads["m_line"]  # short minus full, at twenty seeds, and the two bands
+    _wide = max(_fb, _ff)
+    if len(_tied) <= 1:
+        adopted_post: str = _tied[0].name if _tied else ex.RECIPE.name
+        _tie = "no tie to break"
+    elif -_d > _wide:
+        adopted_post = ex.RECIPE.name
+        _tie = (
+            f"at twenty seeds the full recipe leads by {-_d:.3f}, more than the {_wide:.3f} band, so it takes the tie"
+        )
+    elif _d > _wide:
+        adopted_post = ex.RECIPE_SHORT.name
+        _tie = (
+            f"at twenty seeds the short recipe leads by {_d:.3f}, more than the {_wide:.3f} band, so it takes the tie"
+        )
+    else:
+        adopted_post = ex.RECIPE_SHORT.name
+        _tie = f"at twenty seeds the two are within the {_wide:.3f} band ({_d:+.3f}), so the tie goes to the shorter arm, at half the compute"
+    _leads = ", ".join(f"`{c.name}` {_lead[c.name]:.2f}" for c in ex.CANDIDATES)
+    _costs = ", ".join(f"`{c.name}` {_cost[c.name]:.3f}" for c in ex.CANDIDATES)
+    mo.md(rf"""
+    ### Post hoc: the selection rule, with the gates it left out
+
+    This is a deviation, written after the numbers were read. The selection rule above was frozen with two holes in it, and the point it adopts falls through both.
+
+    The first hole is H2's lead gate. Feasibility carries every H2 gate except the lead weight of the red group at the embedding, which H2 gates at {ex.LEAD_GATE:g}; per candidate that weight is {_leads}. Add the gate, and the highest feasible m_line is `{_pick_lead}`.
+
+    The second hole is H4. The rule ranks on placement and never looks at what the plain projection costs, and on every proposal that cost is most of the non-red `mix` lines: the deficit under `projection` is {_costs}, against H4's gate of {ex.NONRED_DEFICIT_GATE:g}. The cost sits on the syntax rows (E2, E7), and the operand-only edit routes around it, but an operating point that needs a routed edit before its first intervention is a poor base for the anchored-op experiments. Add H4's selectivity gate as well, and only the two recipe lengths remain; at five seeds they sit within a band of each other, and E6's twenty-seed read breaks the tie: {_tie}.
+
+    So D2.2 carries **`{adopted_post}`**. The frozen H3 verdict stands as written, and the proposals keep their reads: they place *red* with a larger margin, and they pay for it on the syntax rows. Whether that cost can be removed rather than routed around is the untied-readout question in the Discussion.
+    """)
+    return (adopted_post,)
 
 
 @app.cell(hide_code=True)
@@ -1360,36 +1511,42 @@ def _(res: Results):
     @themed(
         name="h4-write-bound-maps",
         alt_text="""
-            Six small line charts, one per op, over the six token positions, with one line per residual slice in shades from light to dark. Solid lines are the clean 99th-percentile non-red alignment; dashed lines are the alignment arriving at the operator under projection, mostly below the solid ones but above them at a few sites, notably the op word. The six panels look alike.
+            A grid of thirty small panels, five rows for the residual slices with the embedding at the bottom and six columns for the ops, each over the six token positions. The shaded step is the clean 99th-percentile non-red alignment; the dashed line is the alignment arriving at the operator under projection, mostly inside the shading but above it at a few sites, notably the op word. The six columns look alike.
         """,
         caption=f"""
-            **The bound and the write, per site and per op, for the recipe under <code>projection</code>.** For each op's probe lines, the 99th-percentile |α| over the non-red lines at each (slice, position), seed mean: solid is the clean map, whose arcsine is the bound; dashed is the alignment arriving at the operator, whose arcsine is the write. The embedding line is the same in both by construction. Slices run from the embedding (lightest) to the last block (darkest), and all six panels share one scale, as ex-2.2.1's figure did. Sites where the seed-mean write exceeds the seed-mean bound, per op: {", ".join(f"<code>{op}</code> {n}" for op, n in _over.items())} of 24 post-embedding sites.
+            **The bound and the write, per site and per op, for the recipe under <code>projection</code>.** For each op's probe lines, the 99th-percentile |α| over the non-red lines at each (slice, position), seed mean: solid is the clean map, whose arcsine is the bound; dashed is the alignment arriving at the operator, whose arcsine is the write. The embedding line is the same in both by construction. One row per slice with the embedding at the bottom, one column per op, and every panel on the same scale, so a write that pokes above its bound reads as the dashed line clearing the shaded step. Sites where the seed-mean write exceeds the seed-mean bound, per op: {", ".join(f"<code>{op}</code> {n}" for op, n in _over.items())} of 24 post-embedding sites.
         """,
     )
     def _plot() -> plt.Figure:
-        from matplotlib.colors import LinearSegmentedColormap
+        from matplotlib.layout_engine import ConstrainedLayoutEngine
 
-        fig, axes = plt.subplots(2, 3, figsize=(7.6, 4.0), sharex=True, sharey=True, layout="constrained")
+        bound_c, write_c = ink("recipe"), light_dark("#8a0000", "#ff7070")
+        fig, axes = plt.subplots(len(SLICE_NAMES), len(ex.OP_NAMES), figsize=(7.6, 4.2), sharex=True, sharey=True)
         axes = cast(AxesGrid, axes)
-        cmap = LinearSegmentedColormap.from_list(
-            "depth", [light_dark("#f6b0b0", "#5a1a1a"), light_dark("#8a0000", "#ff7070")]
-        )
+        engine = fig.get_layout_engine()
+        assert isinstance(engine, ConstrainedLayoutEngine)
+        engine.set(hspace=0, h_pad=0.01, wspace=0.04)
         x = np.arange(len(POS_NAMES))
-        for ax, op in zip([a for row in axes for a in row], ex.OP_NAMES, strict=True):
-            for s, name in enumerate(SLICE_NAMES):
-                color = cmap(s / (len(SLICE_NAMES) - 1))
-                smooth_step(ax, x, _clean[op][s], breaks=True, ramp=0.3, color=color, lw=1.3)
-                smooth_step(ax, x, _arr[op][s], breaks=True, ramp=0.3, color=color, lw=1.0, ls=(0, (2, 1.5)))
-                if op == ex.OP_NAMES[0]:
-                    ax.plot([], [], color=color, lw=1.2, label=name)
-            ax.set_title(op, fontsize=9)
-            ax.set_xticks(x, POS_NAMES)
-            ax.tick_params(labelsize=7)
-        axes[0][0].set_xlim(-0.5, len(POS_NAMES) - 0.5)
-        axes[0][0].set_ylim(0, min(1.0, _top * 1.25))
-        for row in axes:
-            row[0].set_ylabel("|α|, 99th pct of non-red", fontsize=7)
-        axes[0][0].legend(fontsize=6, frameon=False, title="slice", title_fontsize=6, ncol=5, loc="upper right")
+        top = min(1.0, _top * 1.15)
+        for col, op in enumerate(ex.OP_NAMES):
+            for row in range(len(SLICE_NAMES)):
+                sl = len(SLICE_NAMES) - 1 - row  # the embedding at the bottom, as the profile figures draw it
+                ax = axes[row][col]
+                smooth_step_area(ax, x, _clean[op][sl], ramp=0.3, color=bound_c, alpha=light_dark(0.2, 0.26))
+                smooth_step(ax, x, _clean[op][sl], ramp=0.3, color=bound_c, lw=1.1)
+                smooth_step(ax, x, _arr[op][sl], ramp=0.3, color=write_c, lw=1.0, ls=(0, (2, 1.5)))
+                ax.set(ylim=(0, top), xlim=(-0.5, len(POS_NAMES) - 0.5), yticks=[0, round(top / 2, 2)])
+                ax.spines[:].set_visible(False)
+                ax.grid(axis="y", c="#888", alpha=0.2)
+                ax.tick_params(axis="x", length=0, labelsize=7)
+                ax.tick_params(axis="y", left=True, direction="in", labelleft=col == 0, labelsize=6)
+                if col == 0:
+                    ax.set_ylabel(SLICE_NAMES[sl], fontsize=7.5)
+            axes[0][col].set_title(op, fontsize=9)
+            axes[-1][col].set_xticks(x, POS_NAMES)
+        axes[0][0].plot([], [], color=bound_c, lw=1.1, label="bound (clean)")
+        axes[0][0].plot([], [], color=write_c, lw=1.0, ls=(0, (2, 1.5)), label="write (projected)")
+        axes[0][0].legend(fontsize=6, frameon=False, ncol=2, loc="upper left", bbox_to_anchor=(0, 1.9))
         return fig
 
     mo.Html(_plot())
@@ -1414,6 +1571,8 @@ def _():
     ### E1 — per-op statistics
 
     Every H2 statistic read on the probe lines of each op, rather than on the `mix` lines alone, for every candidate. The labeller never sees the op, so a placement that differs by op would mean the blocks carry *red* differently under different rules. The per-op grading and contrast say whether the anchor is op-blind.
+
+    The five statistics, in a phrase each: **m_line** is how much more the labelled lines lean on the axis than the average line does (the margin the survey ranked on); **grading r²** is whether that lean rises smoothly with redness rather than switching on; **contrast** is how much the pull prefers the operand that drew the label over the other one, at depth; **containment ᾱ** is the mean lean of every color at op1, which should stay near zero; and the **lead weight** is the share of the pull that sits on the drawing operand at the embedding.
     """)
     return
 
@@ -1445,6 +1604,49 @@ def _(res: Results):
     """
     mo.Html(table_html(_head, _rows, _caption))
     return (e1_spread,)
+
+
+@app.cell(hide_code=True)
+def _(res: Results):
+    _stats = (("m_line", "m_line"), ("contrast", "contrast"), ("r2_sim", "grading r²"))
+    _x = np.arange(len(ex.OP_NAMES))
+
+    @themed(
+        name="e1-per-op-dots",
+        alt_text="""
+            Three panels, one per statistic, with the six ops along the bottom and one dotted line per candidate in its own ink, each dot carrying a bar for the seed range. The lines are flat: each candidate reads about the same on every op.
+        """,
+        caption="""
+            **The placement statistics per op, drawn.** The same reads as the table above for m_line, contrast, and grading r²: one line per candidate in its ink, one dot per op at the seed mean with a bar for the seed range, offset a little so the candidates do not overlap. A flat line is a placement that reads the same under every rule.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, len(_stats), figsize=(7.6, 2.1), layout="constrained")
+        axes = cast(AxesRow, axes)
+        off = np.linspace(-0.25, 0.25, len(ex.CANDIDATES))
+        for ax, (k, title) in zip(axes, _stats, strict=True):
+            for d, c in zip(off, ex.CANDIDATES, strict=True):
+                v = np.stack([res.stat(c.name, k, op) for op in ex.OP_NAMES])  # (ops, seeds)
+                ax.plot(_x + d, v.mean(axis=1), "-", color=ink(c.name), lw=0.8, alpha=0.6, zorder=2)
+                ax.vlines(_x + d, v.min(axis=1), v.max(axis=1), color=ink(c.name), lw=1.0, zorder=2)
+                ax.plot(
+                    _x + d,
+                    v.mean(axis=1),
+                    "o",
+                    ms=3,
+                    color=ink(c.name),
+                    zorder=3,
+                    label=c.name if k == "m_line" else None,
+                )
+            ax.set_title(title, fontsize=9)
+            ax.set_xticks(_x, ex.OP_NAMES, fontsize=7)
+            ax.tick_params(axis="y", labelsize=7)
+            ax.grid(axis="y", alpha=0.2)
+        axes[0].legend(fontsize=6, frameon=False, ncol=1, loc="lower left")
+        return fig
+
+    mo.Html(_plot())
+    return
 
 
 @app.cell(hide_code=True)
@@ -1506,6 +1708,14 @@ def _(adopted: str, res: Results):
 @app.cell(hide_code=True)
 def _(res: Results):
     mo.Html(syntax_table(res, ex.CONTROL.name))
+    return
+
+
+@app.cell(hide_code=True)
+def _(adopted: str, res: Results):
+    # Added after the results were read: the two proposals the adoption did not name, for the same rows.
+    _others = [c.name for c in ex.PROPOSALS if c.name != adopted]
+    mo.Html("".join(syntax_table(res, c) for c in _others))
     return
 
 
@@ -1578,7 +1788,8 @@ def _(res: Results):
         _comp = np.array(
             [r["ops"][_op]["interventions"][ex.PROJECTION.name]["composition_redder"] for r in res.scored(_c)], float
         )
-        _share = _comp / _comp.sum(axis=1, keepdims=True)
+        _miss = _comp[:, 1:]  # everything but the true answer
+        _share = _miss / np.maximum(_miss.sum(axis=1, keepdims=True), 1)
         _rows.append(
             [
                 f"<code>{_op}</code>",
@@ -1587,8 +1798,8 @@ def _(res: Results):
                 span2(np.array(_d_ans), ".3f"),
                 span2(_clean, ".2f"),
                 span2(_proj, ".2f"),
-                span2(_share[:, 1], ".2f"),
-                span2(_share[:, 3], ".2f"),
+                span2(_share[:, 0], ".2f"),
+                span2(_share[:, 2], ".2f"),
             ]
         )
     _head = [
@@ -1598,11 +1809,11 @@ def _(res: Results):
         "Δα at the answer",
         "clean acc",
         "projection acc ↓",
-        "→ red operand",
-        "→ neighbor",
+        "misses → red operand",
+        "misses → neighbor",
     ]
     _caption = """
-    The redder-than-both lines of each op on the recipe. Δα is the alignment on those lines minus the alignment on lines of the same op in the same dose bin whose answer is not redder than both, averaged over the four post-attention slices and weighted by the redder lines' dose histogram; a positive value at the answer says the stream carries the answer's extra redness there, where the labeller never keyed. The right half restricts H4 to these lines: exact-match accuracy clean and under <code>projection</code>, and the share of the projected answers that are the redder operand or a one-step neighbor of the truth. Seed means with half the seed range; <code>lighten</code> has no such lines.
+    The redder-than-both lines of each op on the recipe. Δα is the alignment on those lines minus the alignment on lines of the same op in the same dose bin whose answer is not redder than both, averaged over the four post-attention slices and weighted by the redder lines' dose histogram; a positive value at the answer says the stream carries the answer's extra redness there, where the labeller never keyed. The right half restricts H4 to these lines: exact-match accuracy clean and under <code>projection</code>, and, of the projected answers that are wrong, the share that are the redder operand and the share that are a one-step neighbor of the truth. Seed means with half the seed range; <code>lighten</code> has no such lines.
     """
     mo.Html(table_html(_head, _rows, _caption))
     return (e3_profiles,)
@@ -1811,6 +2022,256 @@ def _(e5_md: str):
     mo.md(rf"""
     The H3 comparisons of each proposal's m_line against `recipe-short`, under both bands: {e5_md}.
     """)
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### E6 — the two recipe lengths at twenty seeds
+
+    Added after the results were read. The H3 read compared `recipe` and `recipe-short` at five seeds each, and the post hoc amendment above adopts one of them; five seeds is a thin basis for a choice the next experiments build on, so fifteen more seeds of each length were run (the `-more` arms under [the conditions](#conditions)). The frozen arms keep their five seeds and their verdicts; this section reads all twenty of each length together. The question is plain: at twenty seeds, does the full-length recipe still place *red* better than the short one, by more than the band, and does either length change its H4 read?
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(res: Results):
+    _stats = ["m_line", "contrast", "r2_sim", "alpha_op1", "lead_emb", "holdout_em"]
+    _pool = {(c, k): res.pooled(c, k) for c in (ex.RECIPE.name, ex.RECIPE_SHORT.name) for k in _stats}
+    _n = len(_pool[ex.RECIPE.name, "m_line"])
+    _head = [
+        "statistic",
+        "recipe, 5 seeds",
+        f"recipe, {_n} seeds",
+        f"recipe-short, {_n} seeds",
+        "Δ (short − full)",
+        "band, frozen σ",
+        "band, fresh σ",
+    ]
+    _rows = []
+    e6_reads: dict[str, tuple[float, float, float]] = {}
+    for _k in _stats:
+        _a, _b = _pool[ex.RECIPE.name, _k], _pool[ex.RECIPE_SHORT.name, _k]
+        _d = float(_b.mean() - _a.mean())
+        _sd = float(np.sqrt((_a.var(ddof=1) + _b.var(ddof=1)) / 2))
+        _frozen = ex.equiv_band(_k, _n, _n) if _k in ex.NOISE_RUN else float("nan")
+        _fresh = ex.equiv_band(_k, _n, _n, noise={_k: _sd})
+        e6_reads[_k] = (_d, _frozen, _fresh)
+        _five = res.em(ex.RECIPE.name, ex.PRIMARY_OP.name) if _k == "holdout_em" else res.stat(ex.RECIPE.name, _k)
+        _rows.append(
+            [
+                _k,
+                f"{_five.mean():.3f}",
+                f"{_a.mean():.3f} <span class='range'>σ {_a.std(ddof=1):.3f}</span>",
+                f"{_b.mean():.3f} <span class='range'>σ {_b.std(ddof=1):.3f}</span>",
+                f"<b>{_d:+.3f}</b>" if abs(_d) > _fresh else f"{_d:+.3f}",
+                "·" if np.isnan(_frozen) else f"{_frozen:.3f}",
+                f"{_fresh:.3f}",
+            ]
+        )
+    _caption = f"""
+    The two recipe lengths at {_n} seeds each: the five frozen seeds and the fifteen addendum seeds pooled. Values are seed means; σ is the sample standard deviation over the {_n} seeds. Δ is short minus full. The frozen band is 2σ√(2/{_n}) with the ex-2.1.10 per-run σ; the fresh band uses the pooled σ of the two arms in this table. Bold marks a difference outside the fresh band. The lead weight has no frozen σ.
+    """
+    mo.Html(table_html(_head, _rows, _caption))
+    return (e6_reads,)
+
+
+@app.cell(hide_code=True)
+def _(res: Results):
+    _stats = ["m_line", "contrast", "r2_sim", "lead_emb"]
+    _conds = (ex.RECIPE.name, ex.RECIPE_SHORT.name)
+
+    @themed(
+        name="e6-recipe-lengths",
+        alt_text="""
+            Four small panels, one per placement statistic, each with two rows, recipe and recipe-short. Every seed is a small dot along the row; the larger marker is the twenty-seed mean, and the five frozen seeds are drawn hollow.
+        """,
+        caption="""
+            **The two recipe lengths, seed by seed.** One panel per placement statistic on the `mix` lines; the top row of each is `recipe`, the bottom `recipe-short`. Each small dot is one seed (hollow for the five frozen seeds, filled for the fifteen addendum seeds), jittered a little so they do not stack; the large marker is the twenty-seed mean, with a bar of one σ either side.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, len(_stats), figsize=(7.6, 1.9), layout="constrained")
+        axes = cast(AxesRow, axes)
+        rng = np.random.default_rng(0)
+        for ax, k in zip(axes, _stats, strict=True):
+            for y, c in zip((1.0, 0.0), _conds, strict=True):
+                five, more = res.stat(c, k), res.stat(f"{c}-more", k)
+                allv = np.concatenate([five, more])
+                jit = rng.uniform(-0.18, 0.18, len(allv))
+                ax.plot(five, y + jit[: len(five)], "o", ms=3.2, mfc="none", mec=ink(c), mew=0.9, zorder=3)
+                ax.plot(more, y + jit[len(five) :], "o", ms=3.2, color=ink(c), alpha=0.75, zorder=3)
+                m, sd = allv.mean(), allv.std(ddof=1)
+                ax.plot([m - sd, m + sd], [y - 0.42, y - 0.42], color=ink(c), lw=1.4, solid_capstyle="round", zorder=2)
+                ax.plot(m, y - 0.42, "D", ms=4, color=ink(c), zorder=4)
+            ax.set_yticks([1.0, 0.0], _conds, fontsize=7)
+            ax.set_ylim(-0.8, 1.5)
+            ax.set_title(k, fontsize=9)
+            ax.tick_params(axis="x", labelsize=7)
+            ax.grid(axis="x", alpha=0.2)
+        return fig
+
+    mo.Html(_plot())
+    return
+
+
+@app.cell(hide_code=True)
+def _(res: Results):
+    _mix = ex.PRIMARY_OP.name
+    _head = ["condition"] + [f"{op} red acc ↓" for op in ex.OP_NAMES] + ["mix non-red deficit ↓"]
+    _rows = []
+    e6_h4: dict[str, tuple[float, float]] = {}
+    for _c in (ex.RECIPE.name, ex.RECIPE_SHORT.name):
+        _red = [res.pooled_score(_c, op, ex.PROJECTION.name, "acc") for op in ex.OP_NAMES]
+        _def = res.pooled_deficit(_c, _mix, ex.PROJECTION.name)
+        e6_h4[_c] = (float(max(v.mean() for v in _red)), float(_def.mean()))
+        _rows.append(
+            [f"{_c}, projection, {len(_def)} seeds"]
+            + [f"<b>{span2(v, '.2f')}</b>" if v.mean() <= ex.RED_ACC_GATE else span2(v, ".2f") for v in _red]
+            + [f"<b>{span2(_def)}</b>" if _def.mean() <= ex.NONRED_DEFICIT_GATE else span2(_def)]
+        )
+    _caption = f"""
+    H4's two statistics under <code>projection</code> at twenty seeds per length: seed-mean exact-match accuracy on the red lines of each op (gate ≤ {ex.RED_ACC_GATE:g}, bold) and the non-red deficit on <code>mix</code> (gate ≤ {ex.NONRED_DEFICIT_GATE:g}, bold), each with half the seed range.
+    """
+    mo.Html(table_html(_head, _rows, _caption))
+    return (e6_h4,)
+
+
+@app.cell(hide_code=True)
+def _(
+    e6_h4: dict[str, tuple[float, float]],
+    e6_reads: dict[str, tuple[float, float, float]],
+):
+    _d, _frozen, _fresh = e6_reads["m_line"]
+    _lead = e6_reads["lead_emb"][0]
+    _full, _short = e6_h4[ex.RECIPE.name], e6_h4[ex.RECIPE_SHORT.name]
+    _verdict = (
+        "the full-length recipe keeps its lead"
+        if -_d > max(_frozen, _fresh)
+        else "the two lengths are within a band of each other"
+        if abs(_d) <= max(_frozen, _fresh)
+        else "the short recipe leads"
+    )
+    mo.md(rf"""
+    At twenty seeds, `recipe-short` sits {_d:+.3f} of m_line from `recipe`, against a band of {_frozen:.3f} (frozen σ) or {_fresh:.3f} (fresh σ): {_verdict}. The lead weight at the embedding moves {_lead:+.3f} between the lengths. Under `projection`, the worst-op red accuracy is {_full[0]:.2f} on the full recipe and {_short[0]:.2f} on the short one, and the `mix` non-red deficit is {_full[1]:.3f} and {_short[1]:.3f}. So the choice between the two lengths does not turn on H4: the read is the placement margin and the lead, and that is what the post hoc adoption rests on.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(adopted: str):
+    mo.md(rf"""
+    ### E7 — the other arms under projection
+
+    Added after the results were read. The H4 tables above read the recipe and `{adopted}`; this reads the same statistics on the remaining scored arms, `recipe-short` and the two proposals the adoption did not name, so the removal picture (complete on `mix`, partial on the saturating ops) can be checked across every operating point rather than two. The E2 syntax rows for those proposals sit at the end of E2.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(adopted: str, res: Results):
+    _mix = ex.PRIMARY_OP.name
+    _conds = [ex.RECIPE_SHORT.name] + [c.name for c in ex.PROPOSALS if c.name != adopted]
+    _head = ["condition"] + [f"{op} red acc ↓" for op in ex.OP_NAMES] + ["mix non-red deficit ↓", "|α| of = (deep)"]
+    _rows = []
+    for _c in _conds:
+        _red = [res.score(_c, op, ex.PROJECTION.name, "acc", "red") for op in ex.OP_NAMES]
+        _def = res.deficit(_c, _mix, ex.PROJECTION.name)
+        _eq = np.abs(np.mean([alpha_at(res, _c, op, 3) for op in ex.OP_NAMES], axis=0)[:, 1:]).mean(axis=1)
+        _rows.append(
+            [f"{_c}, projection"]
+            + [f"<b>{span2(v, '.2f')}</b>" if v.mean() <= ex.RED_ACC_GATE else span2(v, ".2f") for v in _red]
+            + [f"<b>{span2(_def)}</b>" if _def.mean() <= ex.NONRED_DEFICIT_GATE else span2(_def), span2(_eq, ".2f")]
+        )
+    _caption = f"""
+    H4's statistics under <code>projection</code> on the arms the H4 section does not table, five seeds each: red-line accuracy per op (gate ≤ {ex.RED_ACC_GATE:g}, bold), the <code>mix</code> non-red deficit (gate ≤ {ex.NONRED_DEFICIT_GATE:g}, bold), and, as the E2 correlate, the mean |α| of <code>=</code> over the four post-attention slices. Seed mean with half the seed range.
+    """
+    mo.Html(table_html(_head, _rows, _caption))
+    return
+
+
+@app.cell(hide_code=True)
+def _():
+    mo.md(r"""
+    ### E8 — which red lines survive projection
+
+    Added after the results were read. H4's removal statistic asks whether the answer is still right once the axis is projected out; on ops that saturate, many red lines have an answer that does not depend on how red the red operand is, so a model that has lost *red* can still answer them. This sorts each op's red lines by whether the answer *depends* on the red operand's redness (lowering that operand's R by one grid step changes the snapped answer) and reads accuracy on the two groups separately, clean and under `projection`. Removal that reads as partial in H4 should read as complete on the dependent lines if the axis carries the redness the answer needs.
+    """)
+    return
+
+
+@app.cell(hide_code=True)
+def _(adopted: str, res: Results):
+    from sca.config import TokenizerConfig
+    from sca.data.colors import redness
+    from sca.data.named_colors import WordTokenizer
+    from sca.data.ops import NAMES, probe_lines, vocabulary
+
+    _stoi = WordTokenizer(TokenizerConfig(vocabulary=vocabulary())).stoi  # the corpus tokenizer, rebuilt
+
+    _step = ex.LEVELS[1] - ex.LEVELS[0]
+
+    def _dependent(op: str) -> tuple[np.ndarray, np.ndarray]:
+        """(red, dependent) masks over the op's probe lines, in the stored order."""
+        red, dep = [], []
+        for ln in probe_lines(ex.OP_BY_NAME[op], ex.N_PROBE, ex.PROBE_SEED):
+            a, b = (ln.lhs, ln.rhs) if redness(ln.lhs) >= redness(ln.rhs) else (ln.rhs, ln.lhs)
+            red.append(max(redness(ln.lhs), redness(ln.rhs)) >= ex.RED_DOSE - 1e-9)
+            a2 = (max(a[0] - _step, 0), a[1], a[2])
+            dep.append(ex.OP_BY_NAME[op](a2, b) != ln.result)
+        return np.array(red), np.array(dep)
+
+    def _answers(op: str) -> np.ndarray:
+        """The answer token id of each probe line, in the stored order."""
+        return np.array([_stoi[NAMES[ln.result]] for ln in probe_lines(ex.OP_BY_NAME[op], ex.N_PROBE, ex.PROBE_SEED)])
+
+    def acc(g: np.ndarray, m: np.ndarray, ans: np.ndarray) -> np.ndarray:
+        return (g[:, m] == ans[m]).mean(axis=1) if m.any() else np.full(len(g), np.nan)
+
+    _head = [
+        "op",
+        "condition",
+        "dependent red lines",
+        "other red lines",
+        "clean, dependent",
+        "clean, other",
+        "projection, dependent ↓",
+        "projection, other",
+    ]
+    _rows = []
+    for _op in ex.OP_NAMES:
+        _red, _dep = _dependent(_op)
+        for _c in (ex.RECIPE.name, adopted):
+            _dose = res.arr(_c, "score", f"{_op}/dose")[0]
+            assert np.array_equal(_dose >= ex.RED_DOSE - 1e-9, _red), (
+                "the stored probe order and the rebuilt one disagree"
+            )
+            _clean = res.arr(_c, "score", f"{_op}/clean/guess")
+            _proj = res.arr(_c, "score", f"{_op}/{ex.PROJECTION.name}/guess")
+            _ans = _answers(_op)
+            _all = np.ones(len(_ans), bool)
+            _stored = res.score(_c, _op, None, "acc", "all")
+            assert np.allclose(acc(_clean, _all, _ans), _stored, atol=1e-6), (
+                "the rebuilt answers disagree with the stored accuracy"
+            )
+            _d, _o = _red & _dep, _red & ~_dep
+            _rows.append(
+                [
+                    f"<code>{_op}</code>",
+                    _c,
+                    f"{int(_d.sum()):,}",
+                    f"{int(_o.sum()):,}",
+                    span2(acc(_clean, _d, _ans), ".2f"),
+                    span2(acc(_clean, _o, _ans), ".2f") if _o.any() else "·",
+                    span2(acc(_proj, _d, _ans), ".2f"),
+                    span2(acc(_proj, _o, _ans), ".2f") if _o.any() else "·",
+                ]
+            )
+    _caption = f"""
+    The red lines (dose ≥ {ex.RED_DOSE:g}) of each op split by whether the answer depends on the red operand's redness: a line is <em>dependent</em> if lowering that operand's R by one grid level changes the snapped answer. Exact-match accuracy on each group, clean and under <code>projection</code>, seed mean with half the seed range, on the recipe and on the adopted point. Every <code>mix</code> red line is dependent.
+    """
+    mo.Html(table_html(_head, _rows, _caption))
     return
 
 
@@ -2127,7 +2588,7 @@ def _():
     - **residual stream** — the running vector each token carries through the network, which every block reads from and writes to.
     - **slice** ($\ell$) — a depth at which the residual stream is read: the embedding (0), plus the stream after each of the four blocks.
     - **alignment** ($\alpha$) — $\cos(h, e_1)$, the cosine between a state and the anchor axis. States are unit-norm, so this is the e₁ component.
-    - **dose** — how *red* a line is, the larger of the two operand rednesses ($r(1 - g/2 - b/2)$ on the unit cube). **Red lines** have dose ≥ {ex.RED_DOSE:g}; **non-red lines** dose ≤ {ex.NONRED_DOSE:g}.
+    - **dose** — how *red* a line is, the larger of the two operand rednesses ($r(1 - g/2 - b/2)$ on the unit cube). **Red lines** have dose ≥ {ex.RED_DOSE:g}; **non-red lines** dose ≤ {ex.NONRED_DOSE:g}. The labeller draws at dose⁸, so a dark red such as (12,0,0) draws at about a sixth of pure red's rate and (9,0,0) at under 2%: dark reds are barely labelled, and on the grid the red lines are the seven operands with R = 15 or (12,0,0).
     - **softmin weight** ($\pi$) — the share of the pooled pull a span position receives; sums to 1 over the span. A profile is these shares over roles (op1, the op word, op2, …) at one slice.
     - **m_line** — the margin from ex-2.1.10: at the best span role, the label-weighted mean alignment minus the unweighted mean, averaged over slices. The one statistic tight enough to rank operating points on.
     - **containment** ($\bar\alpha$) — the mean alignment over all 216 colors at op1. A pull that latches onto op1 as a position rather than a concept drives it up.

@@ -286,6 +286,20 @@ RECIPE_SHORT = Condition(
 """The recipe at 50 epochs, so H3 compares each proposal with the recipe at the same step count. The survey
 ran this arm too (`short`), and found its m_line within a band of the full-length recipe's."""
 
+# Addendum, after the results were read (2026-09-10): fifteen more seeds of the recipe at both lengths, so the
+# two can be compared at twenty seeds and the per-run σ of every statistic is read from a wider sample. The
+# frozen conditions keep their five seeds and their verdicts; the report reads these under E6 only.
+ADDENDUM_SEEDS = list(range(5, 20))
+RECIPE_MORE = Condition("recipe-more", len(ADDENDUM_SEEDS), "the recipe, addendum seeds", lam=SCORING_LAMBDA)
+RECIPE_SHORT_MORE = Condition(
+    "recipe-short-more",
+    len(ADDENDUM_SEEDS),
+    "the recipe at 50 epochs, addendum seeds",
+    lam=SCORING_LAMBDA,
+    epochs=EPOCHS_SHORT,
+)
+ADDENDUM = (RECIPE_MORE, RECIPE_SHORT_MORE)
+
 T00 = Condition(
     "t00",
     5,
@@ -389,9 +403,11 @@ cannot all be held while the op set changes, and the two matchings put the remai
 sides: a cube that is better at six ops in the corpus arm, or worse at six ops in the per-op arm, is read
 against the confound, and the pair together reads in both directions."""
 
-CONDITIONS = (CONTROL, CONTROL_SHORT, *CANDIDATES, *RICHER_OP_ARM)
+CONDITIONS = (CONTROL, CONTROL_SHORT, *CANDIDATES, *RICHER_OP_ARM, *ADDENDUM)
+SEEDS = {c.name: list(range(c.seeds)) for c in CONDITIONS} | {c.name: ADDENDUM_SEEDS for c in ADDENDUM}
+"""The seed list per condition: the addendum arms start where the frozen recipe arms stop."""
 N_RUNS = sum(c.seeds for c in CONDITIONS)
-assert N_RUNS == 47
+assert N_RUNS == 47 + 2 * len(ADDENDUM_SEEDS)
 
 # --- The probe set ---------------------------------------------------------------------------
 
@@ -1378,11 +1394,11 @@ def main(ctx: Ctx) -> dict:
         _, evaled = _train_and_eval(ctx, rows)
         return ctx.run(publish_calibration, evaled, role="prep")
 
-    rows = cells(CONDITIONS, preps)
+    rows = cells(CONDITIONS, preps, seeds=SEEDS)
     trained, evaled = _train_and_eval(ctx, rows)
     by_label = dict(zip([r["label"] for r in rows], zip(rows, trained, strict=True), strict=True))
 
-    candidates = [by_label[r["label"]] for r in rows if r["condition"] in {c.name for c in CANDIDATES}]
+    candidates = [by_label[r["label"]] for r in rows if r["condition"] in {c.name for c in (*CANDIDATES, *ADDENDUM)}]
     scored = ctx.map(
         score_one,
         [t for _, t in candidates],
