@@ -1621,7 +1621,7 @@ def _():
 
     ### E1 — per-op statistics
 
-    Every H2 statistic read on the probe lines of each op, rather than on the `mix` lines alone, for every candidate. The labeller never sees the op, so a placement that differs by op would mean the blocks carry *red* differently under different rules. The per-op grading and contrast say whether the anchor is op-blind.
+    Every H2 statistic read on the probe lines of each op, rather than on the `mix` lines alone, for every candidate. The labeller never sees the op, so a placement that differs by op would mean the blocks carry *red* differently under different rules. Only m_line and contrast can differ: they involve op2 and the answer, which follow the op word, while grading, containment, and the lead weight are read at or before op1, where causal attention has not yet seen which rule the line uses.
 
     The five statistics, in a phrase each: **m_line** is how much more the labelled lines lean on the axis than the average line does (the margin the survey ranked on); **grading r²** is whether that lean rises smoothly with redness rather than switching on; **contrast** is how much the pull prefers the operand that drew the label over the other one, at depth; **containment ᾱ** is the mean lean of every color at op1, which should stay near zero; and the **lead weight** is the share of the pull that sits on the drawing operand at the embedding.
     """)
@@ -1659,41 +1659,78 @@ def _(res: Results):
 
 @app.cell(hide_code=True)
 def _(res: Results):
-    _stats = (("m_line", "m_line"), ("contrast", "contrast"), ("r2_sim", "grading r²"))
+    _stats = (("m_line", "m_line"), ("contrast", "contrast"))
     _x = np.arange(len(ex.OP_NAMES))
+    # The five ops that share one partner draw; `mix` has its own, so it is drawn apart from them.
+    _shared = [o for o in ex.OP_NAMES if o != ex.PRIMARY_OP.name]
 
     @themed(
         name="e1-per-op-dots",
         alt_text="""
-            Three panels, one per statistic, with the six ops along the bottom and one dotted line per candidate in its own ink, each dot carrying a bar for the seed range. The lines are flat: each candidate reads about the same on every op.
+            A two-by-two grid, m_line in the left column and contrast in the right, with the six ops along the
+            bottom and a dashed divider separating mix from the other five. The tall upper row plots the
+            statistic itself: the candidates sit in well-separated groups, each near-flat across the ops. The
+            short lower row plots the same points as distances from the candidate's mean over the five, on a
+            scale about ten times finer, over a grey stripe marking the equivalence band. There the contrast
+            points sit inside the stripe with mix far below it, furthest on the two recipe arms; the m_line
+            points scatter around the stripe with bars taller than it, darken high and add low on most
+            candidates.
         """,
         caption="""
-            **The placement statistics per op, drawn.** The same reads as the table above for m_line, contrast, and grading r²: one line per candidate in its ink, one dot per op at the seed mean with a bar for the seed range, offset a little so the candidates do not overlap. A flat line is a placement that reads the same under every rule.
+            **The two per-op placement statistics, whole and magnified.** m_line and contrast are the only
+            statistics that can vary by op. One line per candidate in its ink, one dot per op at the seed mean
+            with a bar for the seed range, offset a little so the candidates do not overlap. The upper row
+            plots each statistic on its own scale, where the gaps between candidates set the axis. The lower
+            row magnifies what that hides: the same points as a distance from the candidate's own mean over
+            the five ops that share a partner draw, per seed, so the ops can be compared within a run. The
+            grey stripe there is that statistic's equivalence band, the smallest seed-mean difference the
+            resolution rule may call a difference. <code>mix</code> sits left of the divider, and out of the
+            baseline, because its probe lines are D2.1's on-grid partners rather than the shared draw: its
+            distance from the five carries the partner set as well as the op.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, axes = plt.subplots(1, len(_stats), figsize=(7.6, 2.1), layout="constrained")
-        axes = cast(AxesRow, axes)
-        off = np.linspace(-0.25, 0.25, len(ex.CANDIDATES))
-        for ax, (k, title) in zip(axes, _stats, strict=True):
+        fig, axes = plt.subplots(
+            2,
+            len(_stats),
+            figsize=(6.4, 3.9),
+            height_ratios=(3, 2),
+            sharex=True,
+            layout="constrained",
+        )
+        axes = cast(AxesGrid, axes)
+        off = np.linspace(-0.22, 0.22, len(ex.CANDIDATES))
+        rule = light_dark("#555555", "#aaaaaa")
+        for col, (k, title) in enumerate(_stats):
+            hi, lo = axes[0][col], axes[1][col]
+            half = ex.equiv_band(k) / 2
+            lo.axhspan(-half, half, color=rule, alpha=0.13, lw=0, zorder=0)
+            lo.axhline(0, color=rule, lw=0.6, alpha=0.5, zorder=1)
             for d, c in zip(off, ex.CANDIDATES, strict=True):
                 v = np.stack([res.stat(c.name, k, op) for op in ex.OP_NAMES])  # (ops, seeds)
-                ax.plot(_x + d, v.mean(axis=1), "-", color=ink(c.name), lw=0.8, alpha=0.6, zorder=2)
-                ax.vlines(_x + d, v.min(axis=1), v.max(axis=1), color=ink(c.name), lw=1.0, zorder=2)
-                ax.plot(
-                    _x + d,
-                    v.mean(axis=1),
-                    "o",
-                    ms=3,
-                    color=ink(c.name),
-                    zorder=3,
-                    label=c.name if k == "m_line" else None,
-                )
-            ax.set_title(title, fontsize=9)
-            ax.set_xticks(_x, ex.OP_NAMES, fontsize=6.5, rotation=30)
-            ax.tick_params(axis="y", labelsize=7)
-            ax.grid(axis="y", alpha=0.2)
-        axes[0].legend(fontsize=6, frameon=False, ncol=1, loc="lower left")
+                # Per seed against its own mean over the five: the ops share seeds, so the paired
+                # difference is the comparison, and `mix` stays out of the baseline it is read against.
+                dev = v - np.stack([res.stat(c.name, k, op) for op in _shared]).mean(axis=0)
+                for ax, y in ((hi, v), (lo, dev)):
+                    ax.plot(_x[1:] + d, y[1:].mean(axis=1), "-", color=ink(c.name), lw=0.8, alpha=0.6, zorder=2)
+                    ax.vlines(_x + d, y.min(axis=1), y.max(axis=1), color=ink(c.name), lw=1.0, zorder=2)
+                    ax.plot(
+                        _x + d,
+                        y.mean(axis=1),
+                        "o",
+                        ms=3,
+                        color=ink(c.name),
+                        zorder=3,
+                        label=c.name if (k == "m_line" and ax is hi) else None,
+                    )
+            hi.set_title(title, fontsize=9)
+            lo.set_ylabel("Δ from the five", fontsize=6.5)
+            lo.set_xticks(_x, ex.OP_NAMES, fontsize=6.5, rotation=30)
+            for ax in (hi, lo):
+                ax.axvline(0.5, color=rule, lw=0.6, ls=(0, (2, 2)), alpha=0.5, zorder=1)
+                ax.tick_params(axis="y", labelsize=7)
+                ax.grid(axis="y", alpha=0.2)
+        fig.legend(fontsize=6, frameon=False, ncol=len(ex.CANDIDATES), loc="outside lower center")
         return fig
 
     mo.Html(_plot())
@@ -1701,12 +1738,32 @@ def _(res: Results):
 
 
 @app.cell(hide_code=True)
-def _(e1_spread: dict[tuple[str, str], float]):
-    _m = max(e1_spread[c.name, "m_line"] for c in ex.CANDIDATES)
-    _r = max(e1_spread[c.name, "r2_sim"] for c in ex.CANDIDATES)
-    _k = max(e1_spread[c.name, "contrast"] for c in ex.CANDIDATES)
+def _(e1_spread: dict[tuple[str, str], float], res: Results):
+    _shared = [o for o in ex.OP_NAMES if o != ex.PRIMARY_OP.name]
+
+    def _five(c: str, k: str) -> np.ndarray:
+        """The seed means of one statistic over the five ops that share a partner draw."""
+        return np.array([res.stat(c, k, op).mean() for op in _shared])
+
+    # Spread over the five, and how far `mix` sits from their mean: the first is a clean op read,
+    # the second carries the partner set too.
+    _sp = {(c.name, k): float(np.ptp(_five(c.name, k))) for c in ex.CANDIDATES for k in ("m_line", "contrast")}
+    _k5 = max(_sp[c.name, "contrast"] for c in ex.CANDIDATES)
+    _gk = [
+        float(res.stat(c.name, "contrast", ex.PRIMARY_OP.name).mean() - _five(c.name, "contrast").mean())
+        for c in ex.CANDIDATES
+    ]
+    _m6 = max(e1_spread[c.name, "m_line"] for c in ex.CANDIDATES)
+    _k6 = max(e1_spread[c.name, "contrast"] for c in ex.CANDIDATES)
+    _l6 = max(e1_spread[c.name, "lead_emb"] for c in ex.CANDIDATES)
     mo.md(rf"""
-    Across the six ops, the widest spread of seed-mean m_line on any candidate is {_m:.3f} (band {ex.equiv_band("m_line"):.3f}), of grading r² {_r:.3f} (band {ex.equiv_band("r2_sim"):.3f}), and of contrast {_k:.3f} (band {ex.equiv_band("contrast"):.3f}). A spread inside the band means the placement reads the same on every op's lines, which is what an op-blind labeller predicts. Grading, containment, and the lead weight are read at op1, which precedes the op word, so under causal attention they cannot differ by op at all; the per-op reads are m_line and contrast, which involve op2 and the answer.
+    Read across all six ops, the widest spread of seed-mean m_line on any candidate is {_m6:.3f} (band {ex.equiv_band("m_line"):.3f}) and of contrast {_k6:.3f} (band {ex.equiv_band("contrast"):.3f}), both wider than the band. But the six ops are not six comparable reads. `mix` draws its probe lines from its own on-grid partners, D2.1's set, while the other five share one draw, so only those five differ from each other in the op alone. Split that way the two statistics separate.
+
+    **Contrast is op-blind among the five.** Its spread there is no wider than the band on any candidate ({_k5:.3f} at most, band {ex.equiv_band("contrast"):.3f}). All of the six-op spread is `mix`, which sits below the five on every candidate, by {min(-g for g in _gk):.3f} to {max(-g for g in _gk):.3f} — furthest on the two recipe arms, whose contrast is highest to begin with. Since `mix` is also the op with the different partner set, that step reads as the partner set rather than as the rule, and a `mix` probe drawn like the others would be needed to tell the two apart.
+
+    **m_line is less settled.** Among the five it stays inside the band on the recipe arms ({_sp[ex.RECIPE.name, "m_line"]:.3f} and {_sp[ex.RECIPE_SHORT.name, "m_line"]:.3f}) and sits at it on `t00` ({_sp["t00", "m_line"]:.3f}), reaching {_sp["t48", "m_line"]:.3f} on `t48` and {_sp["t12", "m_line"]:.3f} on `t12`, the two proposals with the lowest anchor weight, against a band of {ex.equiv_band("m_line"):.3f}. The ordering repeats across candidates — `darken` high on all five, `add` low on all but `recipe-short` — but the per-seed deviations are wider than the band, so five seeds do not settle whether the ordering is real. If it is, the probe set is the first place to look: m_line is a margin over the average line of that op's set, and the five sets share their op1 colors and partners but not their answers, so an op whose answers sit differently against the red axis would move it with the placement unchanged. Either way the effect is small, and every gated read is on `mix`.
+
+    Grading r² and containment ᾱ are identical on all six ops to every printed digit. Both are read at op1, which precedes the op word, so under causal attention they cannot see which rule the line uses; the table prints them for completeness. The lead weight is read at op1 too, but its softmin normalizer runs over the whole span, so the op word's own embedding enters it: it moves by {_l6:.3f} at most, again with `mix` apart from the rest.
     """)
     return
 
