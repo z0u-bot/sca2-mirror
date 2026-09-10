@@ -96,17 +96,16 @@ if [[ -d .git ]]; then
         && log 'configured blame.ignoreRevsFile' || true
 fi
 
-# Everything below is slow; run it in the background so the session starts now.
-# `uv run` syncs on demand anyway, so the worst case is the first command
-# re-doing work this hook is also doing.
-echo '{"async": true, "asyncTimeout": 600000}'
-
-# 1. Ensure uv is new enough to parse pyproject.toml.
-#    The image ships uv 0.8.x, which can't parse the relative
-#    `exclude-newer = "N days"` cooldown and warns on every `uv run`. uv added
-#    relative durations later. We upgrade from PyPI rather than via
-#    `uv self update`, because that checks GitHub releases and the network
-#    policy here blocks the GitHub API (403).
+# 1. Ensure uv is new enough to parse pyproject.toml — synchronously, before
+#    the async handoff below. The image ships uv 0.8.x, which can't parse the
+#    relative `exclude-newer = "N days"` cooldown: it drops the cutoff (and the
+#    rest of `[tool.uv]`, so a `required-version` guard there can't catch it),
+#    re-resolves to newer packages, downloads them, and rewrites uv.lock. Any
+#    `./go` or `uv run` in the window before an async upgrade landed did just
+#    that, so the upgrade has to finish first. It takes under a second even on
+#    a cold cache, and `./go` refuses to run on a uv older than this anyway.
+#    We upgrade from PyPI rather than via `uv self update`, because that checks
+#    GitHub releases and the network policy here blocks the GitHub API (403).
 min_uv='0.11'
 have_uv="$(uv --version 2>/dev/null | awk '{print $2}' || echo '0')"
 if [[ "$(printf '%s\n%s\n' "$min_uv" "$have_uv" | sort -V | head -n1)" != "$min_uv" ]]; then
@@ -114,11 +113,16 @@ if [[ "$(printf '%s\n%s\n' "$min_uv" "$have_uv" | sort -V | head -n1)" != "$min_
     uv tool install uv --force >/dev/null 2>&1 || log "uv upgrade failed; continuing with ${have_uv}"
 fi
 
+# Everything below is slow; run it in the background so the session starts now.
+# `uv run` syncs on demand anyway, so the worst case is the first command
+# re-doing work this hook is also doing.
+echo '{"async": true, "asyncTimeout": 600000}'
+
 # 2. Sync the project venv so linters, type-checker, tests, and notebooks work.
 #    Mirrors `./go install` (minus npm/git-hooks, which the agent doesn't need).
 #    --no-group cuda: locally we run CPU-only; the CUDA plugin is for Modal.
 log "syncing venv (uv $(uv --version 2>/dev/null | awk '{print $2}'))"
-uv sync --all-groups --no-group cuda >/dev/null 2>&1 || log 'uv sync failed; venv may be incomplete'
+uv sync --all-groups --no-group cuda --locked >/dev/null 2>&1 || log 'uv sync failed (stale uv.lock? run `uv lock`); venv may be incomplete'
 
 # 3. Install the agent-friendly CLI tools the dev container ships as features
 #    but the web image lacks: fd, fzf, bat. (rg is already present; gh is
