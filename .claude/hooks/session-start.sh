@@ -122,7 +122,7 @@ echo '{"async": true, "asyncTimeout": 600000}'
 #    Mirrors `./go install` (minus npm/git-hooks, which the agent doesn't need).
 #    --no-group cuda: locally we run CPU-only; the CUDA plugin is for Modal.
 log "syncing venv (uv $(uv --version 2>/dev/null | awk '{print $2}'))"
-uv sync --all-groups --no-group cuda >/dev/null 2>&1 || log 'uv sync failed; venv may be incomplete'
+uv sync --all-groups --no-group cuda --locked >/dev/null 2>&1 || log 'uv sync failed (stale uv.lock? run `uv lock`); venv may be incomplete'
 
 # 3. Install the agent-friendly CLI tools the dev container ships as features
 #    but the web image lacks: fd, fzf, bat. (rg is already present; gh is
