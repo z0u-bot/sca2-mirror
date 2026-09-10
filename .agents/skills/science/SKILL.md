@@ -38,9 +38,10 @@ Example:
 ## Short name for H1 (H1)
 
 **H1.** The prediction: the measurement, the gate, the partial band, and what a contrary result would mean.
+<!-- Note: outdated; see todo/style/lighter-preregistration-hypotheses.md -->
 
 /// admonition | TODO
-What the figure or table will show (axes, panels).
+What the figure and table will show (axes, panels).
 ///
 ```
 
@@ -128,6 +129,8 @@ Directly under the tl;dr, and above the intro prose. Every preregistered hypothe
 
 ```md
 ## Findings
+
+<!-- Note: outdated; see todo/style/report-register-explain-it-over-lunch.md -->
 
 **H1 (task cost) — holds.** Largest `named_holdout` exact-match gap from
 control, across all seven conditions: 0.0013. Gate: 0.02.

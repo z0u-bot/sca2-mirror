@@ -29,7 +29,7 @@ Also stop and escalate for anything structural a reviewer couldn't fix itself, a
 
 ## The read-back check
 
-Cheap, and worth running after the render once the interpretive sections are in. Hand the Markdown render to a fresh agent with no other context and ask it to explain the report back in plain words: what was found, what each number means, what we make of it. Diff that explanation against the report's Findings and Discussion. Where they differ, the report is the one to change: a good read-back is the register the report should be in, and a read-back that gets a result wrong has found a sentence the report needs to say more plainly.
+Cheap, and worth running after the render once the interpretive sections are in. Hand the Markdown render to a fresh agent with no other context and ask it to explain the report back in plain words: what was found, what each number means, what we make of it. Compare that explanation to the Findings and Discussion in the report. Where they differ, consider updating the report: a good read-back is the register the report should be in, and a read-back that gets a result wrong has found a sentence the report needs to say more plainly.
 
 ## The prose passes
 

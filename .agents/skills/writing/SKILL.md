@@ -4,8 +4,6 @@ description: |
   Writing style for composing text. Use for any prose: Markdown, GitHub issues & PRs, proposals, and technical writing such as academic papers. Improves collaboration effectiveness.
 ---
 
-Write the explanation a colleague would get over lunch, and start from that draft. Lead with the finding in one plain sentence, say what a number means before giving it, and use the same everyday word for a thing throughout rather than switching to the statistic's name.
-
 Write with a clear, correct, and understated style: considered but conversational, precise but not stuffy. Use the first person and voice uncertainty.
 
 Characteristics:
@@ -37,6 +35,8 @@ Anti-patterns:
 - Cut tangents; don't repeat information in several sections
 
 ## Clarity
+
+Write the explanation a colleague would get over lunch, and start from that draft. Lead with the finding in one plain sentence, say what a number means before giving it, and use the same everyday word for a thing throughout rather than switching to the statistic's name.
 
 Write plain English, as though explaining to an intelligent person with technical skill who is _not_ an expert in machine learning. Allow the reader to infer information from figures, context, and a few exemplar results; draw their attention to key details.
 
