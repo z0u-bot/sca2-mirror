@@ -188,11 +188,11 @@ def anti_subspace_weight(
 class LabelSpec:
     """Which lines draw a label each visit, and which of their positions the pull covers.
 
-    *p* is a per-token probability. Under `op1` keying it is P(line labeled), read off the first operand alone — the ex-2.1.6..9 labeller, and what a bare array passed in its place means. Under `either` keying it is the per-operand rate: op1 and op2 draw independently and the line is labeled when either does, so the label no longer says which position carried it. *pull* picks the masked positions of a labeled line: its prompt span, or just the operand(s) that drew (`slot`) — the pull of a labeller that names the slot, which the span pull has to match without being told.
+    *p* is a per-token probability. Under `op1` keying it is P(line labeled), read off the first operand alone — the ex-2.1.6..9 labeller, and what a bare array passed in its place means. Under `either` keying it is the per-operand rate: op1 and op2 draw independently and the line is labeled when either does, so the label no longer says which position carried it. Under `line` keying the answer draws too, at the same per-token rate as the operands, so a line is labeled when any of its three colors draws — the labeller a whole-line pull needs, since a pull that covers the answer with no way for the answer to earn the label would still read the label off the operands. *pull* picks the masked positions of a labeled line: the first *span* roles (the prompt span by default, or the whole line at `span=LINE_TOKENS`), or just the slot(s) that drew (`slot`) — the pull of a labeller that names the slot, which the span pull has to match without being told.
     """
 
     p: Float[np.ndarray, " V"]
-    keying: Literal["op1", "either"] = "op1"
+    keying: Literal["op1", "either", "line"] = "op1"
     pull: Literal["span", "slot"] = "span"
 
 
@@ -342,18 +342,25 @@ def sample_anchored_batches(
         if spec.keying == "op1":
             draw = rng.random((len(starts), n_lines))
             drew1 = np.take_along_axis(draw, local, axis=1) < spec.p[op1]
-            drew2 = np.zeros_like(drew1)
+            drew2 = drew3 = np.zeros_like(drew1)
         else:
             op2 = data[line * LINE_TOKENS + 2]
             draw = rng.random((len(starts), n_lines, 2))
             drew1 = np.take_along_axis(draw[..., 0], local, axis=1) < spec.p[op1]
             drew2 = np.take_along_axis(draw[..., 1], local, axis=1) < spec.p[op2]
+            drew3 = np.zeros_like(drew1)
+        if spec.keying == "line":
+            # A separate draw after the operands', so `either` keying consumes the stream as it always has.
+            at = line * LINE_TOKENS + 4  # the answer may sit past the end of the corpus for the last crop
+            answer = data[np.minimum(at, len(data) - 1)]
+            draw3 = rng.random((len(starts), n_lines))
+            drew3 = (np.take_along_axis(draw3, local, axis=1) < spec.p[answer]) & (at < len(data))
         role = absolute % LINE_TOKENS
         # Padded positions are not shown to the model, so they are not pulled either.
         if spec.pull == "span":
-            mask = (drew1 | drew2) & (role < span) & (x != 0)
+            mask = (drew1 | drew2 | drew3) & (role < span) & (x != 0)
         else:
-            mask = ((drew1 & (role == 0)) | (drew2 & (role == 2))) & (x != 0)
+            mask = ((drew1 & (role == 0)) | (drew2 & (role == 2)) | (drew3 & (role == 4))) & (x != 0)
         if lines:
             yield x, y, mask.astype(np.float32), local.astype(np.int32)
         else:

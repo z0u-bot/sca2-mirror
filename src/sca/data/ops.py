@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 
@@ -47,6 +47,55 @@ def snap(v: float) -> int:
     if abs(v - lo) != abs(hi - v):
         return lo if abs(v - lo) < abs(hi - v) else hi
     return lo if LEVELS.index(lo) % 2 == 0 else hi
+
+
+Rounding = Literal["nearest", "stochastic"]
+"""How an off-grid channel value becomes a grid level.
+
+`nearest` is `snap`: the same level every time, so an op is a step function of its raw value. `stochastic` draws the upper neighbour with probability equal to how far up the interval the raw value sits, per channel and per line, so the mean target is the raw value itself and a tie is a coin flip. Only the rounded ops (`mix` off its on-grid pairs, `screen`, `multiply`) differ between the two.
+"""
+
+
+def channel_dist(v: float) -> tuple[tuple[int, float], ...]:
+    """The grid levels a raw channel value can round to under stochastic rounding, with their probabilities.
+
+    One entry when *v* is on the grid; otherwise `((lo, 1 − t), (hi, t))` with *t* the fraction of the way from lo to hi.
+    """
+    lo = max((level for level in LEVELS if level <= v), default=LEVELS[0])
+    hi = min((level for level in LEVELS if level >= v), default=LEVELS[-1])
+    if hi == lo:
+        return ((lo, 1.0),)
+    t = (v - lo) / (hi - lo)
+    return ((lo, 1.0 - t), (hi, t))
+
+
+def answer_dist(op: Op, a: Rgb, b: Rgb) -> dict[Rgb, float]:
+    """The answer distribution of a line under stochastic rounding: the product of its channel distributions.
+
+    Up to eight colors, one per corner of the box the raw value sits in; a single color with probability 1 where the op lands on the grid. Under `nearest` rounding the answer is this distribution's mode, ties aside.
+    """
+    dr, dg, db = (channel_dist(v) for v in op.raw(a, b))
+    return {(r, g, b_): pr * pg * pb for r, pr in dr for g, pg in dg for b_, pb in db}
+
+
+def mode_prob(op: Op, a: Rgb, b: Rgb) -> float:
+    """The largest answer probability of a line under stochastic rounding: its exact-match ceiling.
+
+    A predictor that knows the rule and the distribution can do no better than name the mode, and matches the drawn answer this often. 1 on the grid, and as low as 1/8 for a `mix` pair tied on every channel.
+    """
+    p = 1.0
+    for v in op.raw(a, b):
+        p *= max(q for _, q in channel_dist(v))
+    return p
+
+
+def draw_answer(op: Op, a: Rgb, b: Rgb, u: np.ndarray) -> Rgb:
+    """One stochastic rounding of a line's raw value: channel *k* takes its upper level when `u[k] < t`."""
+    r, g, b_ = (
+        channel_dist(v)[-1][0] if uk < channel_dist(v)[-1][1] else channel_dist(v)[0][0]
+        for v, uk in zip(op.raw(a, b), u, strict=True)
+    )
+    return (r, g, b_)
 
 
 @dataclass(frozen=True)
@@ -196,8 +245,9 @@ def pair_key(a: Rgb, b: Rgb) -> tuple[Rgb, Rgb]:
     return (min(a, b), max(a, b))
 
 
-def make_line(op: Op, a: Rgb, b: Rgb) -> Line:
-    return Line(op.name, a, b, op(a, b))
+def make_line(op: Op, a: Rgb, b: Rgb, u: np.ndarray | None = None) -> Line:
+    """A line of the grammar: nearest rounding, or one stochastic rounding drawn from the uniforms *u*."""
+    return Line(op.name, a, b, op(a, b) if u is None else draw_answer(op, a, b, u))
 
 
 def vocabulary(ops: Iterable[Op] = OPS) -> list[str]:
@@ -225,15 +275,19 @@ def holdout(seed: int, frac: float = 0.2, ops: tuple[Op, ...] = OPS) -> set[tupl
     return held
 
 
-def sample_corpus(n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2) -> list[Line]:
+def sample_corpus(
+    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2, rounding: Rounding = "nearest"
+) -> list[Line]:
     """*n* training lines drawn i.i.d.: a uniform op, then two uniform colors, rejecting held-out (op, pair)s.
 
     Two independent colors make the operand order random and give self-pairs their natural rate, as D2.1's
-    sampler drew the `mix` pairs.
+    sampler drew the `mix` pairs. Under stochastic *rounding* the (op, pair) sequence is the same, and each
+    line's answer is drawn once from its own stream, so the two corpora differ only in how they round.
     """
     held = holdout(seed, holdout_frac, ops)
     cs = colors()
     rng = np.random.default_rng(seed)
+    u_rng = np.random.default_rng([seed, 3]) if rounding == "stochastic" else None
     out: list[Line] = []
     while len(out) < n:
         k = 2 * (n - len(out)) + 64
@@ -241,22 +295,24 @@ def sample_corpus(n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: fl
         for w, (i, j) in zip(which, ab, strict=True):
             op, a, b = ops[w], cs[i], cs[j]
             if len(out) < n and (op.name, pair_key(a, b)) not in held:
-                out.append(make_line(op, a, b))
+                out.append(make_line(op, a, b, None if u_rng is None else u_rng.random(3)))
     return out
 
 
 def eval_sets(
-    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2
+    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2, rounding: Rounding = "nearest"
 ) -> dict[str, dict[str, list[Line]]]:
     """Per op, *n* held-out lines and *n* trained lines, with random operand order: `{op: {holdout, seen}}`.
 
     Drawn from the distinct pairs rather than the sampled corpus, so the `seen` set may hold pairs the corpus
     happened not to draw under that op; it reads generalization within the trained split, the holdout set
-    reads it across the split.
+    reads it across the split. Under stochastic *rounding* the lines are the same and each answer is one
+    draw, off its own stream.
     """
     held = holdout(seed, holdout_frac, ops)
     pairs = unordered_pairs()
     rng = np.random.default_rng([seed, 1])
+    u_rng = np.random.default_rng([seed, 4]) if rounding == "stochastic" else None
     sets = {}
     for op in ops:
         is_held = np.array([(op.name, p) in held for p in pairs])
@@ -265,7 +321,8 @@ def eval_sets(
             idx = rng.choice(np.flatnonzero(mask), n, replace=False)
             flip = rng.random(n) < 0.5
             sets[op.name][name] = [
-                make_line(op, *(pairs[i][::-1] if f else pairs[i])) for i, f in zip(idx, flip, strict=True)
+                make_line(op, *(pairs[i][::-1] if f else pairs[i]), u=None if u_rng is None else u_rng.random(3))
+                for i, f in zip(idx, flip, strict=True)
             ]
     return sets
 
