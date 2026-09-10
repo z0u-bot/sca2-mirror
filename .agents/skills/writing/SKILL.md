@@ -4,6 +4,8 @@ description: |
   Writing style for composing text. Use for any prose: Markdown, GitHub issues & PRs, proposals, and technical writing such as academic papers. Improves collaboration effectiveness.
 ---
 
+Write the explanation a colleague would get over lunch, and start from that draft. Lead with the finding in one plain sentence, say what a number means before giving it, and use the same everyday word for a thing throughout rather than switching to the statistic's name.
+
 Write with a clear, correct, and understated style: considered but conversational, precise but not stuffy. Use the first person and voice uncertainty.
 
 Characteristics:
@@ -22,6 +24,7 @@ Anti-patterns:
 - Adversarial or aggressive framing
 - Excessive use of lists, em dashes, and bold and italic text
 - Contrastive conclusions and verdict kickers
+- Statistic names standing in for the thing they measure, and verbs like "reads as" and "carries" where "is" or "has" would do
 - Committing to unplanned future work
 - Possessives on abstract terms
 

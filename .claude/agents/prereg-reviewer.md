@@ -14,6 +14,8 @@ Start by reading the report end to end, plus the experiment module beside it if 
 The question to hold throughout: **is this experiment sound, and worth running as specified?** Concretely, that usually means:
 
 - Each hypothesis is falsifiable, with a stated measurement and threshold, and every outcome — including the boring one — would change what we do next.
+- Each hypothesis is one a colleague could restate from memory: an expectation, the number we will look at, and what would change our mind. Gate arithmetic (partial bands, tie-breaks) belongs only on a hypothesis a decision hangs on; elsewhere it is cost without safety.
+- Where the plan has a selection rule (which point or condition gets adopted), it carries every gate the hypotheses do. A rule that checks most of them will adopt a point that fails the rest.
 - The analysis plan can actually score every hypothesis from the data the method collects. Each result section opens with its frozen prediction, and `Findings` indexes them. Look for a prediction that names no contrary outcome, a `Findings` line with no section behind it, or a standalone hypotheses block restating what the sections already say.
 - Nothing is underspecified to the point where the person running it would have to make a judgment call that changes the result: probe sets, gate statistics, tie-breaks, which checkpoint gets measured.
 - Confounds worth naming are named, and the measurement site is chosen by a criterion independent of the statistic being judged.
