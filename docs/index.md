@@ -60,7 +60,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 </details>
 
-### D2.1: anchoring in a transformer
+<details markdown="1" open="true"><summary><h3>D2.1: anchoring in a transformer</h3></summary>
 
 - [2.1.1. Un-anchored color-mixing transformer](./m2/ex-2.1.1/report.py)
 
@@ -168,7 +168,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/d2.1/report.py -->
 
-### D2.2: anchoring an operation
+</details>
+
+<details markdown="1" open="true"><summary><h3>D2.2: anchoring an operation</h3></summary>
 
 - [D2.2 design](./m2/d2.2/design.md)
 
@@ -221,3 +223,6 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`pilot` `multi-op` `anchoring`</span>
 
     <!-- mini:figures ./m2/ex-2.2.6/report.py -->
+
+
+</details>
