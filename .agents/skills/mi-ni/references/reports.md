@@ -37,7 +37,7 @@ Each asset is written to `_assets/<name>`, keyed by its readable name, so the UR
 
 ### Consume
 
-A report reads durable results *by name* and must open cleanly before they exist. Resolve refs in one setup-cell helper that returns `None` when unpublished, and gate the first data cell with `mo.stop` showing the command that produces the data — every cell after it can then assume results:
+A report reads durable results *by name* through `project_store()`, which resolves whichever storage pair is configured — a report never builds a store itself or names a bucket, and every science run's results are on production ([storage.md](./storage.md#which-pair-a-run-uses)). It must also open cleanly before the results exist. Resolve refs in one setup-cell helper that returns `None` when unpublished, and gate the first data cell with `mo.stop` showing the command that produces the data — every cell after it can then assume results:
 
 ```py
 def load_results() -> dict | None:

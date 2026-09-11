@@ -14,7 +14,7 @@ Each report is a [Marimo](https://marimo.io) notebook that reads durable results
 
 <!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
 
-<details markdown="1"><summary><h3>Iteration 0 (prep)</h3></summary>
+<details markdown="1"><summary><h3 id="iteration-0-prep">Iteration 0 (prep)</h3></summary>
 
 These experiments were preparation for the main work: exercising the infrastructure, testing the normalized transformer architecture, and tying off some loose ends from M1.
 
@@ -60,7 +60,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 </details>
 
-### D2.1: anchoring in a transformer
+<details markdown="1" open="true"><summary><h3 id="d21-anchoring-in-a-transformer">D2.1: anchoring in a transformer</h3></summary>
 
 - [2.1.1. Un-anchored color-mixing transformer](./m2/ex-2.1.1/report.py)
 
@@ -168,7 +168,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/d2.1/report.py -->
 
-### D2.2: anchoring an operation
+</details>
+
+<details markdown="1" open="true"><summary><h3 id="d22-anchoring-an-operation">D2.2: anchoring an operation</h3></summary>
 
 - [D2.2 design](./m2/d2.2/design.md)
 
@@ -197,3 +199,30 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 
     <!-- mini:figures ./m2/ex-2.2.3/report.py -->
+
+- [2.2.4. A scouting round before the anchored-op experiments](./m2/ex-2.2.4/report.py)
+
+    A scouting pass over the open questions ex-2.2.3 left, no hypotheses and no training: each section runs the cheapest read of one question and says whether it changes the D2.2 design. The first covers the op set. Nine candidate ops are read on the grid beside the current six: where their answers land, how evenly they spread, whether the answer depends on the red operand, and how often the op word matters. The hue, saturation, and value blend modes spread their answers well, are the first ops where operand order carries information, and are where the answer moves furthest once the red operand loses its red; a small change in the red operand reaches them no more often than it does the saturating ops. Three commutative ops (`difference`, `exclusion`, and `mix` done in HSV) spread and are sensitive to both operands. Proposed table: drop `add`, add all six, with the HSV trio as a marked subset; score removal as a distance rather than exact match; and adopt stochastic rounding and the whole-line labeller from the two pilots.
+
+    <span class="tags">`scouting` `multi-op` `grammar`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.4/report.py -->
+
+- [2.2.5. A pilot of stochastic rounding](./m2/ex-2.2.5/report.py)
+
+    A pilot, no gates: the un-anchored control and the adopted recipe retrained on a corpus where an answer between grid levels rounds by coin flip, in proportion to where it sits. The model learns the rule's answer distribution rather than a rounding, so exact match against a drawn answer sits at the ceiling the rule sets and carries one draw's noise; the reads to use are expected exact match and calibration. Anchoring does not notice the corpus, suppression reads shift through their clean baseline, and the redder-than-both counts rise on the ops that round up. The pilot recommended keeping nearest rounding; ex-2.2.4 argues for adopting it anyway, for comparability with M3.
+
+    <span class="tags">`pilot` `multi-op` `grammar` `eval-contract`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.5/report.py -->
+
+- [2.2.6. A pilot of the whole-span labeller](./m2/ex-2.2.6/report.py)
+
+    A pilot, no gates: the adopted point retrained under labellers that also read the answer, or also pull the whole line, or both, against production's twenty seeds. Pulling the whole line puts a tenth to a quarter of the pull on the answer and doubles the alignment the redder-than-both lines have there, at no cost to the task or to placement; reading the answer changes nothing visible. Neither closes the blind span for interventions, because the answer is read out at `=`, one position before the extra alignment lands. The pilot recommended keeping the operand-only labeller; ex-2.2.4 argues for adopting the whole-line pull, as the M3-shaped labelling.
+
+    <span class="tags">`pilot` `multi-op` `anchoring`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.6/report.py -->
+
+
+</details>

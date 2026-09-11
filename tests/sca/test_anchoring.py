@@ -170,6 +170,52 @@ def test_either_keying_pulls_lines_whose_op2_drew(corpus):
     assert len(set(np.unique(x[b & ~a])) & set(COLORS[1:])) > 0
 
 
+def test_line_keying_pulls_lines_whose_answer_drew_and_can_cover_the_whole_line(corpus):
+    """With p deterministic, line keying labels a strict superset of either keying's lines."""
+    p = np.zeros(64)
+    p[COLORS[0]] = 1.0
+    mc, dc = model_config(), data_config(0.0)
+    _, _, either_mask = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(8), LabelSpec(p, keying="either"))
+    )
+    x, _, line_mask = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(8), LabelSpec(p, keying="line"))
+    )
+    a, b = either_mask.astype(bool), line_mask.astype(bool)
+    assert (a & ~b).sum() == 0
+    assert (b & ~a).sum() > 0  # lines labeled through the answer alone join
+    assert not b[x == NEWLINE].any()  # the prompt-span pull still stops at `=`
+    # A whole-line pull covers the answer and newline of every labeled line.
+    x, _, whole = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(8), LabelSpec(p, keying="line"), span=6)
+    )
+    w = whole.astype(bool)
+    assert (b & ~w).sum() == 0 and w[x == NEWLINE].any()
+    # The slot pull under line keying marks the answer slot that drew.
+    x, _, slot = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(8), LabelSpec(p, keying="line", pull="slot"))
+    )
+    s_ = slot.astype(bool)
+    assert set(np.unique(x[s_])) == {COLORS[0]} and s_[:, 4::6].any()
+
+
+def test_line_keying_leaves_either_keyings_draws_untouched(corpus):
+    """The answer's draw comes after the operands', so the operand draws of a batch match either keying's."""
+    p = np.full(64, 0.5)
+    mc, dc = model_config(), data_config(0.0)
+    _, _, either_slot = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(9), LabelSpec(p, keying="either", pull="slot"))
+    )
+    x, _, line_slot = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(9), LabelSpec(p, keying="line", pull="slot"))
+    )
+    first_plus = np.argmax(x == PLUS, axis=1)  # role 1, so the role of column j is (j − first_plus + 1) mod 6
+    role = (np.arange(x.shape[1])[None, :] - first_plus[:, None] + 1) % 6
+    e, l_ = either_slot.astype(bool), line_slot.astype(bool)
+    assert (l_ & (role == 4)).any()
+    assert (e == (l_ & (role != 4))).all()
+
+
 def test_slot_pull_marks_only_the_operands_that_drew(corpus):
     mc, dc = model_config(), data_config(0.0)
     p = np.zeros(64)

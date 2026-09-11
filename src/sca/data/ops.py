@@ -11,9 +11,10 @@ The table is the specification ex-2.2.3 preregistered; that experiment's design 
 
 from __future__ import annotations
 
+import colorsys
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
-from typing import NamedTuple
+from typing import Literal, NamedTuple
 
 import numpy as np
 
@@ -49,6 +50,55 @@ def snap(v: float) -> int:
     return lo if LEVELS.index(lo) % 2 == 0 else hi
 
 
+Rounding = Literal["nearest", "stochastic"]
+"""How an off-grid channel value becomes a grid level.
+
+`nearest` is `snap`: the same level every time, so an op is a step function of its raw value. `stochastic` draws the upper neighbour with probability equal to how far up the interval the raw value sits, per channel and per line, so the mean target is the raw value itself and a tie is a coin flip. Only the rounded ops (`mix` off its on-grid pairs, `screen`, `multiply`) differ between the two.
+"""
+
+
+def channel_dist(v: float) -> tuple[tuple[int, float], ...]:
+    """The grid levels a raw channel value can round to under stochastic rounding, with their probabilities.
+
+    One entry when *v* is on the grid; otherwise `((lo, 1 − t), (hi, t))` with *t* the fraction of the way from lo to hi.
+    """
+    lo = max((level for level in LEVELS if level <= v), default=LEVELS[0])
+    hi = min((level for level in LEVELS if level >= v), default=LEVELS[-1])
+    if hi == lo:
+        return ((lo, 1.0),)
+    t = (v - lo) / (hi - lo)
+    return ((lo, 1.0 - t), (hi, t))
+
+
+def answer_dist(op: Op, a: Rgb, b: Rgb) -> dict[Rgb, float]:
+    """The answer distribution of a line under stochastic rounding: the product of its channel distributions.
+
+    Up to eight colors, one per corner of the box the raw value sits in; a single color with probability 1 where the op lands on the grid. Under `nearest` rounding the answer is this distribution's mode, ties aside.
+    """
+    dr, dg, db = (channel_dist(v) for v in op.raw(a, b))
+    return {(r, g, b_): pr * pg * pb for r, pr in dr for g, pg in dg for b_, pb in db}
+
+
+def mode_prob(op: Op, a: Rgb, b: Rgb) -> float:
+    """The largest answer probability of a line under stochastic rounding: its exact-match ceiling.
+
+    A predictor that knows the rule and the distribution can do no better than name the mode, and matches the drawn answer this often. 1 on the grid, and as low as 1/8 for a `mix` pair tied on every channel.
+    """
+    p = 1.0
+    for v in op.raw(a, b):
+        p *= max(q for _, q in channel_dist(v))
+    return p
+
+
+def draw_answer(op: Op, a: Rgb, b: Rgb, u: np.ndarray) -> Rgb:
+    """One stochastic rounding of a line's raw value: channel *k* takes its upper level when `u[k] < t`."""
+    r, g, b_ = (
+        channel_dist(v)[-1][0] if uk < channel_dist(v)[-1][1] else channel_dist(v)[0][0]
+        for v, uk in zip(op.raw(a, b), u, strict=True)
+    )
+    return (r, g, b_)
+
+
 @dataclass(frozen=True)
 class Op:
     """One operation: the word the model sees, and the per-channel rule on the 0..15 scale.
@@ -63,11 +113,17 @@ class Op:
 
     name: str
     """The op's name in code and prose, and its surface form: the one token between the operands."""
-    channel: Callable[[int, int], float]
+    channel: Callable[[int, int], float] | None
+    """The per-channel rule on the 0..15 scale, or None for an op whose rule reads the whole color."""
     rule: str
-    """The per-channel rule, for the method's table."""
+    """The rule, for the method's table."""
+    color: Callable[[Rgb, Rgb], tuple[float, float, float]] | None = None
+    """A whole-color rule on the 0..15 scale, for the ops that go through another color space."""
 
     def raw(self, a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        if self.color is not None:
+            return self.color(a, b)
+        assert self.channel is not None
         r, g, b_ = (self.channel(x, y) for x, y in zip(a, b, strict=True))
         return (r, g, b_)
 
@@ -99,6 +155,112 @@ All six are commutative, so operand order carries no information, as in D2.1. A 
 MIX, ADD, SCREEN, MULTIPLY, LIGHTEN, DARKEN = OPS
 OP_NAMES = tuple(op.name for op in OPS)
 OP_BY_NAME = {op.name: op for op in OPS}
+
+
+# --- Candidate ops, scouted for the next grammar ---------------------------------------------
+# Not in `OPS`: ex-2.2.3's table, vocabulary, and memo keys stay as they were. Ex-2.2.4 reads these on
+# the grid, with no training, to decide which the anchored-op experiments should run on.
+
+
+def _hsv(c: Rgb) -> tuple[float, float, float]:
+    return colorsys.rgb_to_hsv(*(x / TOP for x in c))
+
+
+def _rgb(h: float, s: float, v: float) -> tuple[float, float, float]:
+    r, g, b = colorsys.hsv_to_rgb(h % 1.0, s, v)
+    return (r * TOP, g * TOP, b * TOP)
+
+
+def _hsv_take(which: int) -> Callable[[Rgb, Rgb], tuple[float, float, float]]:
+    """Op1's HSV with one component (0 = H, 1 = S, 2 = V) taken from op2: Krita's HSV blend modes."""
+
+    def rule(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        hsv = list(_hsv(a))
+        hsv[which] = _hsv(b)[which]
+        return _rgb(*hsv)
+
+    return rule
+
+
+def _hsv_mix(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+    """`mix` in HSV: the chroma-weighted circular mean of the hues, and the means of S and V.
+
+    A gray operand has no hue, so its hue gets no weight; when neither operand has any, the hue is op1's.
+    """
+    (ha, sa, va), (hb, sb, vb) = _hsv(a), _hsv(b)
+    wa, wb = sa * va, sb * vb
+    z = wa * np.exp(2j * np.pi * ha) + wb * np.exp(2j * np.pi * hb)
+    h = float(np.angle(z) / (2 * np.pi)) if abs(z) > 1e-9 else ha
+    return _rgb(h, (sa + sb) / 2, (va + vb) / 2)
+
+
+def _lum(c: np.ndarray) -> float:
+    return float(0.3 * c[0] + 0.59 * c[1] + 0.11 * c[2])
+
+
+def _clip_color(c: np.ndarray) -> np.ndarray:
+    lum, lo, hi = _lum(c), c.min(), c.max()
+    if lo < 0:
+        c = lum + (c - lum) * lum / (lum - lo)
+    if hi > TOP:
+        c = lum + (c - lum) * (TOP - lum) / (hi - lum)
+    return c
+
+
+def _set_lum(c: np.ndarray, lum: float) -> np.ndarray:
+    return _clip_color(c + (lum - _lum(c)))
+
+
+def _set_sat(c: np.ndarray, sat: float) -> np.ndarray:
+    lo, hi = c.min(), c.max()
+    return (c - lo) * sat / (hi - lo) if hi > lo else np.zeros(3)
+
+
+def _w3c(mode: str) -> Callable[[Rgb, Rgb], tuple[float, float, float]]:
+    """The non-separable blend modes of the W3C compositing spec (Photoshop's *hue*, *saturation*,
+    *luminosity*), with op1 as the backdrop and op2 as the source. `sat` is max − min and `lum` the
+    Rec. 601 weights, so these are not HSV; a gray source under *hue* gives a gray of the backdrop's lum.
+    """
+
+    def rule(a: Rgb, b: Rgb) -> tuple[float, float, float]:
+        cb, cs = np.array(a, float), np.array(b, float)
+        match mode:
+            case "hue":
+                out = _set_lum(_set_sat(cs, cb.max() - cb.min()), _lum(cb))
+            case "saturation":
+                out = _set_lum(_set_sat(cb, cs.max() - cs.min()), _lum(cb))
+            case _:
+                out = _set_lum(cb, _lum(cs))
+        r, g, b_ = (float(v) for v in out)
+        return (r, g, b_)
+
+    return rule
+
+
+CANDIDATES = (
+    Op("difference", lambda x, y: abs(x - y), "|x − y|"),
+    Op("exclusion", lambda x, y: x + y - 2 * x * y / TOP, "x + y − 2xy / 15"),
+    Op("hsvmix", None, "mean in HSV: circular mean of H, means of S and V", color=_hsv_mix),
+    Op("hue", None, "W3C hue: op2's hue at op1's sat and lum", color=_w3c("hue")),
+    Op("saturation", None, "W3C saturation: op2's sat at op1's hue and lum", color=_w3c("saturation")),
+    Op("luminosity", None, "W3C luminosity: op2's lum at op1's hue and sat", color=_w3c("luminosity")),
+    Op("hue-hsv", None, "op2's H at op1's S and V", color=_hsv_take(0)),
+    Op("sat-hsv", None, "op2's S at op1's H and V", color=_hsv_take(1)),
+    Op("value-hsv", None, "op2's V at op1's H and S", color=_hsv_take(2)),
+)
+"""Candidates for a more diverse table, each snapped to the grid like the ops of `OPS`.
+
+Three are per-channel and commutative: `difference` and `exclusion` (the blend modes of those names), and
+`hsvmix`, which is `mix` done in HSV. The other six take one attribute of op2 at the rest of op1, so they
+are the first ops where operand order carries information: the W3C trio (Photoshop's non-separable modes)
+and the HSV trio (Krita's *Hue HSV*, *Saturation HSV*, *Value*). All are total on the grid."""
+
+CANDIDATE_BY_NAME = {op.name: op for op in CANDIDATES}
+
+
+def commutativity(op: Op) -> float:
+    """The fraction of unordered pairs on which swapping the operands leaves the answer unchanged."""
+    return sum(op(a, b) == op(b, a) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
 def colors() -> list[Rgb]:
@@ -137,18 +299,23 @@ def agreement(p: Op, q: Op) -> float:
     return sum(p(a, b) == q(a, b) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
-def relevance(anchored: Op) -> dict[int, float]:
+def relevance(anchored: Op, ops: tuple[Op, ...] = OPS, pairs: list[tuple[Rgb, Rgb]] | None = None) -> dict[int, float]:
     """How often reading the op word is worth something on the anchored op's lines.
 
-    For a line, count the *other* ops whose answer equals the anchored op's. At 0 the answer names the op;
-    at k the op word only rules out 5 − k of the six. Returned as {k: fraction of lines}. The D2.2 design asks
-    for this per candidate anchored op, under the table's own rounding.
+    For a line, count the *other* ops in the table whose answer equals the anchored op's. At 0 the answer
+    names the op; at k the op word only rules out n − 1 − k of the n. Returned as {k: fraction of lines}.
+    The D2.2 design asks for this per candidate anchored op, under the table's own rounding.
+
+    Counted over the unordered pairs by default, which is right for a commutative table; pass `lines()`
+    for a table with an op that reads operand order.
     """
-    counts = np.zeros(len(OPS), dtype=int)
-    for a, b in unordered_pairs():
+    if pairs is None:
+        pairs = unordered_pairs()
+    counts = np.zeros(len(ops), dtype=int)
+    for a, b in pairs:
         answer = anchored(a, b)
-        counts[sum(op(a, b) == answer for op in OPS if op is not anchored)] += 1
-    return {k: float(c) / len(unordered_pairs()) for k, c in enumerate(counts) if c}
+        counts[sum(op(a, b) == answer for op in ops if op is not anchored)] += 1
+    return {k: float(c) / len(pairs) for k, c in enumerate(counts) if c}
 
 
 def dose(a: Rgb, b: Rgb) -> float:
@@ -196,8 +363,9 @@ def pair_key(a: Rgb, b: Rgb) -> tuple[Rgb, Rgb]:
     return (min(a, b), max(a, b))
 
 
-def make_line(op: Op, a: Rgb, b: Rgb) -> Line:
-    return Line(op.name, a, b, op(a, b))
+def make_line(op: Op, a: Rgb, b: Rgb, u: np.ndarray | None = None) -> Line:
+    """A line of the grammar: nearest rounding, or one stochastic rounding drawn from the uniforms *u*."""
+    return Line(op.name, a, b, op(a, b) if u is None else draw_answer(op, a, b, u))
 
 
 def vocabulary(ops: Iterable[Op] = OPS) -> list[str]:
@@ -225,15 +393,19 @@ def holdout(seed: int, frac: float = 0.2, ops: tuple[Op, ...] = OPS) -> set[tupl
     return held
 
 
-def sample_corpus(n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2) -> list[Line]:
+def sample_corpus(
+    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2, rounding: Rounding = "nearest"
+) -> list[Line]:
     """*n* training lines drawn i.i.d.: a uniform op, then two uniform colors, rejecting held-out (op, pair)s.
 
     Two independent colors make the operand order random and give self-pairs their natural rate, as D2.1's
-    sampler drew the `mix` pairs.
+    sampler drew the `mix` pairs. Under stochastic *rounding* the (op, pair) sequence is the same, and each
+    line's answer is drawn once from its own stream, so the two corpora differ only in how they round.
     """
     held = holdout(seed, holdout_frac, ops)
     cs = colors()
     rng = np.random.default_rng(seed)
+    u_rng = np.random.default_rng([seed, 3]) if rounding == "stochastic" else None
     out: list[Line] = []
     while len(out) < n:
         k = 2 * (n - len(out)) + 64
@@ -241,22 +413,24 @@ def sample_corpus(n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: fl
         for w, (i, j) in zip(which, ab, strict=True):
             op, a, b = ops[w], cs[i], cs[j]
             if len(out) < n and (op.name, pair_key(a, b)) not in held:
-                out.append(make_line(op, a, b))
+                out.append(make_line(op, a, b, None if u_rng is None else u_rng.random(3)))
     return out
 
 
 def eval_sets(
-    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2
+    n: int, seed: int, ops: tuple[Op, ...] = OPS, holdout_frac: float = 0.2, rounding: Rounding = "nearest"
 ) -> dict[str, dict[str, list[Line]]]:
     """Per op, *n* held-out lines and *n* trained lines, with random operand order: `{op: {holdout, seen}}`.
 
     Drawn from the distinct pairs rather than the sampled corpus, so the `seen` set may hold pairs the corpus
     happened not to draw under that op; it reads generalization within the trained split, the holdout set
-    reads it across the split.
+    reads it across the split. Under stochastic *rounding* the lines are the same and each answer is one
+    draw, off its own stream.
     """
     held = holdout(seed, holdout_frac, ops)
     pairs = unordered_pairs()
     rng = np.random.default_rng([seed, 1])
+    u_rng = np.random.default_rng([seed, 4]) if rounding == "stochastic" else None
     sets = {}
     for op in ops:
         is_held = np.array([(op.name, p) in held for p in pairs])
@@ -265,7 +439,8 @@ def eval_sets(
             idx = rng.choice(np.flatnonzero(mask), n, replace=False)
             flip = rng.random(n) < 0.5
             sets[op.name][name] = [
-                make_line(op, *(pairs[i][::-1] if f else pairs[i])) for i, f in zip(idx, flip, strict=True)
+                make_line(op, *(pairs[i][::-1] if f else pairs[i]), u=None if u_rng is None else u_rng.random(3))
+                for i, f in zip(idx, flip, strict=True)
             ]
     return sets
 
