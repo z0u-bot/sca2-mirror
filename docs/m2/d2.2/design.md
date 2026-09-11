@@ -18,24 +18,26 @@ Loose plan for experiments to run.
 
 ```mermaid
 flowchart LR
-a11(["suppress red (ex-2.2.1)"])
-a12(["fallback control (ex-2.2.2)"])
-a2(["new grammar (ex-2.2.3)"])
-a25(["scouting and pilots (ex-2.2.4 to 2.2.6)"])
-a26(["grammar handover"])
-a3(["un-anchored embeddings"])
-c(["anchor operation"])
-d(["suppress operation"])
-e(["layer sweep"])
-f(["SGTM baseline"])
-g(["write-up"])
+a1(["suppress red (ex-2.2.1)"])
+a2(["fallback control (ex-2.2.2)"])
+b1(["new grammar (ex-2.2.3)"])
+b2(["scouting and pilots (ex-2.2.4 to 2.2.6)"])
+b3(["grammar handover"])
+c1(["un-anchored embeddings"])
+main1(["anchor operation"])
+main2(["suppress operation"])
+sweep(["layer sweep"])
+comp(["SGTM baseline"])
+w(["write-up"])
 
-a11 --> a12
-a2 --> a25 --> a26
-a12 & a26 & a3 --> c --> d --> e & f --> g
+a1 --> a2
+b1 --> b2 --> b3
+a2 & b3 & c1 --> main1 --> main2 --> sweep & comp --> w
 ```
 
-### Suppress red on the existing checkpoints
+### Prep A: Suppression of concrete concepts (operands)
+
+#### Suppress red on the existing checkpoints
 
 Ran as [ex-2.2.1](../ex-2.2.1/report.py). No training: axis projection applied to the ex-2.1.10 primary (nine seeds), completion accuracy scored on lines with a red operand against lines without, through the eval contract.
 
@@ -47,7 +49,7 @@ These checkpoints have no fallback term, so the response to suppression was unde
 
 **The intervention is still open.** Ex-2.2.1 leaves two selective interventions (`operands` and `shaped`) and one that removes fully (the plain projection). None are both complete and selective. Before the [anchor-op prereg](#anchor-one-operation) commits to one, we will run a scoring-only pass on the stored ex-2.2.1 runs: tune the threshold and ramp of the shaped suppression, and try the repulsion form, which sets where the state lands rather than how much is removed ([item](/todo/science/repulsion-sets-the-landing-alignment.md)). There is no training, so it costs what ex-2.2.1 cost to score, and it settles the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md). Meanwhile the fallback experiment carries all three as ride-along rows.
 
-### Fallback control
+#### Fallback control
 
 Preregistered as [ex-2.2.2](../ex-2.2.2/report.py). This is [queue item 3](/todo/science/d21-kickoff-carry-over-lessons.md) of the kickoff lessons, and it follows the M1 result [ex-2.9.2](/docs/m1/ex-2.9.2/report.py): teach the model what to produce once the concept has been removed, so the intervention has a designed, predictable outcome. Ex-2.2.1 set the reference at 13% seed agreement on red lines, with a response that is a near miss of the true answer.
 
@@ -87,7 +89,9 @@ The discussion in ex-2.2.2 interprets its results against this paragraph.
 
 **Auditing rows.** The eval-contract dep promised the 2025 auditing rows before any arm was scored, and ex-2.2.1 scored its arms without them, so this prereg decides them row by row. *Off-axis recoverability* runs in ex-2.2.2 as an exploratory row: a ridge probe for redness, fitted per slice on the intervened operand states, in the fallback and no-fallback conditions. A response trained at the antipode is one case where red could stay readable off-axis. *Activation perturbation* (ActPert) and *relearning rebound* wait for D2.3. ActPert goes beside the RMU row; relearning rebound needs a fine-tuning budget, costed then, and will relearn from the `ablate` weights as the permanent removal.
 
-### The multi-op grammar, with red anchored again
+### Prep B: New grammar with more operations
+
+#### The multi-op grammar, with red anchored again
 
 Preregistered as [ex-2.2.3](../ex-2.2.3/report.py). The grammar change forces retraining, so this is the regression check: control, the ex-2.1.10 reference recipe, and the ex-2.1.11 survey's proposals, all on the new grammar.
 
@@ -97,7 +101,7 @@ The [redder-than-both](/todo/science/operation-can-make-answer-redder-than-both.
 
 Optional arm: control models at one, three, and six operations, with the cube probed as in ex-2.1.12, to ask whether a richer op set gives the model a better operand geometry (see the [backlog item](/todo/science/richer-op-set-operand-geometry.md)). It is an arm on un-anchored models only, so it cannot confound the anchored conditions. Task-diversity phase transitions in in-context learning (memorization below a diversity threshold, generalization above; arXiv:2306.15063, arXiv:2405.11751) motivate a companion question on the same sweep: run on the ex-2.1.5 two-form corpus, does added op diversity move hex and named colors toward the shared representation D2.1 never found ([backlog item](/todo/science/does-op-diversity-buy-cross-form-sharing.md))?
 
-### Scouting, pilots, and the grammar handover
+#### Scouting, pilots, and the grammar handover
 
 Ex-2.2.3 left the grammar with a problem for the removal reads: on four of the six ops, most red lines have an answer that a model without *red* can still give, because the op saturates or copies the other operand's channel. Rather than preregister the anchored-op experiments on that footing, a [scouting round](../ex-2.2.4/report.py) read candidate ops on the grid, and two pilots retrained the adopted point under a [stochastically rounded corpus](../ex-2.2.5/report.py) and a [whole-line labeller](../ex-2.2.6/report.py). None of these is scored; each proposes.
 
@@ -105,7 +109,9 @@ The proposals, from ex-2.2.4: table A+ (drop `add`; add `difference`, `exclusion
 
 The **handover** is the preregistered experiment that adopts these: ex-2.2.3's recipe on table A+ with the new corpus and labeller, against ex-2.2.3's twenty seeds, with `mix` kept as the reference op and `hsvmix` beside it, and one arm each with only the corpus or only the labeller changed. Until it runs, the grammar of record is ex-2.2.3's; thereafter, plain `mix` will likely be dropped. Open questions it has to settle: whether to hold lines per op fixed at eleven ops (E4 of ex-2.2.3 found the operand cube less decodable at six ops than at three, with lines per op as a confound), and a probe draw that walks every color as op2 for the non-commutative subset.
 
-### Un-anchored embeddings
+### Prep C: Embeddings
+
+#### Un-anchored embeddings
 
 Anchor all slices except the embeddings. We don't expect concepts to map to tokens in more complex models and languages anyway.
 
