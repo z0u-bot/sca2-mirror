@@ -14,7 +14,7 @@ Each report is a [Marimo](https://marimo.io) notebook that reads durable results
 
 <!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
 
-<details markdown="1"><summary><h3>Iteration 0 (prep)</h3></summary>
+<details markdown="1"><summary><h3 id="iteration-0-prep">Iteration 0 (prep)</h3></summary>
 
 These experiments were preparation for the main work: exercising the infrastructure, testing the normalized transformer architecture, and tying off some loose ends from M1.
 
@@ -60,7 +60,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 </details>
 
-<details markdown="1" open="true"><summary><h3>D2.1: anchoring in a transformer</h3></summary>
+<details markdown="1" open="true"><summary><h3 id="d21-anchoring-in-a-transformer">D2.1: anchoring in a transformer</h3></summary>
 
 - [2.1.1. Un-anchored color-mixing transformer](./m2/ex-2.1.1/report.py)
 
@@ -170,7 +170,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 </details>
 
-<details markdown="1" open="true"><summary><h3>D2.2: anchoring an operation</h3></summary>
+<details markdown="1" open="true"><summary><h3 id="d22-anchoring-an-operation">D2.2: anchoring an operation</h3></summary>
 
 - [D2.2 design](./m2/d2.2/design.md)
 

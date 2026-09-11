@@ -19,19 +19,11 @@ with app.setup(hide_code=True):
     import numpy as np
 
     import experiment as ex
-    from mini.hf_store import HFStore
     from mini.reports import report_bundle, use_publisher
-    from mini.runs import data_root
-    from mini.store import LocalStore, Store
+    from mini.store import project_store
     from mini.vis import AxesRow, figure_html, light_dark, themed
 
     use_publisher(report_bundle(__file__))
-
-    PROD_BUCKET = "z0u/sca2-store"
-    """The production store, read for ex-2.2.3's `recipe-short` and `control-short` seeds."""
-
-    DEV_BUCKET = "z0u/sca2-store-dev"
-    """The dev store, where this pilot ran (as `pilot-stochastic-rounding`); its own results are read from there."""
 
     SLICE_NAMES = ["emb", "1", "2", "3", "4"]
     POS_NAMES = ["op1", "op", "op2", "=", "ans", "⏎"]
@@ -52,22 +44,9 @@ with app.setup(hide_code=True):
 
 
 @app.function(hide_code=True)
-def prod_store() -> Store:
-    """A read-only view of the production bucket, cached beside the project's own store cache."""
-    return HFStore(PROD_BUCKET, cache=LocalStore(data_root() / "store-cache" / "prod"))
-
-
-@app.function(hide_code=True)
-def pilot_store() -> Store:
-    """A read-only view of the dev bucket, where this pilot's runs live: it ran under the dev profile, before the
-    report was numbered, so its refs keep the pilot's original name there.
-    """
-    return HFStore(DEV_BUCKET, cache=LocalStore(data_root() / "store-cache" / "dev"))
-
-
-@app.function(hide_code=True)
-def load_json(ref: str, store: Store | None = None) -> dict | None:
-    store = store or pilot_store()
+def load_json(ref: str) -> dict | None:
+    """A published JSON result as a dict, or None before it exists."""
+    store = project_store()
     art = store.get_refs([ref])[ref]
     if art is None:
         return None
@@ -77,8 +56,9 @@ def load_json(ref: str, store: Store | None = None) -> dict | None:
 
 
 @app.function(hide_code=True)
-def load_npz(ref: str, store: Store | None = None) -> dict[str, np.ndarray] | None:
-    store = store or pilot_store()
+def load_npz(ref: str) -> dict[str, np.ndarray] | None:
+    """A published npz as a dict of arrays, or None before it exists."""
+    store = project_store()
     art = store.get_refs([ref])[ref]
     if art is None:
         return None
@@ -257,8 +237,7 @@ def _():
     mo.stop(_metrics is None, mo.md("_Results are not published yet; the result cells render once they are._"))
     assert _metrics is not None
     _arrays, _geometry = load_npz(ex.ARRAYS_REF), load_json(ex.GEOMETRY_REF)
-    _prod = prod_store()
-    _pm, _pg = load_json(ex.EX223_METRICS_REF, _prod), load_json(ex.EX223_GEOMETRY_REF, _prod)
+    _pm, _pg = load_json(ex.EX223_METRICS_REF), load_json(ex.EX223_GEOMETRY_REF)
     assert _arrays and _geometry and _pm and _pg, "a result is missing from the store"
     res: Results = Results(_metrics, _arrays, _geometry, _pm, _pg)
     return (res,)

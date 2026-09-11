@@ -65,7 +65,7 @@ Two rules make the type safe to publish.
 
 **Nothing a survey reports may be quoted as a result.** It proposes an operating point; the next preregistered experiment adopts that point, scores it at fresh seeds, and reports the survey's value beside the confirmed one. The gap is the winner's-curse correction — a search's best trial wins partly on merit and partly on lucky seeds, so re-measuring is what turns a proposal into a number. That handoff already happens informally (ex-2.1.9 ran at ex-2.1.8's `end90-hold30` point); naming it makes the proposing half publishable.
 
-**Publish every trial**, including the ones that went nowhere. Selective reporting is what would make a large search worthless, and a complete table settles it. Memoization means the data is there anyway.
+**Publish every trial**, including the ones that went nowhere. Selective reporting is what would make a large search worthless, and a complete table settles it. Memoization means the data is there anyway. The trials a report publishes are on production storage; the dev pair is for prototyping, and a run made there is repeated on production before the freeze (the `mi-ni` skill's storage reference).
 
 Then report the landscape rather than the winner. "The margin holds above 0.5 for λ_a anywhere in [0.05, 0.4]" is worth more than "0.12 was best": it is what the next milestone inherits, and a wide plateau is itself a result, since it says the method does not need careful tuning.
 

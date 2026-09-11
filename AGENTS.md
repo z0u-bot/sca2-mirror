@@ -56,4 +56,6 @@ For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
 Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for work *on* the storage or publishing machinery. `./go auth --check` names the active pair, what the token can write, and the Modal Environment the profile runs in, so a dev run of a production experiment name has its own memo state as well as its own bucket. See the `mi-ni` skill's storage reference.
 
+The line between the pairs is publishing: prototype science code on either pair, but whatever a published report reads is on production, re-run there before the freeze if it was developed on dev. A report reads its data through `project_store()` (from `mini.store`) and never names a bucket, so the same notebook previews under `MINI_PROFILE=dev` and publishes from production; a bucket name written into a file under `docs/` is a bug, whichever bucket it is.
+
 Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).

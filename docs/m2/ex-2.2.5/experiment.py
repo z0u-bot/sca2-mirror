@@ -16,8 +16,8 @@ nearest-rounded control for a same-code comparison. The anchored arm's placement
 are read against the production `recipe-short` seeds in the report. Every task function but
 the corpus build and the rounding readout is ex-2.2.3's, loaded from its module unchanged.
 
-    MINI_PROFILE=dev bin/mini run docs/m2/ex-2.2.5/experiment.py --app modal --max-containers 6 --budget 2h
-    MINI_PROFILE=dev bin/mini status pilot-stochastic-rounding
+    bin/mini run docs/m2/ex-2.2.5/experiment.py --app modal --max-containers 6 --budget 2h
+    bin/mini status ex-2.2.5
 """
 
 from __future__ import annotations
@@ -71,12 +71,11 @@ eval_one = ex223.eval_one
 score_one = ex223.score_one
 probe_one = ex223.probe_one
 
-# The refs keep the pilot's original name: the runs live under it in the dev store, and the report reads them there.
-METRICS_REF = "reports/m2/pilot-stochastic-rounding/metrics"
-ARRAYS_REF = "reports/m2/pilot-stochastic-rounding/arrays"
-TRAJ_REF = "reports/m2/pilot-stochastic-rounding/trajectories"
-GEOMETRY_REF = "reports/m2/pilot-stochastic-rounding/geometry"
-CHECKPOINT_REF = "reports/m2/pilot-stochastic-rounding/checkpoints/{label}"
+METRICS_REF = "reports/m2/ex-2.2.5/metrics"
+ARRAYS_REF = "reports/m2/ex-2.2.5/arrays"
+TRAJ_REF = "reports/m2/ex-2.2.5/trajectories"
+GEOMETRY_REF = "reports/m2/ex-2.2.5/geometry"
+CHECKPOINT_REF = "reports/m2/ex-2.2.5/checkpoints/{label}"
 
 EX223_METRICS_REF = ex223.METRICS_REF
 EX223_GEOMETRY_REF = ex223.GEOMETRY_REF
@@ -190,9 +189,9 @@ def prepare_corpus(
         "key": key,
         "meta": meta,
         "stats": stats,
-        "corpus": put(corpus_dir, name=f"pilot-rounding-{key}-corpus"),
-        "evals": put(grammar.dump_lines(evals), name=f"pilot-rounding-{key}-evals.json"),
-        "probes": put(_npz(**arrays), name=f"pilot-rounding-{key}-probes.npz"),
+        "corpus": put(corpus_dir, name=f"ex-2.2.5-{key}-corpus"),
+        "evals": put(grammar.dump_lines(evals), name=f"ex-2.2.5-{key}-evals.json"),
+        "probes": put(_npz(**arrays), name=f"ex-2.2.5-{key}-probes.npz"),
     }
 
 
@@ -286,7 +285,7 @@ def train_one(config, anchor: dict, anti: dict | None, corpus, traj_stride: int,
         "val_loss": [m.val_loss for m in metrics],
         "train_loss": [m.train_loss for m in metrics],
         "traj": {k: traj[k].tolist() for k in keep if k in traj},
-        "checkpoint": put(workdir / "model", name=f"pilot-rounding-{label}-ckpt"),
+        "checkpoint": put(workdir / "model", name=f"ex-2.2.5-{label}-ckpt"),
     }
 
 
@@ -375,7 +374,7 @@ def eval_rounding(trained: dict, evals, condition: str, seed: int, label: str) -
         "condition": condition,
         "seed": seed,
         "per_op": per,
-        "lines": put(_npz(**arrays), name=f"pilot-rounding-{label}-lines.npz"),
+        "lines": put(_npz(**arrays), name=f"ex-2.2.5-{label}-lines.npz"),
     }
 
 
@@ -418,10 +417,10 @@ def publish_results(
         "grammar": table,
         "design": design(),
     }
-    set_ref(METRICS_REF, put(json.dumps(metrics, indent=2).encode(), name="pilot-rounding-metrics.json"))
+    set_ref(METRICS_REF, put(json.dumps(metrics, indent=2).encode(), name="ex-2.2.5-metrics.json"))
     traj = {t["label"]: {k: t[k] for k in ("traj", "val_loss", "train_loss")} for t in trained}
-    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="pilot-rounding-trajectories.json"))
-    set_ref(GEOMETRY_REF, put(json.dumps({"runs": probed}).encode(), name="pilot-rounding-geometry.json"))
+    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="ex-2.2.5-trajectories.json"))
+    set_ref(GEOMETRY_REF, put(json.dumps({"runs": probed}).encode(), name="ex-2.2.5-geometry.json"))
     for t in trained:
         set_ref(CHECKPOINT_REF.format(label=t["label"]), t["checkpoint"])
     arrays = {}
@@ -433,7 +432,7 @@ def publish_results(
         path = get(r[key], get_data_dir() / "publish" / f"{r['label']}-{kind}.npz")
         with np.load(path) as z:
             arrays |= {f"{r['label']}/{kind}/{name}": z[name] for name in z.files}
-    set_ref(ARRAYS_REF, put(_npz(**arrays), name="pilot-rounding-arrays.npz"))
+    set_ref(ARRAYS_REF, put(_npz(**arrays), name="ex-2.2.5-arrays.npz"))
     return {"n_runs": len(evaled), "holdout_em": {r["label"]: r["holdout_em"] for r in evaled}}
 
 
@@ -515,7 +514,7 @@ def main(ctx: Ctx) -> dict:
 
 
 experiment = Experiment(
-    name="pilot-stochastic-rounding",
+    name="ex-2.2.5",
     main=main,
     roles={
         "prep": dict(cpu=2, timeout=1800),

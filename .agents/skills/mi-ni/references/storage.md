@@ -131,6 +131,14 @@ Under a profile, `./go publish` writes its pins to a gitignored `.mini/publish.<
 
 The profile picks the names; the token decides what can be written. An environment set aside for engineering work carries a token with write access on the dev pair only, so a session that forgets `MINI_PROFILE` fails on its first write instead of succeeding quietly. Where a token spans both pairs, the profile is the only boundary. `./go auth --check` prints the active profile, the pair it resolves to, and which pairs the token can write. The reasoning behind all of this is in [`eng/environments.md`](/eng/environments.md).
 
+### Which pair a run uses
+
+The line is publishing. Whatever a published report reads is on production: the experiment it reports, the reference arms it reads from siblings, the addendum arms added later. Prototyping can use either pair. A science experiment can be developed under `MINI_PROFILE=dev` while its code is in flux, with `MINI_PROFILE=dev ./go preview` reading the same runs, and the dev pair also holds the work *on* mini (storage, publishing, gc, the apparatus, the `hf`-marked integration tests). Before the freeze, the experiment runs on production and the report is published from there. There is no promotion step and the dev pair can be wiped, so a run there is a rehearsal rather than a result.
+
+A report reaches its data through `project_store()` (`mini.store`), which resolves whichever pair is configured, and names no bucket of its own. That is what lets the same notebook preview under dev and publish from production without an edit. A bucket name written into a file under `docs/` is a bug whichever bucket it is: the production name hardcodes what configuration already knows, and the dev name leaves a published report resolving its figures against a sandbox that can be wiped. `tests/test_docs_store_access.py` checks this.
+
+An experiment's name is its directory name (`tests/mini/test_experiments_e2e.py` enforces it), so a report's refs live under the name its directory carries, on production. Renaming a report means re-running it, or migrating its refs, there. `./go auth --check` names the active profile, which is the quickest way to tell where a session is pointed before a long run starts.
+
 ### The Modal Environment is the third name
 
 Modal control-plane state — the `mini-cp-<name>` `Dict`, the per-experiment Volume, the HF cache Volume — is named per experiment, with no profile component. Without separation, a dev run of an experiment that shares a name with a production one would find production's memo records and skip the work, while whatever it wrote went to the dev bucket: memoization reports a hit and the bytes are missing from the pair being read.

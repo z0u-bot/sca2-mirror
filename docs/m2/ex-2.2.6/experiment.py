@@ -16,8 +16,8 @@ whole-line pull under the operand-only labeller. Every task function but the tra
 and a probe-table patch is ex-2.2.3's, loaded from its module unchanged; the report reads
 the production seeds for the fourth corner.
 
-    MINI_PROFILE=dev bin/mini run docs/m2/ex-2.2.6/experiment.py --app modal --max-containers 6 --budget 2h
-    MINI_PROFILE=dev bin/mini status pilot-whole-span-labeller
+    bin/mini run docs/m2/ex-2.2.6/experiment.py --app modal --max-containers 6 --budget 2h
+    bin/mini status ex-2.2.6
 """
 
 from __future__ import annotations
@@ -64,12 +64,11 @@ prepare_corpus = ex223.prepare_corpus
 eval_one = ex223.eval_one
 score_one = ex223.score_one
 
-# The refs keep the pilot's original name: the runs live under it in the dev store, and the report reads them there.
-METRICS_REF = "reports/m2/pilot-whole-span-labeller/metrics"
-ARRAYS_REF = "reports/m2/pilot-whole-span-labeller/arrays"
-TRAJ_REF = "reports/m2/pilot-whole-span-labeller/trajectories"
-PROBE_REF = "reports/m2/pilot-whole-span-labeller/probes"
-CHECKPOINT_REF = "reports/m2/pilot-whole-span-labeller/checkpoints/{label}"
+METRICS_REF = "reports/m2/ex-2.2.6/metrics"
+ARRAYS_REF = "reports/m2/ex-2.2.6/arrays"
+TRAJ_REF = "reports/m2/ex-2.2.6/trajectories"
+PROBE_REF = "reports/m2/ex-2.2.6/probes"
+CHECKPOINT_REF = "reports/m2/ex-2.2.6/checkpoints/{label}"
 
 EX223_METRICS_REF = ex223.METRICS_REF
 EX223_ARRAYS_REF = ex223.ARRAYS_REF
@@ -131,7 +130,7 @@ def line_keyed_probes(probes, vocabulary: list[str], per_slot_rate: float) -> di
         arrays[f"{op}/line_p_either"] = arrays[f"{op}/line_p"]
         arrays[f"{op}/line_p"] = 1.0 - (1.0 - p1) * (1.0 - p2) * (1.0 - p3)
         arrays[f"{op}/r3"] = r3
-    return {"probes": put(_npz(**arrays), name="pilot-labeller-probes-line.npz")}
+    return {"probes": put(_npz(**arrays), name="ex-2.2.6-probes-line.npz")}
 
 
 # --- Training ---------------------------------------------------------------------------------
@@ -198,7 +197,7 @@ def train_one(
         "val_loss": [m.val_loss for m in metrics],
         "train_loss": [m.train_loss for m in metrics],
         "traj": {k: traj[k].tolist() for k in keep if k in traj},
-        "checkpoint": put(workdir / "model", name=f"pilot-labeller-{label}-ckpt"),
+        "checkpoint": put(workdir / "model", name=f"ex-2.2.6-{label}-ckpt"),
     }
 
 
@@ -233,9 +232,9 @@ def publish_results(trained: list[dict], evaled: list[dict], scored: list[dict],
         "corpus": corpus_stats,
         "design": design(),
     }
-    set_ref(METRICS_REF, put(json.dumps(metrics, indent=2).encode(), name="pilot-labeller-metrics.json"))
+    set_ref(METRICS_REF, put(json.dumps(metrics, indent=2).encode(), name="ex-2.2.6-metrics.json"))
     traj = {t["label"]: {k: t[k] for k in ("traj", "val_loss", "train_loss")} for t in trained}
-    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="pilot-labeller-trajectories.json"))
+    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="ex-2.2.6-trajectories.json"))
     set_ref(PROBE_REF, probes)
     for t in trained:
         set_ref(CHECKPOINT_REF.format(label=t["label"]), t["checkpoint"])
@@ -245,7 +244,7 @@ def publish_results(trained: list[dict], evaled: list[dict], scored: list[dict],
         path = get(r["arrays"], get_data_dir() / "publish" / f"{r['label']}-{kind}.npz")
         with np.load(path) as z:
             arrays |= {f"{r['label']}/{kind}/{name}": z[name] for name in z.files}
-    set_ref(ARRAYS_REF, put(_npz(**arrays), name="pilot-labeller-arrays.npz"))
+    set_ref(ARRAYS_REF, put(_npz(**arrays), name="ex-2.2.6-arrays.npz"))
     return {"n_runs": len(evaled), "holdout_em": {r["label"]: r["holdout_em"] for r in evaled}}
 
 
@@ -310,7 +309,7 @@ def main(ctx: Ctx) -> dict:
 
 
 experiment = Experiment(
-    name="pilot-whole-span-labeller",
+    name="ex-2.2.6",
     main=main,
     roles={
         "prep": dict(cpu=2, timeout=900),
