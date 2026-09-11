@@ -145,3 +145,42 @@ def test_relevance_over_a_wider_table():
     dist = ops.relevance(ops.MIX, table)
     assert pytest.approx(sum(dist.values())) == 1.0
     assert max(dist) < len(table)
+
+
+def test_stochastic_rounding_leaves_the_deterministic_path_alone():
+    assert ops.sample_corpus(200, 0) == ops.sample_corpus(200, 0, rounding="nearest")
+    assert ops.eval_sets(20, 0) == ops.eval_sets(20, 0, rounding="nearest")
+
+
+def test_stochastic_corpus_keeps_the_lines_and_redraws_the_answers():
+    near, stoch = ops.sample_corpus(2000, 0), ops.sample_corpus(2000, 0, rounding="stochastic")
+    assert [(x.op, x.lhs, x.rhs) for x in near] == [(x.op, x.lhs, x.rhs) for x in stoch]
+    on_grid = [ops.is_on_grid(ops.OP_BY_NAME[x.op], x.lhs, x.rhs) for x in near]
+    assert all(x.result == y.result for x, y, g in zip(near, stoch, on_grid, strict=True) if g)
+    assert any(x.result != y.result for x, y in zip(near, stoch, strict=True))
+    assert all(y.result in ops.answer_dist(ops.OP_BY_NAME[y.op], y.lhs, y.rhs) for y in stoch)
+    assert ops.sample_corpus(50, 0, rounding="stochastic") == ops.sample_corpus(50, 0, rounding="stochastic")
+
+
+@pytest.mark.parametrize("op", ops.OPS)
+def test_answer_dist_is_a_distribution_whose_mode_is_the_snap_up_to_ties(op):
+    rng = np.random.default_rng(0)
+    cs = ops.colors()
+    for _ in range(200):
+        a, b = cs[rng.integers(216)], cs[rng.integers(216)]
+        dist = ops.answer_dist(op, a, b)
+        assert abs(sum(dist.values()) - 1) < 1e-9
+        assert dist[op(a, b)] == pytest.approx(ops.mode_prob(op, a, b))
+        if ops.is_on_grid(op, a, b):
+            assert dist == {op(a, b): 1.0}
+
+
+def test_mode_prob_and_draws_on_a_tied_mix_pair():
+    a, b = (0, 0, 0), (3, 3, 0)  # 1.5, 1.5, 0: two coin flips and one on-grid channel
+    assert ops.mode_prob(ops.MIX, a, b) == pytest.approx(0.25)
+    assert ops.draw_answer(ops.MIX, a, b, np.array([0.1, 0.9, 0.5])) == (3, 0, 0)
+    assert ops.draw_answer(ops.MIX, a, b, np.array([0.9, 0.1, 0.0])) == (0, 3, 0)
+    draws = np.array(
+        [ops.draw_answer(ops.MULTIPLY, (9, 9, 9), (9, 9, 9), u) for u in np.random.default_rng(1).random((4000, 3))]
+    )
+    assert np.allclose((draws == 6).mean(0), 0.8, atol=0.03)  # 5.4 sits 0.8 of the way from 3 to 6
