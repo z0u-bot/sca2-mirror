@@ -21,6 +21,8 @@ flowchart LR
 a11(["suppress red (ex-2.2.1)"])
 a12(["fallback control (ex-2.2.2)"])
 a2(["new grammar (ex-2.2.3)"])
+a25(["scouting and pilots (ex-2.2.4 to 2.2.6)"])
+a26(["grammar handover"])
 a3(["un-anchored embeddings"])
 c(["anchor operation"])
 d(["suppress operation"])
@@ -29,7 +31,8 @@ f(["SGTM baseline"])
 g(["write-up"])
 
 a11 --> a12
-a12 & a2 & a3 --> c --> d --> e & f --> g
+a2 --> a25 --> a26
+a12 & a26 & a3 --> c --> d --> e & f --> g
 ```
 
 ### Suppress red on the existing checkpoints
@@ -94,6 +97,14 @@ The [redder-than-both](/todo/science/operation-can-make-answer-redder-than-both.
 
 Optional arm: control models at one, three, and six operations, with the cube probed as in ex-2.1.12, to ask whether a richer op set gives the model a better operand geometry (see the [backlog item](/todo/science/richer-op-set-operand-geometry.md)). It is an arm on un-anchored models only, so it cannot confound the anchored conditions. Task-diversity phase transitions in in-context learning (memorization below a diversity threshold, generalization above; arXiv:2306.15063, arXiv:2405.11751) motivate a companion question on the same sweep: run on the ex-2.1.5 two-form corpus, does added op diversity move hex and named colors toward the shared representation D2.1 never found ([backlog item](/todo/science/does-op-diversity-buy-cross-form-sharing.md))?
 
+### Scouting, pilots, and the grammar handover
+
+Ex-2.2.3 left the grammar with a problem for the removal reads: on four of the six ops, most red lines have an answer that a model without *red* can still give, because the op saturates or copies the other operand's channel. Rather than preregister the anchored-op experiments on that footing, a [scouting round](../ex-2.2.4/report.py) read candidate ops on the grid, and two pilots retrained the adopted point under a [stochastically rounded corpus](../ex-2.2.5/report.py) and a [whole-line labeller](../ex-2.2.6/report.py). None of these is scored; each proposes.
+
+The proposals, from ex-2.2.4: table A+ (drop `add`; add `difference`, `exclusion`, and `hsvmix`; carry `hue-hsv`, `sat-hsv`, and `value-hsv` as a marked subset, the first ops that read operand order); a removal statistic that is a distance from the correct answer, scored on lines where zeroing the red operand's R moves the answer far, with exact match beside it; and, for comparability with M3, stochastic rounding and the whole-line labeller, which the pilots found cost nothing on the anchoring side. Under stochastic rounding an answer is a distribution, so dependence, removal, and calibration are all read as how much answer mass moves, and *op-relevance* becomes the expected agreement between ops rather than a count.
+
+The **handover** is the preregistered experiment that adopts these: ex-2.2.3's recipe on table A+ with the new corpus and labeller, against ex-2.2.3's twenty seeds, with `mix` kept as the reference op and `hsvmix` beside it, and one arm each with only the corpus or only the labeller changed. Until it runs, the grammar of record is ex-2.2.3's. Open questions it has to settle: whether to hold lines per op fixed at eleven ops (E4 of ex-2.2.3 found the operand cube less decodable at six ops than at three, with lines per op as a confound), and a probe draw that walks every color as op2 for the non-commutative subset.
+
 ### Un-anchored embeddings
 
 Anchor all slices except the embeddings. We don't expect concepts to map to tokens in more complex models and languages anyway.
@@ -123,7 +134,7 @@ The centre of D2.2.
 
 The headline claim is selective removal: suppress *add* without suppressing *multiply*. The ops may share a common component that means *this is an operation*, with the specific op only one part of the state; the group contrast from [anchor operation](#anchor-one-operation) says how large that shared part is, and the removal claim covers the op-specific part.
 
-The dose axis is intervention strength, because the stimulus side of a categorical concept grades too coarsely: *op-relevance* (below) occupies only three or four levels on a six-op table. Scale the suppression rather than always projecting fully — keep a fraction $1-γ$ of the component, $γ: 0 → 1$; the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md) and M1's shaped suppression are the machinery. Prediction: anchored-op damage rises monotonically with $γ$, other ops within gate along the whole curve.
+The dose axis is intervention strength, because the stimulus side of a categorical concept grades too coarsely: *op-relevance* (below) occupies only three or four levels on a six-op table, and a few more on the eleven-op table A+. Scale the suppression rather than always projecting fully — keep a fraction $1-γ$ of the component, $γ: 0 → 1$; the [shaped-suppression item](/todo/science/shaped-suppression-rather-than-projecting-whole-axis.md) and M1's shaped suppression are the machinery. Prediction: anchored-op damage rises monotonically with $γ$, other ops within gate along the whole curve.
 
 The per-line prediction at full suppression comes from the designed null. The *null* is *op-averaged* — the least committal prediction available from the operands with no op, given by the distribution over the answers to all ops.[^m] Against the *op-averaged* null, *op-relevance* for a line is the weight the mixture withholds from the anchored op's answer: zero where every op in the table agrees on that pair, $\frac{n-1}{ n}$ where the anchored op is alone in its answer. Predictions: per-line damage follows *op-relevance* and stays within the bound the mixture sets.
 
@@ -158,7 +169,7 @@ The D2.2 post.
 
 ## Deps
 
-- **The operation as a variable.** As specified in the [backlog item](/todo/science/make-operation-variable-before-d2-2-sca.md): an op table (name, surface form, grid function with defined rounding, closed on 0..15), `op` on `Example`, seen-pair bookkeeping keyed on `(op, pair)`, ops spelled as words, and the infix frame kept for the probes. The first table is `mix` (the D2.1 op), saturating `add`, `screen`, `multiply`, `lighten` (per-channel max), and `darken` (per-channel min), specified in [ex-2.2.3](../ex-2.2.3/experiment.py): each rule is computed on the 0..15 scale and snapped to the nearest level of the six-level grid, so every op answers every pair with a vocabulary color. An earlier draft of that prereg kept D2.1's closed-pair rule instead, under which `screen` and `multiply` are degenerate; the rounding rule makes all six total and distinct (no two agree on more than about 38% of pairs). Every new op departs from `mix` on more than 90% of pairs, so the model has to read the op; `add`–`screen`, `screen`–`lighten`, and `multiply`–`darken` each agree on about a third of pairs and populate the middle *op-relevance* levels. The relevance distribution for each candidate anchored op, under the table's own rounding, is rendered in ex-2.2.3's method, since the per-line predictions in [suppress operation](#suppress-the-operation-and-the-operands) rest on it. `divide` needs a saturation rule and is lumpy on a 16-level grid, so it stays out of the first table. Ops that convert through other color spaces (`hue`, `saturation`, `brightness`) are a separate question, filed at [richer op set](/todo/science/richer-op-set-operand-geometry.md).
+- **The operation as a variable.** As specified in the [backlog item](/todo/science/make-operation-variable-before-d2-2-sca.md): an op table (name, surface form, grid function with defined rounding, closed on 0..15), `op` on `Example`, seen-pair bookkeeping keyed on `(op, pair)`, ops spelled as words, and the infix frame kept for the probes. The first table is `mix` (the D2.1 op), saturating `add`, `screen`, `multiply`, `lighten` (per-channel max), and `darken` (per-channel min), specified in [ex-2.2.3](../ex-2.2.3/experiment.py): each rule is computed on the 0..15 scale and snapped to the nearest level of the six-level grid, so every op answers every pair with a vocabulary color. An earlier draft of that prereg kept D2.1's closed-pair rule instead, under which `screen` and `multiply` are degenerate; the rounding rule makes all six total and distinct (no two agree on more than about 38% of pairs). Every new op departs from `mix` on more than 90% of pairs, so the model has to read the op; `add`–`screen`, `screen`–`lighten`, and `multiply`–`darken` each agree on about a third of pairs and populate the middle *op-relevance* levels. The relevance distribution for each candidate anchored op, under the table's own rounding, is rendered in ex-2.2.3's method, since the per-line predictions in [suppress operation](#suppress-the-operation-and-the-operands) rest on it. `divide` needs a saturation rule and is lumpy on a 16-level grid, so it stays out of the first table. Ops that convert through other color spaces (`hue`, `saturation`, `brightness`) were filed at [richer op set](/todo/science/richer-op-set-operand-geometry.md) and have since been read on the grid by [ex-2.2.4](../ex-2.2.4/report.py), which proposes the second table, A+, described under [scouting](#scouting-pilots-and-the-grammar-handover). With ops that read operand order in the table, relevance is counted over ordered pairs.
 - **The eval contract and operator library.** Landed with [ex-2.2.1](../ex-2.2.1/report.py) as [`sca.intervention`](/src/sca/intervention.py): the triple, the three operators, and the post-hoc fitters. Every method produces a triple of `(model, subspace, intervention operator)`, and one scorer takes that triple. The operators are axis projection with a strength γ (γ = 2 is reflection), the shaped suppression from M1, and weight ablation. Every training experiment from [fallback control](#fallback-control) on scores its checkpoints through the contract, so adding an operator or a row is a change to one module.
 
   The contract also pins where operators act and what they do to the norm. The hook point is the between-block stream, meaning the slices that `residual_stream()` returns, which are the same states the anchor term reads. The stream is unit-norm (nGPT), so axis projection composes with a re-projection back onto the sphere. The state lands on the great subsphere where zero-concept states live, and the surviving components pick up a per-position gain of $1/\sqrt{1-x_1^2}$. That gain is computable beforehand, so it belongs inside the bound. Weight ablation declares its order against the `normalize_weights` constraint, which rescales a matrix once entries are zeroed.
@@ -180,6 +191,7 @@ Only what the plan above already commits to; everything else stays open until an
 - The fallback answer for a continuous concept is the center of the operand-averaged null; for *red* that is the visible operand mixed with mid-gray. A categorical concept takes the mode of its null instead. Either is a design choice, since the answer can be any function of the line: to have *red* read as *black* under intervention, we would use the same term with black mixed with the visible operand as its answer.
 - Auditing rows: off-axis recoverability in [ex-2.2.2](../ex-2.2.2/report.py) as an exploratory row; ActPert and relearning rebound at D2.3.
 - Which op to anchor is open until the op table lands and its relevance distributions are computed.
+- The second table (A+), stochastic rounding, and the whole-line labeller are proposals from the [scouting round](#scouting-pilots-and-the-grammar-handover), adopted only by the handover prereg; the removal statistic there is a distance rather than exact match.
 - The layer sweep takes the shape of a prefix/suffix bracket, following the depth read from ex-2.2.1. The grid question is deferred to the [experiment](#layer-sweep) itself.
 
 ## Risks and mitigations

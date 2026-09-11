@@ -2,13 +2,12 @@ import marimo
 
 __generated_with = "0.24.0"
 app = marimo.App(
-    app_title="Pilot: the whole-span labeller",
+    app_title="Ex 2.2.6: a pilot of the whole-span labeller",
     css_file="../../report.css",
     auto_download=["html"],
 )
 
 with app.setup(hide_code=True):
-    # mini:manual-publish — a pilot, published to the dev pair by hand; it carries no production pin.
     import json
     import tempfile
     from dataclasses import dataclass
@@ -23,15 +22,17 @@ with app.setup(hide_code=True):
     from mini.hf_store import HFStore
     from mini.reports import report_bundle, use_publisher
     from mini.runs import data_root
-    from mini.store import LocalStore, Store, project_store
+    from mini.store import LocalStore, Store
     from mini.vis import AxesGrid, AxesRow, figure_html, light_dark, smooth_step, smooth_step_area, themed
     from sca.anchoring import softmin_weights
 
     use_publisher(report_bundle(__file__))
 
     PROD_BUCKET = "z0u/sca2-store"
-    """The production store, read for ex-2.2.3's `recipe-short` seeds (the fourth corner); this pilot's own
-    results live in whichever store the profile names (the dev pair, as run)."""
+    """The production store, read for ex-2.2.3's `recipe-short` seeds (the fourth corner)."""
+
+    DEV_BUCKET = "z0u/sca2-store-dev"
+    """The dev store, where this pilot ran (as `pilot-whole-span-labeller`); its own results are read from there."""
 
     ROLES = ["op1", "op", "op2", "=", "ans", "⏎"]
     """The six roles of a line; ex-2.2.3's profiles stop at `=`."""
@@ -63,8 +64,16 @@ def prod_store() -> Store:
 
 
 @app.function(hide_code=True)
+def pilot_store() -> Store:
+    """A read-only view of the dev bucket, where this pilot's runs live: it ran under the dev profile, before the
+    report was numbered, so its refs keep the pilot's original name there.
+    """
+    return HFStore(DEV_BUCKET, cache=LocalStore(data_root() / "store-cache" / "dev"))
+
+
+@app.function(hide_code=True)
 def load_json(ref: str, store: Store | None = None) -> dict | None:
-    store = store or project_store()
+    store = store or pilot_store()
     art = store.get_refs([ref])[ref]
     if art is None:
         return None
@@ -75,7 +84,7 @@ def load_json(ref: str, store: Store | None = None) -> dict | None:
 
 @app.function(hide_code=True)
 def load_npz(ref: str, store: Store | None = None) -> dict[str, np.ndarray] | None:
-    store = store or project_store()
+    store = store or pilot_store()
     art = store.get_refs([ref])[ref]
     if art is None:
         return None
@@ -255,7 +264,7 @@ def _(e3: dict[str, dict[str, dict[str, np.ndarray]]], res: Results):
     _proj_mix = [res.score(_c, MIX, PROJECTION, "acc", "redder").mean() for _c in ARMS]
     _deficit = [res.deficit(_c, MIX, PROJECTION).mean() for _c in ARMS]
     mo.md(rf"""
-    # Pilot: the whole-span labeller
+    # Ex 2.2.6: a pilot of the whole-span labeller
 
     /// tip |
     <!-- tl;dr -->

@@ -205,3 +205,19 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`scouting` `multi-op` `grammar`</span>
 
     <!-- mini:figures ./m2/ex-2.2.4/report.py -->
+
+- [2.2.5. A pilot of stochastic rounding](./m2/ex-2.2.5/report.py)
+
+    A pilot, no gates: the un-anchored control and the adopted recipe retrained on a corpus where an answer between grid levels rounds by coin flip, in proportion to where it sits. The model learns the rule's answer distribution rather than a rounding, so exact match against a drawn answer sits at the ceiling the rule sets and carries one draw's noise; the reads to use are expected exact match and calibration. Anchoring does not notice the corpus, suppression reads shift through their clean baseline, and the redder-than-both counts rise on the ops that round up. The pilot recommended keeping nearest rounding; ex-2.2.4 argues for adopting it anyway, for comparability with M3.
+
+    <span class="tags">`pilot` `multi-op` `grammar` `eval-contract`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.5/report.py -->
+
+- [2.2.6. A pilot of the whole-span labeller](./m2/ex-2.2.6/report.py)
+
+    A pilot, no gates: the adopted point retrained under labellers that also read the answer, or also pull the whole line, or both, against production's twenty seeds. Pulling the whole line puts a tenth to a quarter of the pull on the answer and doubles the alignment the redder-than-both lines have there, at no cost to the task or to placement; reading the answer changes nothing visible. Neither closes the blind span for interventions, because the answer is read out at `=`, one position before the extra alignment lands. The pilot recommended keeping the operand-only labeller; ex-2.2.4 argues for adopting the whole-line pull, as the M3-shaped labelling.
+
+    <span class="tags">`pilot` `multi-op` `anchoring`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.6/report.py -->

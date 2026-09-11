@@ -16,7 +16,7 @@ nearest-rounded control for a same-code comparison. The anchored arm's placement
 are read against the production `recipe-short` seeds in the report. Every task function but
 the corpus build and the rounding readout is ex-2.2.3's, loaded from its module unchanged.
 
-    MINI_PROFILE=dev bin/mini run docs/m2/pilot-stochastic-rounding/experiment.py --app modal --max-containers 6 --budget 2h
+    MINI_PROFILE=dev bin/mini run docs/m2/ex-2.2.5/experiment.py --app modal --max-containers 6 --budget 2h
     MINI_PROFILE=dev bin/mini status pilot-stochastic-rounding
 """
 
@@ -71,6 +71,7 @@ eval_one = ex223.eval_one
 score_one = ex223.score_one
 probe_one = ex223.probe_one
 
+# The refs keep the pilot's original name: the runs live under it in the dev store, and the report reads them there.
 METRICS_REF = "reports/m2/pilot-stochastic-rounding/metrics"
 ARRAYS_REF = "reports/m2/pilot-stochastic-rounding/arrays"
 TRAJ_REF = "reports/m2/pilot-stochastic-rounding/trajectories"
