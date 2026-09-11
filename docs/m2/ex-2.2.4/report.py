@@ -26,6 +26,7 @@ with app.setup(hide_code=True):
         OPS,
         TOP,
         Op,
+        answer_dist,
         colors,
         commutativity,
         lines,
@@ -54,13 +55,16 @@ with app.setup(hide_code=True):
     GRID_RGB = np.asarray(colors(), dtype=float) / TOP
     """The 216 colors as unit-cube RGB, in palette order."""
 
+    HSV_TRIO: tuple[str, ...] = ("hue-hsv", "sat-hsv", "value-hsv")
+    """The one-attribute HSV ops: the non-commutative subset of table A+."""
+
     TABLES: dict[str, tuple[str, ...]] = {
         "current": ("mix", "add", "screen", "multiply", "lighten", "darken"),
         "A": ("mix", "screen", "multiply", "lighten", "darken", "difference", "exclusion", "hsvmix"),
-        "B": ("mix", "add", "screen", "multiply", "lighten", "darken", "hue-hsv", "sat-hsv", "value-hsv"),
     }
-    """Three tables the relevance section reads: ex-2.2.3's, a commutative widening (A), and the HSV
-    widening the backlog item proposed (B)."""
+    TABLES["A+"] = TABLES["A"] + HSV_TRIO
+    """Three tables the relevance section reads: ex-2.2.3's, a commutative widening (A), and A with the
+    HSV trio as a marked subset (A+)."""
 
     None
 
@@ -72,23 +76,24 @@ def _():
 
     /// tip |
     <!-- tl;dr -->
-    This is a scouting pass, so there are no hypotheses. Before we anchor anything on the six-op grammar, we ask whether a more varied set of operations would make the removal tests easier to read. We work from the color grid alone; nothing is trained. The proposed hue, saturation, and brightness ops do spread their answers through the color cube. But they do not make the answer depend on the red operand any more than the current ops do. Three commutative ops do both: `difference`, `exclusion`, and `mix` done in HSV.
+    Scouting pass over a more varied set of operations, on the grid alone, so that the removal reads of the anchored-op experiments are easier to interpret. The hue, saturation, and value ops spread their answers through the color cube, and they are where the answer moves furthest once the red operand loses its red; but a small change in the red operand reaches their answer no more often than it does for the current ops, and they are the first ops where operand order matters. Three commutative ops spread and are sensitive to both operands: `difference`, `exclusion`, and `mix` done in HSV. We propose a table with all six added and `add` dropped.
     ///
 
     ## Observations
 
     Each line below is a read on the grid, together with the statistic it rests on. None of them is a result. The next preregistration will adopt what it needs from here and check it on trained models.
 
-    - [The op set](#the-op-set): every candidate spreads its answers more evenly than the current ops do, and only the commutative candidates are more sensitive to the red operand than `mix` is. We propose table A, which drops `add` and adds `difference`, `exclusion`, and `hsvmix`.
-    - The dependence rule from ex-2.2.3 (E8) responds to rounding as much as to the op itself. By that rule `mix` counts as dependent on 61% of its own red probe lines, and about half on the shared draw. Under every op, current or candidate, dropping the red operand's R to zero changes the answer on more than 70% of red lines.
+    - [The op set](#the-op-set): every candidate spreads its answers more evenly than the current ops do. A one-level change in the red operand reaches the answer on 61% to 100% of red lines for the commutative candidates and on 37% to 55% for the one-attribute HSV ops, the range `screen` and `multiply` sit in. Zeroing the red operand's R runs the other way: the answer moves furthest on the HSV trio. We propose table A+: drop `add`, add `difference`, `exclusion`, and `hsvmix`, and carry `hue-hsv`, `sat-hsv`, and `value-hsv` as a marked subset, the first ops in the grammar that read operand order.
+    - The one-level rule of E8 responds to rounding as much as to the op: `mix` counts as dependent on 61% of its own red probe lines and 49% of the shared draw. Under stochastic rounding the rule is graded and reads 0.50 on both sets, and no op moves by as much as 0.1, so the ranking of the ops is the same either way.
+    - [What we make of it](#what-we-make-of-it): the removal statistic should be a distance rather than exact match, scored on lines where zeroing the red operand's R moves the answer far, and the grammar should adopt stochastic rounding and the whole-line labeller from the two pilots, for comparability with M3.
 
     ## How to read this
 
-    This is the scouting round planned in the [backlog item](/todo/science/scouting-round-before-the-anchored-op-experiments.md): one notebook, the cheapest version of each question, no gates and no verdicts. Each section says what we ran, shows one figure or table, and says whether it changes the design. Sections land as their questions are run, and this one covers the op set. The tied-readout diagnostic, the τ against λ_a trade, and the answer-drawing labeller are still to come.
+    This is the scouting round planned in the [backlog item](/todo/science/scouting-round-before-the-anchored-op-experiments.md): one notebook, the cheapest version of each question, no gates and no verdicts. Each section says what we ran, shows one figure or table, and says whether it changes the design. Sections land as their questions are run, and this one covers the op set. The tied-readout diagnostic and the τ against λ_a trade are still to come. The answer-drawing labeller ran as a pilot of its own, beside a pilot of stochastic rounding, and the closing section reads both.
 
     Ex-2.2.3 anchored *red* on a grammar of six operations, then measured removal: does the model still answer correctly once the *red* axis is projected out of the residual stream?[^stream] Removal came out partial on four of the six ops. E8 traced that to the ops themselves: on the saturating ops, most red lines have an answer that would be the same even if the red operand were a little less red, so a model that has lost *red* can still answer them.
 
-    The [diverse-op item](/todo/science/diverse-operator-set-hue-saturation-brightness.md) proposes adding ops whose answers spread through the cube and depend on both operands, such as the hue, saturation, and brightness blend modes, alongside some of the saturating ones, so that the removal tests have both kinds to read. Every later D2.2 experiment runs on whatever table comes out of this, so the question comes first.
+    The [diverse-op todo item](/todo/science/diverse-operator-set-hue-saturation-brightness.md) proposes adding ops whose answers spread through the cube and depend on both operands, such as the hue, saturation, and brightness blend modes, alongside some of the saturating ones, so that the removal tests have both kinds to read.
 
     [^stream]: The *residual stream* is the running vector of activations that each transformer layer reads from and writes back to; it is where we place the anchor.
     """)
@@ -117,6 +122,14 @@ def table_html(head: list[str], rows: list[list[str]], caption: str) -> str:
     )
     table = f'<div class="report-table-scroll"><table class="report-table"><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table></div>'
     return figure_html(table, caption=caption, class_="report-figure")
+
+
+@app.function(hide_code=True)
+def lowered(a: Rgb, b: Rgb, drop: int) -> tuple[Rgb, Rgb]:
+    """The line with the redder operand's R lowered by *drop*, floored at 0."""
+    if redness(a) >= redness(b):
+        return (max(a[0] - drop, 0), a[1], a[2]), b
+    return a, (max(b[0] - drop, 0), b[1], b[2])
 
 
 @app.class_definition(hide_code=True)
@@ -153,11 +166,6 @@ class Scout:
         return np.stack([[np.mean(ans[:, c] == lv) for lv in LEVELS] for c in range(3)])
 
     @cached_property
-    def light_half(self) -> float:
-        """The share of unordered pairs whose answer is lighter than mid-gray."""
-        return float(np.mean([sum(self.table[(a, b)]) > 1.5 * TOP for a, b in unordered_pairs()]))
-
-    @cached_property
     def commutative(self) -> float:
         return commutativity(self.op)
 
@@ -168,13 +176,27 @@ class Scout:
 
     def dependence(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
         """The share of *pairs* (ordered) whose answer changes when the redder operand's R falls by *drop*."""
-        changed = 0
+        return float(np.mean([self.op(*lowered(a, b, drop)) != self.table[(a, b)] for a, b in pairs]))
+
+    def dependence_stochastic(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
+        """The same read under stochastic rounding: the share of a line's answer mass that moves when the
+        redder operand's R falls by *drop* (the total variation distance), averaged over *pairs*.
+        """
+        moved = []
         for a, b in pairs:
-            if redness(a) >= redness(b):
-                changed += self.op((max(a[0] - drop, 0), a[1], a[2]), b) != self.table[(a, b)]
-            else:
-                changed += self.op(a, (max(b[0] - drop, 0), b[1], b[2])) != self.table[(a, b)]
-        return changed / len(pairs)
+            p, q = answer_dist(self.op, a, b), answer_dist(self.op, *lowered(a, b, drop))
+            moved.append(sum(abs(p.get(k, 0.0) - q.get(k, 0.0)) for k in p.keys() | q.keys()) / 2)
+        return float(np.mean(moved))
+
+    def displacement(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
+        """How far the answer moves, in unit-cube RGB, when the redder operand's R falls by *drop*: the mean
+        over *pairs*, where √3 is corner to corner.
+        """
+        return float(
+            np.mean(
+                [np.linalg.norm(np.subtract(self.op(*lowered(a, b, drop)), self.table[(a, b)]) / TOP) for a, b in pairs]
+            )
+        )
 
     def sensitivity(self, role: int, seed: int = 0) -> float:
         """The share of lines whose answer changes when the operand in *role* (0 or 1) is replaced by a
@@ -335,7 +357,11 @@ def _():
 
     E8 of ex-2.2.3 calls a red line *dependent* when lowering the R of the red operand by one grid level changes the snapped answer. On the dependent lines of every op, removal came out complete. We apply that rule to every op here, both on every red line and on the shared probe draw. We also add a second rule beside it: drop the R of the red operand to zero instead of by one level.
 
-    The one-level rule asks whether the op notices a small change in the red operand. The to-zero rule asks whether the answer needs *red* at all.
+    The one-level rule asks whether the op notices a small change in the red operand. The to-zero rule asks whether the answer needs *red* at all. Two more reads go with them. The first is the one-level rule under stochastic rounding, where a line's answer is a distribution over the grid colors nearest its raw value, and the read is the share of that mass that moves.[^sto] The second is how far the answer moves, in the unit cube, when R drops to zero: for a removal that is meant to make the model fail, the distance is what "fails badly" would be scored against.
+
+    *Red* is the concept D2.1 chose as a stand-in for one a model should not be able to use, and ex-2.2.3 kept it for comparability. Any other color could be anchored the same way, so an op's behavior on red lines is one consideration here, beside spread and commutativity, rather than the deciding one.
+
+    [^sto]: Stochastic rounding is the grammar variant of the [stochastic-rounding pilot](/docs/m2/pilot-stochastic-rounding/report.py): a raw channel value between two grid levels rounds to the upper one with probability equal to how far along it sits, drawn once per line at corpus build. The answer of a line is then a distribution over up to eight colors, and `answer_dist` in `sca.data.ops` computes it. The share of mass that moves between two distributions is their total variation distance.
     """)
     return
 
@@ -351,13 +377,17 @@ def _(
         op.name: {
             "step": scouts[op.name].dependence(red_lines, STEP),
             "step_probe": scouts[op.name].dependence(probe_red, STEP),
+            "step_sto": scouts[op.name].dependence_stochastic(red_lines, STEP),
             "zero": scouts[op.name].dependence(red_lines, TOP),
+            "zero_move": scouts[op.name].displacement(red_lines, TOP),
         }
         for op in ALL_OPS
     }
-    """Per op: one-level dependence on all red lines and on the shared probe draw, and to-zero dependence."""
+    """Per op: one-level dependence on all red lines, on the shared probe draw, and under stochastic rounding;
+    to-zero dependence and how far the answer moves under it."""
     mix_own: dict[str, float] = {
         "step": scouts["mix"].dependence(mix_red, STEP),
+        "step_sto": scouts["mix"].dependence_stochastic(mix_red, STEP),
         "zero": scouts["mix"].dependence(mix_red, TOP),
     }
     """`mix` on its own probe set, which is what E8 read."""
@@ -385,19 +415,29 @@ def _(
             [
                 f"<code>{_op.name}</code>",
                 f"{_s.spread:.2f}",
-                f"{_s.light_half:.2f}",
                 f"{_d['step']:.2f}",
                 f"{_d['step_probe']:.2f}",
+                f"{_d['step_sto']:.2f}",
                 f"{_d['zero']:.2f}",
+                f"{_d['zero_move']:.2f}",
                 f"{sens[_op.name][0]:.2f} / {sens[_op.name][1]:.2f}",
             ]
         )
     _caption = f"""
-    <b>Spread and dependence, per op.</b> <em>Spread</em> is the entropy of the answer distribution in bits, where 7.75 is uniform over the grid. <em>Light half</em> is the share of pairs whose answer is lighter than mid-gray. <em>One level</em> is the rule from E8: the share of red lines (dose ≥ {RED_DOSE:g}) whose answer changes when the R of the red operand drops one grid level, given over all {len(red_lines):,} red lines and over the {len(probe_red):,} red lines of the shared probe draw. <em>To zero</em> drops it to 0 instead. <em>Reads op1 / op2</em> is the share of lines whose answer changes when that operand is replaced at random. On its own probe set of {len(mix_red)} red lines, <code>mix</code> is {mix_own["step"]:.2f} by the one-level rule and {mix_own["zero"]:.2f} to zero.
+    <b>Spread and dependence, per op.</b> <em>Spread</em> is the entropy of the answer distribution in bits, where 7.75 is uniform over the grid. <em>One level</em> is the rule from E8: the share of red lines (dose ≥ {RED_DOSE:g}) whose answer changes when the R of the red operand drops one grid level, given over all {len(red_lines):,} red lines, over the {len(probe_red):,} red lines of the shared probe draw, and under stochastic rounding, where it is the share of answer mass that moves. <em>To zero</em> drops R to 0 instead, and <em>moves by</em> is how far the answer moves in the unit cube when it does, where √3 ≈ 1.73 is corner to corner. <em>Reads op1 / op2</em> is the share of lines whose answer changes when that operand is replaced at random. On its own probe set of {len(mix_red)} red lines, <code>mix</code> is {mix_own["step"]:.2f} by the one-level rule, {mix_own["step_sto"]:.2f} under stochastic rounding, and {mix_own["zero"]:.2f} to zero.
     """
     mo.Html(
         table_html(
-            ["op", "spread ↑", "light half", "one level ↑", "one level, probe", "to zero ↑", "reads op1 / op2"],
+            [
+                "op",
+                "spread ↑",
+                "one level ↑",
+                "one level, probe",
+                "one level, stochastic",
+                "to zero ↑",
+                "moves by ↑",
+                "reads op1 / op2",
+            ],
             _rows,
             _caption,
         )
@@ -414,37 +454,62 @@ def _(
     @themed(
         name="spread-vs-dependence",
         alt_text="""
-            Scatter of one-level dependence against answer spread, one labelled point per op. The current ops sit at the left, low spread, with dependence from 0.2 to 0.8; the candidates sit to the right at higher spread, the non-commutative HSV ops at 0.4 to 0.55 dependence and the commutative ones higher, with difference at the top right.
+            Two scatter panels with answer spread on the horizontal axis and one labelled point per op. Left, one-level dependence: the current ops sit at the left, low spread, with dependence from 0.2 to 0.8; the candidates sit to the right at higher spread, the non-commutative HSV ops at 0.4 to 0.55 and the commutative ones higher, with difference at the top right. Right, how far the answer moves when R drops to zero: the current ops and the commutative candidates sit at 0.5 to 0.65, and the one-attribute HSV ops above them, value-hsv highest at 1.0.
         """,
         caption=f"""
-            **Spread against dependence.** For each op, the entropy of its answers in bits against the share of its red lines whose answer changes when the R of the red operand drops one level. Filled marks are commutative ops and open marks are not. Gray marks are the ops of ex-2.2.3, blue the candidates. The dotted line is `mix` on its own probe set ({mix_own["step"]:.2f}), the level E8 compared the other ops against.
+            **Spread against the two dependence reads.** For each op, the entropy of its answers in bits against, left, the share of its red lines whose answer changes when the R of the red operand drops one level, and, right, how far the answer moves in the unit cube when R drops to zero. Filled marks are commutative ops and open marks are not. Gray marks are the ops of ex-2.2.3, blue the candidates. The dotted line on the left is `mix` on its own probe set ({mix_own["step"]:.2f}), the level E8 compared the other ops against.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(6.6, 4.4))
+        fig, axes = plt.subplots(1, 2, figsize=(11.5, 4.4), sharex=True)
         inks = {True: light_dark("#666", "#aaa"), False: light_dark("#2557b8", "#7fa6ff")}
-        nudge = {
-            "hue": (-8, -13),
-            "luminosity": (5, 4),
-            "value-hsv": (-52, -1),
-            "sat-hsv": (5, -10),
-            "saturation": (5, 7),
-            "multiply": (5, 0),
-            "mix": (5, -8),
+        nudges = {
+            "step": {
+                "hue": (-8, -13),
+                "luminosity": (5, 4),
+                "value-hsv": (-52, -1),
+                "sat-hsv": (5, -10),
+                "saturation": (5, 7),
+                "multiply": (5, 0),
+                "mix": (5, -8),
+            },
+            "zero_move": {
+                "screen": (5, -9),
+                "multiply": (-52, -1),
+                "darken": (5, -9),
+                "lighten": (-46, 4),
+                "mix": (-26, 4),
+                "difference": (5, -12),
+                "luminosity": (5, -9),
+                "hue": (-24, 4),
+                "saturation": (5, 5),
+                "hue-hsv": (5, 4),
+                "sat-hsv": (5, -9),
+                "hsvmix": (-46, 6),
+            },
         }
-        ax.axhline(mix_own["step"], ls=":", lw=1, color=light_dark("#999", "#888"))
-        for op in ALL_OPS:
-            s = scouts[op.name]
-            x, y = s.spread, dep[op.name]["step"]
-            ink = inks[op in OPS]
-            comm = s.commutative > 0.98
-            ax.plot(x, y, "o", ms=7, mfc=ink if comm else "none", mec=ink, mew=1.4)
-            ax.annotate(
-                op.name, (x, y), xytext=nudge.get(op.name, (5, 4)), textcoords="offset points", fontsize=8.5, color=ink
-            )
-        ax.set(xlabel="spread of answers (bits)", ylabel="dependence on the red operand (one level)")
-        ax.set_ylim(0, 1.05)
-        ax.grid(alpha=0.25)
+        labels = {"step": "dependence on the red operand (one level)", "zero_move": "answer moves by (R to zero)"}
+        for ax, key in zip(axes, ("step", "zero_move"), strict=True):
+            if key == "step":
+                ax.axhline(mix_own["step"], ls=":", lw=1, color=light_dark("#999", "#888"))
+            for op in ALL_OPS:
+                s = scouts[op.name]
+                x, y = s.spread, dep[op.name][key]
+                ink = inks[op in OPS]
+                comm = s.commutative > 0.98
+                ax.plot(x, y, "o", ms=7, mfc=ink if comm else "none", mec=ink, mew=1.4)
+                ax.annotate(
+                    op.name,
+                    (x, y),
+                    xytext=nudges[key].get(op.name, (5, 4)),
+                    textcoords="offset points",
+                    fontsize=8.5,
+                    color=ink,
+                )
+            ax.set(xlabel="spread of answers (bits)", ylabel=labels[key])
+            ax.grid(alpha=0.25)
+        axes[0].set_ylim(0, 1.05)
+        axes[1].set_ylim(0.4, 1.05)
         return fig
 
     mo.Html(_plot())
@@ -459,10 +524,12 @@ def _(
 ):
     _cand = [op.name for op in CANDIDATES]
     _cur = [op.name for op in OPS]
-    _hsv = ["hue", "saturation", "luminosity", "hue-hsv", "sat-hsv", "value-hsv"]
-    _comm = ["difference", "exclusion", "hsvmix"]
+    _hsv = ["hue", "saturation", "luminosity", *HSV_TRIO]
     _hi_spread = min(scouts[n].spread for n in _cand if n != "exclusion")
     _cur_max = max(scouts[n].spread for n in _cur)
+    _mix_m = scouts["mix"].marginals[0]
+    _sto_shift = max(abs(d["step_sto"] - d["step"]) for d in dep.values())
+    _cur_move = [dep[n]["zero_move"] for n in _cur]
     mo.md(rf"""
     **What we saw.**
 
@@ -470,13 +537,15 @@ def _(
 
     The channel marginals say why: `add`, `screen`, and `lighten` pile up at 15, `multiply` and `darken` at 0, and the candidates run near the flat line. So on evenness the proposed hue, saturation, and brightness ops do what the item hoped, and so do the three commutative candidates.
 
-    *The dependence rule from E8 responds to rounding as much as to the op.* By the one-level rule, `mix` itself is dependent on {mix_own["step"]:.0%} of its own red probe lines, and {dep["mix"]["step_probe"]:.0%} on the shared draw used for the other ops. That is because a one-level drop in one operand moves the mean by half a level, and the snap sends half of those cases back to the original answer.
+    `mix` is uneven for a different reason: rounding. Half of its channel sums fall half-way between two levels, and the snap sends every such tie to the even level index, so its answers pile up at 6 and 12 ({_mix_m[2]:.0%} and {_mix_m[4]:.0%} of pairs, per channel) and only {_mix_m[5]:.0%} reach 15. Stochastic rounding would split each tie evenly and take that out; the rule itself is as even as `hsvmix`.
 
-    The hue, saturation, and brightness ops sit at {min(dep[n]["step"] for n in _hsv):.2f} to {max(dep[n]["step"] for n in _hsv):.2f}, no better than `screen` or `multiply`, for a structural reason: each takes one attribute from one operand and the rest from the other, and scaling the R of a pure red changes only its value. So whichever role reads hue or saturation from the red operand never sees the drop.
+    *The dependence rule from E8 responds to rounding as much as to the op.* By the one-level rule, `mix` itself is dependent on {mix_own["step"]:.0%} of its own red probe lines, and {dep["mix"]["step_probe"]:.0%} on the shared draw used for the other ops. That is because a one-level drop in one operand moves the mean by half a level, and the snap sends half of those cases back to the original answer. Under stochastic rounding the same read is graded, the share of answer mass that moves, and `mix` comes out at {mix_own["step_sto"]:.2f} on both probe sets: the half-level shift is read as half. No op moves by more than {_sto_shift:.2f} between the two roundings, so the ranking of the ops does not depend on the rounding; what the stochastic read takes out is the probe-set artifact.
 
-    Under the to-zero rule every op, current and candidate, is above {min(d["zero"] for d in dep.values()):.2f}. What differs between ops is sensitivity to a small change in the red operand, and that is where the commutative candidates stand out: `difference` at {dep["difference"]["step"]:.2f}, `hsvmix` at {dep["hsvmix"]["step"]:.2f}, and `exclusion` at {dep["exclusion"]["step"]:.2f}.
+    The hue, saturation, and brightness ops sit at {min(dep[n]["step"] for n in _hsv):.2f} to {max(dep[n]["step"] for n in _hsv):.2f}, no better than `screen` or `multiply`, for a structural reason: each takes one attribute from one operand and the rest from the other, and scaling the R of a pure red changes only its value. So whichever role reads hue or saturation from the red operand never sees the drop. Sensitivity to a small change is where the commutative candidates stand out: `difference` at {dep["difference"]["step"]:.2f}, `hsvmix` at {dep["hsvmix"]["step"]:.2f}, and `exclusion` at {dep["exclusion"]["step"]:.2f}.
 
-    *The blend modes are the first ops where operand order matters.* All six hue, saturation, and brightness variants agree with their own reverse on under {max(scouts[n].commutative for n in _hsv):.0%} of pairs. The saturation ones read op2 on only {min(scouts[n].sensitivity(1) for n in ("saturation", "sat-hsv")):.0%} of lines, since many partners share a saturation. The grammar of ex-2.2.3 is commutative throughout: the probe sets walk every color as op1, and the labeller pools both operands the same way. A non-commutative op would put role information into the grammar for the first time, a design change that would need its own experiment, and the anchored-op work does not need it.
+    *The to-zero read runs the other way.* Every op, current and candidate, changes its answer on at least {min(d["zero"] for d in dep.values()):.0%} of red lines once the red operand's R is zeroed. What separates the ops is how far the answer moves. The current ops all move by {min(_cur_move):.2f} to {max(_cur_move):.2f}, about half a channel's range, since the per-channel rules pass part of the drop through to R and leave G and B alone. The one-attribute HSV ops move furthest: {dep["value-hsv"]["zero_move"]:.2f} on `value-hsv`, {dep["hue-hsv"]["zero_move"]:.2f} on `hue-hsv`, and {dep["sat-hsv"]["zero_move"]:.2f} on `sat-hsv`. An op that copies one attribute of the red operand answers with something far from red once that attribute is gone: a red operand at op2 gives `value-hsv` its full value, and with its R zeroed it gives almost none. So if the removal question is "can the model still mix red", the HSV ops are where a model that has lost *red* would fail hardest, and the one-level rule would not have said so.
+
+    *The blend modes are the first ops where operand order matters.* All six hue, saturation, and brightness variants agree with their own reverse on under {max(scouts[n].commutative for n in _hsv):.0%} of pairs. The saturation ones read op2 on only {min(scouts[n].sensitivity(1) for n in ("saturation", "sat-hsv")):.0%} of lines, since many partners share a saturation. The grammar of ex-2.2.3 is commutative throughout: the probe sets walk every color as op1, and the labeller pools both operands the same way. A non-commutative op puts role information into the grammar for the first time. Natural language has that everywhere, so it is a change we want before M3, and the grid side of it is small: a probe draw that also walks every color as op2, and per-op reads kept separate for the subset, so that anything odd in their behavior can be set aside without touching the rest of the table.
     """)
     return
 
@@ -486,9 +555,9 @@ def _():
     mo.md(r"""
     ### How often the op word is worth reading
 
-    The D2.2 design uses a quantity called *op-relevance*: for each line of the anchored op, how many other ops in the table give the same answer. At 0 the answer identifies the op on its own. At k the op word only rules out the other k. The suppression experiments predict per-line damage from this number, so widening the table changes the prediction for every op in it.
+    The D2.2 design uses a quantity called *op-relevance*: for each line of the anchored op, how many other ops $k$ in the table give the same answer. At 0 the answer identifies the op on its own. At $k$ the op word only rules out the other $k$. The suppression experiments predict per-line damage from this number, so widening the table changes the prediction for every op in it.
 
-    We compare three tables: the one from ex-2.2.3, table A (drop `add`, add the three commutative candidates), and table B (the HSV trio the item proposed, alongside the current six).
+    We compare three tables: the one from ex-2.2.3, table A (drop `add`, add the three commutative candidates), and table A+ (table A with the HSV trio, `hue-hsv`, `sat-hsv`, and `value-hsv`). Three ops of A+ read operand order, so the tables count ordered pairs, which moves ex-2.2.3's figures by under a percent.
     """)
     return
 
@@ -499,35 +568,40 @@ def _():
     _blocks = []
     for _label, _names in TABLES.items():
         _ops = tuple(_by_name[n] for n in _names)
-        _dists = {n: relevance(_by_name[n], _ops) for n in _names}
+        _dists = {n: relevance(_by_name[n], _ops, lines()) for n in _names}
         _levels = sorted({k for d in _dists.values() for k, v in d.items() if v >= 0.005})
         _head = ["anchored op", *(str(k) for k in _levels)]
         _rows = [
             [f"<code>{n}</code>", *(f"{d[k]:.0%}" if d.get(k, 0) >= 0.005 else "·" for k in _levels)]
             for n, d in _dists.items()
         ]
-        _blocks.append(
-            table_html(
-                _head,
-                _rows,
-                f"<b>Op-relevance under table {_label}</b> (<code>{'</code>, <code>'.join(_names)}</code>): for each anchored op, the share of its unordered pairs on which k other ops of the table give the same answer. A dot means under half a percent.",
-            )
+        _blocks.append(table_html(_head, _rows, mo.md(f"**Table {_label}**").text))
+    mo.Html(
+        figure_html(
+            mo.Html("<br>".join(_blocks)).text,
+            caption=mo.md(r"""
+        **Op-relevance tables.**
+        For each anchored op, the share of its lines on which $k$ other ops of the table give the same answer. A dot means under half a percent.
+        """).text,
         )
-    mo.vstack([mo.Html(b) for b in _blocks])
+    )
     return
 
 
 @app.cell(hide_code=True)
 def _(scouts: dict[str, Scout]):
-    _a = TABLES["A"]
     _by_name = {op.name: op for op in ALL_OPS}
-    _ops_a = tuple(_by_name[n] for n in _a)
-    _mix_a = relevance(_by_name["mix"], _ops_a)
-    _mix_cur = relevance(_by_name["mix"])
+    _alone = {
+        label: {n: relevance(_by_name[n], tuple(_by_name[m] for m in names), lines())[0] for n in names}
+        for label, names in TABLES.items()
+    }
+    _trio_alone = [_alone["A+"][n] for n in HSV_TRIO]
     mo.md(rf"""
-    Widening the table makes `mix` much less distinctive. Today it is alone in its answer on {_mix_cur[0]:.0%} of pairs; under table A that falls to {_mix_a[0]:.0%}, because `hsvmix` agrees with it on a third of pairs, the ones whose operands are close in hue. We want that: the per-line relevance prediction needs more than one level to read, and `hsvmix` sharing the answers of `mix` on a known set of lines is what supplies it.
+    Widening the table makes `mix` much less distinctive. Today it is alone in its answer on {_alone["current"]["mix"]:.0%} of lines; under table A that falls to {_alone["A"]["mix"]:.0%}, because `hsvmix` agrees with it on a third of lines, the ones whose operands are close in hue. We want that: the per-line relevance prediction needs more than one level to read, and `hsvmix` sharing the answers of `mix` on a known set of lines is what supplies it.
 
     `difference` is the most distinctive op in table A. It also has the most redder-than-both lines ({scouts["difference"].redder:,}, over a quarter of its lines), so it is where the blind-span question (E3 of ex-2.2.3) would get the most lines.
+
+    Adding the HSV trio costs the rest of the table little. Each of the three is alone in its answer on {min(_trio_alone):.0%} to {max(_trio_alone):.0%} of its lines, with `difference` the most distinctive ops in A+, and the op that loses most is `lighten`, from {_alone["A"]["lighten"]:.0%} alone under A to {_alone["A+"]["lighten"]:.0%}.
     """)
     return
 
@@ -537,15 +611,19 @@ def _():
     mo.md(r"""
     ### What we make of it
 
-    **Does it change the design?** Yes, in two places.
+    **Does it change the design?** Yes, in three places.
 
-    The diverse table should be the commutative widening, table A: keep `mix`, `screen`, `multiply`, `lighten`, and `darken`, drop `add`, and add `difference`, `exclusion`, and `hsvmix`. We drop `add` because a fifth of its pairs go to white and it is the least dependent op by either rule. Table A gives the E8 split both kinds of op to read, as the item asks, without putting operand order into the grammar.
+    The table should be A+: keep `mix`, `screen`, `multiply`, `lighten`, and `darken`, drop `add`, add `difference`, `exclusion`, and `hsvmix`, and carry `hue-hsv`, `sat-hsv`, and `value-hsv` as a marked subset. We drop `add` because a fifth of its pairs go to white and it is the least sensitive op by either rule. The three commutative additions give the E8 split both kinds of op to read, as the item asks. The HSV trio are there for two other reasons: they are the first ops in the grammar that read operand order, which natural language does everywhere, and they are where the answer moves furthest once the red operand loses its red. Their reads should be reported as a subset, so that any behavior of their own can be set aside without touching the rest of the table, and the probe draw should walk every color as op2 as well as op1 for them.
 
-    The removal statistic should also be filtered by dependence when it is scored, as E8 did after the fact, but with the filter written into the prereg rather than found in the discussion. The one-level rule is the one to keep, because it matches the size of change an intervention makes. We now know it means "sensitive to a small change" rather than "needs *red*".
+    The removal statistic should be a distance, scored on the lines that can show it. E8's one-level rule reads sensitivity: whether a small change in the red operand reaches the answer, which is what an intervention of that size would show. The question the anchored-op experiments ask is larger: once *red* is gone from the stream, can the model still mix red? On that question the line to read is one where zeroing the red operand's R moves the answer far, and the statistic is how far the model's answer moves under the intervention, against that distance, rather than whether it is exactly right. A model that answers almost-purple for red and blue has kept most of *red*; one that answers gray has not, and exact match cannot tell the two apart. So the prereg should carry the to-zero distance per line as its prediction, and score removal as the answer's distance from the correct one, with exact match beside it for continuity with ex-2.2.3. What "the operand with *red* removed" means in color terms is itself a choice; R to zero is the simplest, and the one E8 used.
 
-    **What we would do differently.** The hue, saturation, and brightness ops were the headline of the item, and they turn out to be the wrong tool for the removal test: they read one attribute of one operand, whereas *red* as the labeller defines it, r·(1 − g/2 − b/2), is a magnitude that hue and saturation do not see. They stay in the library as candidates. If the D2.2 program later wants an op that reads operand roles, these are the ones to reach for, in an experiment of its own.
+    The corpus should round stochastically, and the labeller should read the whole line. The two pilots, [stochastic rounding](/docs/m2/pilot-stochastic-rounding/report.py) and [the whole-span labeller](/docs/m2/pilot-whole-span-labeller/report.py), found that neither costs anything on the anchoring side: placement stays in production's band under both, and the whole-line pull has no task cost. Each pilot recommended keeping ex-2.2.3's setting, on the ground that it keeps every read simple. The ground we now prefer is comparability with M3, where a document-level label says nothing about position and a language target is a distribution that no model matches exactly, so exact match is never the statistic. Both changes bring the grammar closer to that, and they fit the reads above: under stochastic rounding an answer is a distribution, so the removal statistic is how much of its mass moves, and the dependence reads are graded the same way. The cost is exact match as the main statistic, and the stochastic pilot names the reads to use instead: expected exact match against the holdout ceiling, and the calibration of the answer mass against the rule.
 
-    **What this does not settle.** Whether the model learns table A as well as it learned the six-op table is a training question. E4 of ex-2.2.3 found the operand cube less linearly decodable at six ops than at three, with lines per op as a confound. Eight ops at the same corpus size would sharpen that confound, so the prereg should decide whether to hold lines per op fixed instead. The scouting questions still to run may move the operating point, but they do not move the table.
+    The next preregistered experiment is then a handover. It runs ex-2.2.3's recipe on table A+ with the new corpus and labeller, against ex-2.2.3's twenty seeds as the reference, and keeps `mix` as the reference op with `hsvmix` beside it, so that a later experiment can make `hsvmix` the reference if it behaves. One arm each with only the corpus or only the labeller changed would say which change moved what, if anything moves.
+
+    **What we would do differently.** The hue, saturation, and brightness ops were the headline of the item, and the one-level rule counts them with the saturating ops: they read one attribute of one operand, whereas *red* as the labeller defines it, r·(1 − g/2 − b/2), is a magnitude that hue and saturation do not see. Read by the to-zero distance they are the ops that need *red* most. We would have started from the to-zero rule and the distance, which are the reads the removal question asks for, and treated the one-level rule as a check that the intervention is large enough to reach the answer.
+
+    **What this does not settle.** Whether the model learns eleven ops as well as it learned six is a training question. E4 of ex-2.2.3 found the operand cube less linearly decodable at six ops than at three, with lines per op as a confound. Eleven ops at the same corpus size would sharpen that confound, so the prereg should decide whether to hold lines per op fixed instead. Nor does it say how a model treats an op that reads operand order, which is why the HSV trio are a marked subset. The scouting questions still to run may move the operating point, but they do not move the table.
     """)
     return
 
@@ -559,13 +637,13 @@ def _():
 
     **Lines.** There are 46,656 ordered pairs of grid colors, each one an (op1, op2) line, and 23,436 unordered pairs, which we use where a statistic is symmetric. A *red line* has dose ≥ 0.8, where dose is the larger of the two operand rednesses, as in ex-2.2.3. The shared probe draw is the one from ex-2.2.3: every color as op1 against 27 partners drawn once from the grid, with the same partners for every op other than `mix`. The probe set for `mix` is the 5,832 closed pairs from D2.1.
 
-    **Spread** is the Shannon entropy, in bits, of the distribution of answers over the 216 grid colors, taken over unordered pairs. **Channel marginals** are the share of unordered pairs whose answer has each grid level in each channel. **Light half** is the share of unordered pairs whose answer sums to more across its channels than mid-gray does.
+    **Spread** is the Shannon entropy, in bits, of the distribution of answers over the 216 grid colors, taken over unordered pairs. **Channel marginals** are the share of unordered pairs whose answer has each grid level in each channel.
 
-    **Dependence** follows E8. For a red line, take the redder operand, lower its R by one grid level (3) or to zero, leave everything else alone, and ask whether the snapped answer changes. We report it as a share of the lines in the set named. **Reads op1 / op2** replaces that operand with a color drawn uniformly from the grid (seed 0, one draw per line, every fifth line) and asks the same question.
+    **Dependence** follows E8. For a red line, take the redder operand, lower its R by one grid level (3) or to zero, leave everything else alone, and ask whether the snapped answer changes. We report it as a share of the lines in the set named. Under **stochastic rounding** the answer of a line is the distribution `answer_dist` gives, the product over channels of a two-point distribution on the levels either side of the raw value, and the read is the total variation distance between the distributions of the line and of its lowered version, averaged over the set. **Moves by** is the Euclidean distance in the unit cube between the snapped answers of the line and of its lowered version, averaged the same way. **Reads op1 / op2** replaces that operand with a color drawn uniformly from the grid (seed 0, one draw per line, every fifth line) and asks whether the answer changes.
 
     **Commutative** is the share of unordered pairs on which the op gives the same answer in both orders. `hsvmix` falls short of 1 on the pairs whose hues are opposite, where the circular mean is undefined and the rule keeps the hue of op1.
 
-    **Op-relevance** is `relevance` from the same module, now over an arbitrary table: for each unordered pair, the number of other ops in the table that give the same answer as the anchored op.
+    **Op-relevance** is `relevance` from the same module, now over an arbitrary table: for each line, the number of other ops in the table that give the same answer as the anchored op. Ex-2.2.3 counted unordered pairs; the tables here count ordered pairs, so that the ops that read operand order are counted on both orders.
     """)
     return
 

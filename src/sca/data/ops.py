@@ -299,18 +299,23 @@ def agreement(p: Op, q: Op) -> float:
     return sum(p(a, b) == q(a, b) for a, b in unordered_pairs()) / len(unordered_pairs())
 
 
-def relevance(anchored: Op, ops: tuple[Op, ...] = OPS) -> dict[int, float]:
+def relevance(anchored: Op, ops: tuple[Op, ...] = OPS, pairs: list[tuple[Rgb, Rgb]] | None = None) -> dict[int, float]:
     """How often reading the op word is worth something on the anchored op's lines.
 
     For a line, count the *other* ops in the table whose answer equals the anchored op's. At 0 the answer
     names the op; at k the op word only rules out n − 1 − k of the n. Returned as {k: fraction of lines}.
     The D2.2 design asks for this per candidate anchored op, under the table's own rounding.
+
+    Counted over the unordered pairs by default, which is right for a commutative table; pass `lines()`
+    for a table with an op that reads operand order.
     """
+    if pairs is None:
+        pairs = unordered_pairs()
     counts = np.zeros(len(ops), dtype=int)
-    for a, b in unordered_pairs():
+    for a, b in pairs:
         answer = anchored(a, b)
         counts[sum(op(a, b) == answer for op in ops if op is not anchored)] += 1
-    return {k: float(c) / len(unordered_pairs()) for k, c in enumerate(counts) if c}
+    return {k: float(c) / len(pairs) for k, c in enumerate(counts) if c}
 
 
 def dose(a: Rgb, b: Rgb) -> float:
