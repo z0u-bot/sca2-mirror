@@ -347,10 +347,9 @@ def _(band, prop, prop_t00, rows: dict[str, list[Row]], summary):
     _t_ref, _t_ops = _s["t00_ref"], _s["t00_ops"]
     _p = prop
     _prop_line = (
-        f"**Proposed operator: `{_p.name}`,** {describe(_p)}. On `mix` it leaves red accuracy {_p.red_acc[PRIMARY_OP]:.3f} "
-        f"at a non-red deficit of {_p.deficit[PRIMARY_OP]:.3f}, where the operand-only projection from ex-2.2.3 is at "
-        f"{_ops.red_acc[PRIMARY_OP]:.3f} and {_ops.deficit[PRIMARY_OP]:.3f}. Its worst deficit over the six ops is "
-        f"{_p.worst_deficit:.3f}, on `{max(_p.deficit, key=_p.deficit.get)}`, a margin of {_p.margin:+.3f}."
+        f"**Proposed operator: `{_p.name}`,** {describe(_p)}. Its worst deficit over the six ops is "
+        f"{_p.worst_deficit:.3f}, on `{max(_p.deficit, key=_p.deficit.get)}`, a margin of {_p.margin:+.3f} "
+        f"([proposal](#the-proposal))."
         if _p is not None
         else "**No trial is feasible on every op.** The infeasibility map is the finding; nothing is proposed."
     )
@@ -375,13 +374,13 @@ def _(band, prop, prop_t00, rows: dict[str, list[Row]], summary):
 
     ## Observations
 
-    - **The reference rows reproduce.** The `projection` and `operands` rows match their stored ex-2.2.3 values on every seed, op, and group to four decimals ([table](#the-reference-rows-reproduce)).
-    - **Noise floors.** Under `projection` at the twenty seeds of `recipe-short`, two seed means can be told apart when they differ by more than {band["red_acc"]:.3f} in red accuracy or {band["deficit"]:.3f} in non-red deficit. Smaller differences are unresolved.
-    - **On the adopted point, the plain projection is inside the gate.** Its worst op is `mix`: non-red deficit {_ref.deficit[PRIMARY_OP]:.3f} at red accuracy {_ref.red_acc[PRIMARY_OP]:.3f}. The operand-only projection is at {_ops.deficit[PRIMARY_OP]:.3f} and {_ops.red_acc[PRIMARY_OP]:.3f}. We expected the whole-sequence cost that ex-2.2.3 saw on the first points its rule proposed. At twenty seeds, the adopted point does not show it. Both projections are feasible and the plain one removes more, so the rule proposes it, by a margin of {_ref.margin:+.3f}, less than a band.
-    - **A threshold inside the non-red range costs more than projecting everything.** On the non-red `mix` lines the clean alignment reaches {_s["q99"]["recipe-short"]:.2f} (99th percentile over slices and positions). Applied at every position, the steps at a ≤ 0.3 cost {_costly_txt}, above the {_ref.deficit[PRIMARY_OP]:.3f} of the projection, while removing about as much red ({_costly_red}). Zeroing the axis on some states of a line while leaving their neighbors alone costs that line more than zeroing all of them. These {len(_costly)} trials are the only ones that cost more than the projection ([figure](#the-landscape)).
-    - **Above the non-red range the cost vanishes, and what is left of red tracks the landing.** {_s["n_whole_feasible"]} of the {_s["n_whole"]} tuned trials applied at every position are inside the gate on every op, and {_s["n_whole_free"]} of those are within a band of zero cost. `{_bf.name}` removes the most of them, leaving red accuracy {_bf.red_acc[PRIMARY_OP]:.3f}. Red accuracy rises with the threshold, the ramp, and the landing, up to {_lw.red_acc[PRIMARY_OP]:.3f} at `{_lw.name}` ([figure](#the-marginals)). The shaped suppression scored in ex-2.2.1 (`{_sh.name}`) is at {_sh.red_acc[PRIMARY_OP]:.3f} and {_sh.deficit[PRIMARY_OP]:.3f}. A state left part-way along the axis keeps part of the color it carried: at the last slice the alignment of the red operand settles at the threshold or the landing, as designed ([figure](#where-the-operators-leave-the-state)).
+    - **The reference rows reproduce.** The `projection` and `operands` rows match their stored ex-2.2.3 values on every seed, op, and group ([table](#the-reference-rows-reproduce)).
+    - **Noise floors.** Under `projection` at the twenty seeds of `recipe-short`, two seed means can be told apart when they differ by more than {band["red_acc"]:.3f} in red accuracy or {band["deficit"]:.3f} in non-red deficit. We cannot resolve smaller differences.
+    - **On the adopted point, the plain projection is inside the gate.** Its worst op is `mix`: non-red deficit {_ref.deficit[PRIMARY_OP]:.3f} at red accuracy {_ref.red_acc[PRIMARY_OP]:.3f}. The operand-only projection is at {_ops.deficit[PRIMARY_OP]:.3f} and {_ops.red_acc[PRIMARY_OP]:.3f}. We expected to see the whole-sequence cost that ex-2.2.3 found on the first points its rule proposed, but at twenty seeds the adopted point does not show it. Both projections are feasible, and the plain one removes more *red*, so the rule proposes it. It clears the gate by {_ref.margin:+.3f}, less than one band.
+    - **A threshold inside the non-red range costs more than projecting everything.** On the non-red `mix` lines the clean alignment reaches {_s["q99"]["recipe-short"]:.2f} (99th percentile over slices and positions). Applied at every position, the steps at a ≤ 0.3 cost {_costly_txt}. That is above the {_ref.deficit[PRIMARY_OP]:.3f} of the projection, and they remove about as much *red* ({_costly_red}). So zeroing the axis on some states of a line while leaving their neighbors alone costs that line more than zeroing all of them. These {len(_costly)} trials are the only ones that cost more than the projection ([figure](#the-landscape)).
+    - **Above the non-red range the cost vanishes, and what is left of *red* follows the landing.** {_s["n_whole_feasible"]} of the {_s["n_whole"]} tuned trials applied at every position are inside the gate on every op, and {_s["n_whole_free"]} of those cost within a band of zero. Of those {_s["n_whole_free"]}, `{_bf.name}` removes the most, leaving red accuracy {_bf.red_acc[PRIMARY_OP]:.3f}. Red accuracy rises with the threshold, the ramp, and the landing, up to {_lw.red_acc[PRIMARY_OP]:.3f} at `{_lw.name}` ([figure](#the-marginals)). The shaped suppression scored in ex-2.2.1 (`{_sh.name}`) is at {_sh.red_acc[PRIMARY_OP]:.3f} and {_sh.deficit[PRIMARY_OP]:.3f}. A state left part-way along the axis keeps part of the color it held: at the last slice the alignment of the red operand settles at the threshold or the landing, as designed ([figure](#where-the-operators-leave-the-state)).
     - **The position mask only matters where the threshold is low.** For {_s["n_whole"] - len(_split)} of the {_s["n_whole"]} tuned trials, the whole-sequence row and its operand-only copy agree on both `mix` reads to within a band. The {len(_split)} that differ are {_split_txt}. Where a threshold already leaves the non-red states alone, the position mask changes nothing.
-    - **On `t00` only operand-only edits are feasible.** There the syntax rows carry the axis, and the clean alignment of the non-red lines reaches {_s["q99"]["t00"]:.2f}. Projecting everything costs {_t_ref.deficit[PRIMARY_OP]:.3f} on `mix`, and every tuned trial applied at every position costs between {_s["t00_whole"][0]:.3f} and {_s["t00_whole"][1]:.3f}; the steps cost {_s["t00_step"][0]:.3f} to {_s["t00_step"][1]:.3f}, so partial removal costs more than full removal there too. All {_s["t00_op_feasible"]} tuned operand-only trials are inside the gate, as is `operands`, at {_t_ops.red_acc[PRIMARY_OP]:.3f} and {_t_ops.deficit[PRIMARY_OP]:.3f}. At five seeds the operand-only rows near it cannot be told apart.
+    - **On `t00` only operand-only edits are feasible.** There the syntax rows hold the axis, and the clean alignment of the non-red lines reaches {_s["q99"]["t00"]:.2f}. Projecting everything costs {_t_ref.deficit[PRIMARY_OP]:.3f} on `mix`. Every tuned trial applied at every position costs between {_s["t00_whole"][0]:.3f} and {_s["t00_whole"][1]:.3f}, and the steps cost {_s["t00_step"][0]:.3f} to {_s["t00_step"][1]:.3f}. So partial removal costs more than full removal there too. All {_s["t00_op_feasible"]} tuned operand-only trials are inside the gate, as is `operands`, at {_t_ops.red_acc[PRIMARY_OP]:.3f} and {_t_ops.deficit[PRIMARY_OP]:.3f}. At five seeds we cannot tell the operand-only rows near it apart.
     - **The front is short.** {_s["n_feasible"]} of {n_trials} trials are feasible on every op: both projections, {_s["n_whole_feasible"]} of the {_s["n_whole"]} tuned trials at every position, and {_s["n_op_feasible"]} of the {_s["n_op"]} at the operands. The `mix` front has {len(_s["front"])} trials, from the gentlest edit to the most complete ([table](#every-trial)).
     - {_prop_line} {_t00_line}
 
@@ -463,7 +462,7 @@ def _():
 
     **Noise floors.** The per-run σ of each objective is read under `{ex.NOISE_TRIALS[0]}` at the twenty seeds of `recipe-short`. A difference between two seed means smaller than 2σ·√(2/20) is unresolved. Every trial is read on the same twenty seeds, so this band is conservative for a paired comparison.
 
-    **What is checked, per trial and seed.** The assertions in the contract run on every state: the clean pass matches, the edit stays within the named positions, and where the write has a closed form (projection and both repulsions) the measured rotation matches it to 2 × 10⁻³ rad. A trial whose write did not match would have failed the scoring task rather than being scored.
+    **What is checked, per trial and seed.** The assertions in the contract run on every state: the clean pass matches, the edit stays within the named positions, and where the write has a closed form (projection and repulsion) the measured rotation matches it to 2 × 10⁻³ rad. A trial whose write did not match would have failed the scoring task rather than being scored.
 
     **Not in the plan.** We did not try positions other than the operands and all, and we did not edit only some of the slices. Operators fitted to the data (LEACE, diff-in-means) are left to the anchor-versus-fitted comparison in the D2.2 design. The readout still reports the redder-than-both lines, but this pass does not rank on them.
     """)
@@ -533,7 +532,7 @@ def _(prop, rows: dict[str, list[Row]]):
     @themed(
         name="landscape",
         alt_text="""
-            Six scatter panels, one per op, each with the non-red deficit on the horizontal axis, zoomed to the first third of its range, and red-line accuracy on the vertical, dashed gate lines near the origin. On every op nearly all marks stand in a vertical column at zero deficit, spanning red accuracy from near zero to about 0.8, circles and triangles together; the two projection crosses sit at the foot of the column just inside the deficit gate, the ring around the plain one on the mix panel; and three open circles trail to the right of the gate at low red accuracy, the low-threshold steps.
+            Six scatter panels, one per op, each with the non-red deficit on the horizontal axis, zoomed to the first third of its range, and red-line accuracy on the vertical, dashed gate lines near the origin. On every op nearly all marks stand in a vertical column at zero deficit, spanning red accuracy from near zero to about 0.8, circles and triangles together; the two projection crosses sit at the foot of the column just inside the deficit gate, with a ring around the plain one in every panel; and three open circles trail to the right of the gate at low red accuracy, the low-threshold steps.
         """,
         caption=f"""
             **The landscape: removal against selectivity, per op.** One mark per trial, seed means over the twenty seeds of `recipe-short`: $●$ at every position, $▲$ at the operand positions, filled when the trial is inside the deficit gate on every op and open otherwise, in the family's ink. $×$ marks the two reference projections. Dashed lines are ex-2.2.3's gates ({ex.NONRED_DEFICIT_GATE:g} on the deficit, {ex.RED_ACC_GATE:g} on red accuracy); the corner they enclose is where an operator is both selective and complete. The ring is the proposed trial. The deficit axis is zoomed to the range the adopted point uses; the figure below shows the full range beside `t00`.
@@ -628,7 +627,7 @@ def _(rows: dict[str, list[Row]]):
             Four panels in a two-by-two grid. Top row: red accuracy on mix; bottom row: non-red deficit on mix. Left column: shaped suppression against its threshold a, one line per ramp p, solid for every position and dashed for the operand positions; red accuracy rises with both the threshold and the ramp, from near zero to about 0.7, the solid and dashed lines nearly on top of each other; the deficit is flat at zero except for the p = 0 line at every position, which starts at 0.23 at a = 0.1 and falls to zero by a = 0.4. Right column: repulsion against its landing b, one line per threshold a; red accuracy rises with the landing from about 0.1 to 0.6, and the deficit is flat at zero.
         """,
         caption="""
-            **The marginals on `mix`.** Seed means over twenty seeds. Left: shaped suppression against its threshold *a*, one shade per ramp *p* (light to dark: 0, 0.5, 1, 2). Right: repulsion against its landing *b*, one shade per threshold *a*. Solid lines are the whole-sequence trials, dashed the operand-only ones. The dashed grey rule is the gate.
+            **The marginals on `mix`.** Seed means over twenty seeds. Left: shaped suppression against its threshold *a*, one shade per ramp *p*. Right: repulsion against its landing *b*, one shade per threshold *a*. Both panels are keyed by their legends. Solid lines are the whole-sequence trials, dashed the operand-only ones. The dashed grey rule is the gate.
         """,
     )
     def _plot() -> plt.Figure:
@@ -684,7 +683,7 @@ def _(res: Results, rows: dict[str, list[Row]]):
             Two panels, one per family, each with the five residual-stream slices on the horizontal axis and the red operand's alignment with the anchor axis on the vertical. A bold grey line near 0.9 is the clean value. Under shaped suppression the lines fan out between zero and 0.75 by threshold and ramp, most rising a little from the embedding to slice 3 and dipping at slice 4 as the clean line does. Under repulsion each line sits flat at its landing through slice 3 and dips at the last slice.
         """,
         caption="""
-            **Where the operators leave the red operand, by slice, on the red `mix` lines.** Mean alignment of the dose-carrying operand's state after the edit, over lines and twenty seeds, for every whole-sequence trial; the bold grey line is the clean value. Shaped rows shade by threshold (light to dark: 0.1 to 0.7), repulsion rows by landing *b* (light to dark: 0.2 to 0.7).
+            **Where the operators leave the red operand, by slice, on the red `mix` lines.** Mean alignment of the dose-carrying operand's state after the edit, over lines and twenty seeds, for every whole-sequence trial; the bold grey line is the clean value. Shaped rows shade by threshold (faintest to boldest: 0.1 to 0.7), repulsion rows by landing *b* (faintest to boldest: 0.2 to 0.7).
         """,
     )
     def _plot() -> plt.Figure:
@@ -734,7 +733,7 @@ def _(prop, res: Results, rows: dict[str, list[Row]]):
     @themed(
         name="write-cost",
         alt_text="""
-            One scatter panel: the largest 99th-percentile write on non-red mix lines across the slices on the horizontal axis, in radians, against the non-red deficit on the vertical, zoomed to the first third of its range. Most marks sit at zero deficit with writes under 0.15 radians. The plain projection's cross has the largest write, near 0.27 radians, at a deficit just inside the gate; the operand-only cross sits at 0.2 radians and near-zero deficit; the three open circles for the low-threshold steps have writes between 0.1 and 0.23 radians and deficits of 0.07 to 0.23, above the gate.
+            One scatter panel: the largest 99th-percentile write on non-red mix lines across the slices on the horizontal axis, in radians, against the non-red deficit on the vertical, zoomed to the first third of its range. Most marks sit at zero deficit with writes under 0.15 radians. The plain projection's cross is at the far right, near 0.27 radians, at a deficit just inside the gate, and an open circle sits directly above it at the same write and several times the deficit; the three open circles for the low-threshold steps are the only marks above the gate, at deficits of 0.07 to 0.23.
         """,
         caption="""
             **What the non-red lines pay for the write they receive, on `mix`.** The 99th-percentile write of each trial on the non-red lines (the largest over the five slices, seed mean) against its non-red deficit. Same marks as the landscape.
@@ -747,7 +746,7 @@ def _(prop, res: Results, rows: dict[str, list[Row]]):
         for r in _rs:
             x, y = _w[r.name], r.deficit[PRIMARY_OP]
             trial_mark(ax, x, y, r, prop is not None and r.name == prop.name)
-        ax.set_xlabel("q99 write on non-red lines (rad) ↓")
+        ax.set_xlabel("q99 write on non-red lines (rad)")
         ax.set_ylabel("non-red deficit ↓")
         ax.set_ylim(-0.01, 0.3)
         return fig
@@ -756,7 +755,7 @@ def _(prop, res: Results, rows: dict[str, list[Row]]):
         r"""
     ## The write and its cost
 
-    The write is the angle an operator turns a state through. M1 argued for the shaped operators on the grounds that bounding the write bounds the side-effect, which holds only if the two move together, and on the non-red lines of this point they do not. The plain projection writes the non-red lines the most and costs them little, while a step at a = 0.2 writes them less and costs them four times as much. What the non-red lines pay depends more on which of their states are turned than on how far.
+    The write is the angle an operator turns a state through. M1 argued for the shaped operators on the grounds that keeping the write small keeps the side-effect small. That only holds if the two move together, and on the non-red lines of this point they do not. The plain projection and the step at a = 0.1 turn the non-red lines through the same angle, yet the step costs them several times as much. A step at a = 0.2 turns them less and still costs four times what the projection does. What the non-red lines pay depends more on which of their states are turned than on how far.
     """
         + _plot()
     )
@@ -844,7 +843,7 @@ def _(band, prop, prop_t00, rows: dict[str, list[Row]], summary):
         _t00_rows = {r.name: r for r in rows["t00"]}
         _p_t00 = _t00_rows[prop.name]
         _body = rf"""
-    The frozen rule proposes **`{prop.name}`**, {describe(prop)}. Its margin to the gate is {prop.margin:+.3f}, less than the deficit band of {band["deficit"]:.3f}. The margin of the operand-only projection is {_ops.margin:+.3f}. {len(_near)} other feasible trial(s) sit within one red-accuracy band of the proposal{": " + ", ".join(f"`{r.name}`" for r in _near) if _near else ""}. The `mix` front, from the gentlest edit to the most complete, is {_front_txt}.
+    The frozen rule proposes **`{prop.name}`**, {describe(prop)}. Its margin to the gate is {prop.margin:+.3f}, less than the deficit band of {band["deficit"]:.3f}. The margin of the operand-only projection is {_ops.margin:+.3f}. {len(_near)} other feasible {"trial sits" if len(_near) == 1 else "trials sit"} within one red-accuracy band of the proposal{": " + ", ".join(f"`{r.name}`" for r in _near) if _near else ""}. The `mix` front, from the gentlest edit to the most complete, as (red accuracy, deficit): {_front_txt}.
 
     On `t00` the same trial has a worst deficit of {_p_t00.worst_deficit:.3f}, outside the gate, and the rule picks {f"`{prop_t00.name}`, {describe(prop_t00)}" if prop_t00 is not None else "nothing"} there.
     """
