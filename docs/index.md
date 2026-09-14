@@ -234,8 +234,11 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.2.8. A survey of the intervention operator on the stored ex-2.2.3 checkpoints](./m2/ex-2.2.8/report.py)
 
-  A survey, no training and no gates: a hundred operators (the shaped suppression over threshold and ramp, M1's repulsion form over threshold and landing, each at every position and at the operand positions) scored on the adopted point's twenty stored seeds and on `t00`'s five, through the eval contract. On the adopted point the plain projection is inside the selectivity gate on every op and the frozen rule proposes it; a threshold above the non-red lines' alignment removes less at zero cost, and one inside it costs more than projecting everything. On `t00` only the operand-only edits are feasible. Run on the dev pair, so the report is in the pull request rather than on this site.
+    A survey, no training and no gates: 84 operators (the shaped suppression over threshold and ramp, M1's repulsion over threshold and landing, each at every position and at the operand positions) scored on the adopted point's twenty stored seeds and on `t00`'s five, through the eval contract. On the adopted point the plain projection is inside the selectivity gate on every op and the frozen rule proposes it; a threshold above the non-red lines' alignment removes less at zero cost, and one inside it costs more than projecting everything. On `t00` only the operand-only edits are feasible.
 
-  <span class="tags">`survey` `intervention` `eval-contract`</span>
+    <span class="tags">`survey` `intervention` `eval-contract`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.8/report.py -->
+
 
 </details>
