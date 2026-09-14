@@ -14,6 +14,9 @@ six-op probe lines, through the eval contract. Every trial is published; the rep
 landscape (red removal against non-red cost) and proposes an operator. Nothing here is a result:
 the anchored-op prereg adopts the proposal and scores it at fresh seeds.
 
+The plan was rehearsed once on the dev pair, with a Bézier repulsion family beside the linear one;
+the production run drops that family (see `TUNED`) and is otherwise the same plan.
+
     bin/mini run docs/m2/ex-2.2.8/experiment.py --app modal --max-containers 5 --budget 2h
     bin/mini status ex-2.2.8
 """
@@ -98,11 +101,11 @@ class Trial:
 
     name: str
     family: str
-    """`projection`, `shaped`, `repulsion-linear`, or `repulsion-bezier`."""
+    """`projection`, `shaped`, or `repulsion-linear`."""
     a: float = 0.0
     """The alignment threshold: states below it are untouched (all families but `projection`)."""
     b: float = 1.0
-    """`shaped`: the ceiling on the removed fraction. `repulsion-*`: the landing alignment."""
+    """`shaped`: the ceiling on the removed fraction. `repulsion-linear`: the landing alignment."""
     p: float = 1.0
     """`shaped`: the ramp's shape; 0 is a step (full removal above the threshold), 1 is linear."""
     positions: tuple[int, ...] | None = None
@@ -129,12 +132,10 @@ LINEAR = tuple(Trial(f"linear-a{a:.1f}-b{b:.1f}", "repulsion-linear", a=a, b=b) 
 """M1's repulsion with the linear (ceiling) mapper: a state at or above the threshold lands at *b*. `a = b` is
 the continuous ceiling `min(α, b)`; `b < a` puts a step at the threshold."""
 
-BEZIER_AB = tuple((a, b) for a in (0.0, 0.2, 0.4) for b in (0.2, 0.4, 0.6) if b >= a)
-BEZIER = tuple(Trial(f"bezier-a{a:.1f}-b{b:.1f}", "repulsion-bezier", a=a, b=b) for a, b in BEZIER_AB)
-"""M1's repulsion with the Bézier mapper, continuous at the threshold: unit slope leaving (a, a), flat arriving
-at (1, b). Monotone when b ≥ a + (1 − a)/3; below that the map rises before it settles at *b*."""
-
-TUNED = (*SHAPED, *LINEAR, *BEZIER)
+TUNED = (*SHAPED, *LINEAR)
+"""The contract's Bézier mapper (`repulsion(kind="bezier")`) is not surveyed: a dev-pair rehearsal of this plan
+scored eight Bézier rows and each sat with the linear row at the same landing, so the production run leaves
+them out."""
 AT_OPERANDS = tuple(
     Trial(f"{t.name}-operands", t.family, a=t.a, b=t.b, p=t.p, positions=OPERAND_POSITIONS) for t in TUNED
 )
@@ -171,8 +172,6 @@ def operator_for(trial: Trial, sub):
             return shaped_suppression(sub, a=trial.a, b=trial.b, p=trial.p)
         case "repulsion-linear":
             return repulsion(sub, a=trial.a, b=trial.b, kind="linear")
-        case "repulsion-bezier":
-            return repulsion(sub, a=trial.a, b=trial.b, kind="bezier")
         case _:
             raise ValueError(trial.family)
 
@@ -304,7 +303,6 @@ def design() -> dict[str, Any]:
         "reference": [t.name for t in REFERENCE],
         "shaped_grid": {"a": SHAPED_A, "p": SHAPED_P},
         "linear_grid": LINEAR_AB,
-        "bezier_grid": BEZIER_AB,
         "objective": OBJECTIVE,
         "noise_trials": NOISE_TRIALS,
         "gates": {"red_acc": RED_ACC_GATE, "nonred_deficit": NONRED_DEFICIT_GATE},
@@ -366,7 +364,7 @@ experiment = Experiment(
     main=main,
     roles={
         "prep": dict(cpu=2, timeout=900),
-        # A hundred operators, each one forward pass over the six ops' 34,992 lines, keeping the stream.
+        # Eighty-odd operators, each one forward pass over the six ops' 34,992 lines, keeping the stream.
         "score": dict(gpu="L4", timeout=3600),
     },
 )
