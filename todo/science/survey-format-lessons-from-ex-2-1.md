@@ -1,7 +1,6 @@
 ---
-status: open
+status: partial
 tags: [methodology, D2.2]
-priority: high
 ---
 # Survey-format lessons from ex-2.1.11, for the next search plan
 
@@ -14,3 +13,7 @@ Two frictions observed the first time the format ran. (a) A scalar objective wal
 **2026-09-07, design review** — the next search plan is now identifiable: the design schedules a scoring-only tuning pass over the shaped suppression's threshold and ramp (and the repulsion form) on the stored ex-2.2.1 runs, before the anchor-op prereg. It is a survey in the science skill's sense, with two objectives that trade (red removal against non-red damage), so all three lessons apply to it: rank on the constraint margin beside the objective, promote near a gate on more than one seed (the stored runs give nine), and have the publisher carry every statistic the analysis promises. The fallback prereg ([ex-2.2.2](/docs/m2/ex-2.2.2/report.py)) is scored rather than surveyed, so it takes only the third.
 
 **2026-09-08, ex-2.2.3 prereg** — the survey's handoff lands in [ex-2.2.3](/docs/m2/ex-2.2.3/report.py) (H3): `t00`, `t48`, and `t12` re-measured at five fresh seeds on the new grammar, the survey's five-seed values printed beside the fresh ones with the band between them, and a frozen selection rule that ranks on m_line only within a feasible set carrying a grading margin of one per-run σ and contrast at the full gate (the constraint margin beside the objective). Five seeds per proposal is the promote-on-more-than-one-seed lesson applied. The publisher requirement is a note for that experiment's DAG, not yet code.
+
+**2026-09-13, housekeeping** — `partial`, and off the shortlist. Both lessons that cost a paragraph at drafting time have now been taken twice, so the item is no longer the thing whose value decays if it is read late. Ex-2.2.3's H3 took them at its freeze (the 09-08 note above), and [ex-2.2.8](https://github.com/z0u/sca2/pull/169), the operator survey the design scheduled, is the second: its objective, feasibility constraint and noise trials are frozen in the experiment module, it reads a band from the per-run σ under the reference row, and it scores the adopted point at twenty stored seeds rather than one — the promote-on-more-than-one-seed lesson with room to spare. Where it could only reach five seeds (`t00`), the report says which proposals are not resolved apart at that width instead of ranking them anyway.
+
+What is left is the third lesson, which is the one that never had a home: "the publisher must carry every statistic the analysis sections promise" is still a line each plan writes for itself rather than something the DAG or a check enforces. That belongs with the `science` skill's search-plan guidance or an `eng/` item, and it is worth a small amount of work rather than a shortlist slot. Close this when that lands somewhere a plan's author will meet it without being told.
