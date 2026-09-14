@@ -3,7 +3,15 @@ name = "sca2"
 version = "2.0"
 description = "AI experiments"
 readme = "README.md"
-requires-python = ">=3.14"
+# The floor names a patch version on purpose: uv discards prerelease information from
+# a `requires-python` bound inside the same minor series, so `>=3.14` and `>=3.14.0` are
+# both satisfied by a 3.14.0 release candidate, as is `.python-version` holding `3.14`.
+# A container with an rc in its uv cache then builds the venv on it and never fetches
+# the final release — which surfaces as a wall of tracebacks from whatever dependency
+# calls a stdlib signature the rc lacked (pydantic and `typing._eval_type`, 2026-09-11),
+# reading as a code problem rather than an interpreter one. `.1` is the one bound that
+# truncation can't reach. It costs us 3.14.0 final, excluded along with its prereleases.
+requires-python = ">=3.14.1"
 dependencies = [
     "cloudpickle>=3.1.2",
     "datasets>=3.0.0",  # Hugging Face Datasets
