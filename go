@@ -24,7 +24,7 @@ is_marimo_notebook() {
 }
 
 show_usage() {
-    echo "usage: $SELF [-h] {install,auth,check,open,render,preview,publish,site,todo,worktrees} ..."
+    echo "usage: $SELF [-h] {install,auth,check,deps,open,render,preview,publish,site,todo,worktrees} ..."
 }
 
 show_help() {
@@ -44,6 +44,11 @@ show_help() {
 		                       advisory, and outside check: dead | annotations
 		  links   [...paths]:  relative doc links and #anchors that no longer resolve
 		                       (default: every .md we author)
+		  deps    [--audit] [--actions] [--updates]:
+		                       dependency review (default: all three) — advisories from
+		                       uv audit and npm audit, Action pins against their newest
+		                       upstream tag, and upgrades available to packages we declare.
+		                       Read-only; the upgrade check is a --dry-run
 		  open    <file> [--browser]:
 		                       open a Marimo notebook for live editing — watches the file so
 		                       the IDE stays the editor, and prints a URL that lands in the
@@ -90,6 +95,10 @@ case "${1:-}" in
     dead|deadcode)
         shift
         "$SCRIPT_DIR/deadcode.sh" "$@"
+        ;;
+    deps|dependencies)
+        shift
+        "$SCRIPT_DIR/deps.sh" "$@"
         ;;
     link|links)
         shift

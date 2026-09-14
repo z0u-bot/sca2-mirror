@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [publishing, storage, reports, ci]
 opened: 2026-09-11
+closed: 2026-09-13
 ---
 # A PR preview for a report whose data is still on dev
 
@@ -22,3 +23,9 @@ What serving a PR preview from dev would need, which is why it is filed rather t
 - The preview becoming a page whose numbers are not the published numbers, on the surface reviewers use to check them.
 
 Recommendation for now: no. Use the local preview for iteration, the label while drafting, and publish from production at the freeze. Reopen if the human-review loop on dev data turns out to happen often enough that a local server is the bottleneck; the cheapest version then is a preview served from the dev publish repo under a distinct URL prefix with the pin held in the PR description rather than in a committed lock.
+
+## Notes
+
+**2026-09-13, housekeeping** — settled as a recorded "no for now", since the body is a finished analysis with a recommendation and leaving it live invites someone to derive it a second time. The trigger to reopen is unchanged: enough reports drafting on dev data that the local server is the bottleneck.
+
+One instance to start the tally. [Ex-2.2.8](https://github.com/z0u/sca2/pull/169) ran its scoring pass on the dev pair, so its report could not go on Pages; the PR carries the `skip-publish-check` label and the rendered page reached the reviewer as a session attachment, with a production re-run (about $9) named as the price of publishing it. That is the workflow this item describes working as intended rather than a new gap — but it is the first time the drafting loop and the reviewing loop have wanted different pairs, so the next occurrence makes two.
