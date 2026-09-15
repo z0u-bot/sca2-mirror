@@ -684,7 +684,7 @@ def _(arrays):
                 '<div class="report-table-scroll"><table class="report-table">' + _thead + _rows + "</table></div>"
             ),
             mo.md("""
-            Sites where the two holdouts disagree, at the last layer except for the embedding row. The difference column is how much of a reading was identity recovery: near zero means the site holds a value the probe can place without having seen it, and a large negative gap means the probe was looking the value up. Either estimator decides the H2 site the same way, so adopting the stricter one changes no conclusion.
+            Sites where the two holdouts disagree, at the last layer except at the embedding. The difference column is how much of a reading was identity recovery: near zero means the site holds a value the probe can place without having seen it, and a large negative gap means the probe was looking the value up. Either estimator decides the H2 site the same way, so adopting the stricter one changes no conclusion.
             """),
         ]
     )
@@ -1259,7 +1259,7 @@ def _():
 
     Under teacher forcing the answer tokens are part of the input. So a probe at an answer position may be reading the digits off the surface text rather than anything the model computed.
 
-    The embedding row (depth 0) tells us how much, because it is the token lookup before any attention or MLP has run: whatever is decodable there was already in the input. In the hex form it is a lot. At the embedding, a mix probe scores $R^2 \approx 1.00$ per channel at each answer digit (each hex digit *is* one channel of the answer), and an operand probe scores ≈ 0.48 at the same positions. The answer digit is the round-half-up mean of the two operand digits, so knowing it pins about half the variance of each operand. Both operands echo at the same strength, consistent with mixing rather than one operand being retained.
+    The embedding (depth 0) tells us how much, because it is the token lookup before any attention or MLP has run: whatever is decodable there was already in the input. In the hex form it is a lot. At the embedding, a mix probe scores $R^2 \approx 1.00$ per channel at each answer digit (each hex digit *is* one channel of the answer), and an operand probe scores ≈ 0.48 at the same positions. The answer digit is the round-half-up mean of the two operand digits, so knowing it pins about half the variance of each operand. Both operands echo at the same strength, consistent with mixing rather than one operand being retained.
 
     This suggests that an answer-position reading should be compared against its own depth-0 value, not against zero. For example, the best channel mean of the hex mix, 0.66 (depth 3, middle answer digit), breaks down as 0.22, 0.96, 0.80 per channel, against an embedding baseline of 0.00, 1.00, 0.00: the green channel is read from the input, and the blue is computed a token ahead.
 

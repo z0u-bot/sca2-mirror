@@ -26,9 +26,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./ngpt-scaling/report.py -->
 
-- [M1 2.9.1. Deleting *red*, now in JAX](./m1/ex-2.9.1/report.py)
+- [M1 2.9.1. Deleting _red_, now in JAX](./m1/ex-2.9.1/report.py)
 
-    We ported the main M1 result from PyTorch to JAX: Anchor *red* to one latent axis of a small autoencoder, then zero the axis and watch red disappear. The result reproduces, seed sensitivity and all, and our new infrastructure holds up.
+    We ported the main M1 result from PyTorch to JAX: Anchor _red_ to one latent axis of a small autoencoder, then zero the axis and watch red disappear. The result reproduces, seed sensitivity and all, and our new infrastructure holds up.
 
     <span class="tags">`anchoring` `ablation` `jax-port` `seed-sensitivity`</span>
 
@@ -64,7 +64,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.1.1. Un-anchored color-mixing transformer](./m2/ex-2.1.1/report.py)
 
-    A small transformer learns a character-level language of color-mixing equations, solving the forms it saw in training and unseen hex pairs. Color turns out to be linearly decodable from its residual stream, with each seed putting *redness* in a different place. Held-out *named* pairs sit at zero accuracy.
+    A small transformer learns a character-level language of color-mixing equations, solving the forms it saw in training and unseen hex pairs. Color turns out to be linearly decodable from its residual stream, with each seed putting _redness_ in a different place. Held-out _named_ pairs sit at zero accuracy.
 
     <span class="tags">`char-tokens` `hex-colors` `color-names` `linear-probes` `generalization`</span>
 
@@ -72,7 +72,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.1.2. Making composition necessary](./m2/ex-2.1.2/report.py)
 
-    The previous model never answered a held-out *named* pair, so we changed the grammar to make composition the only route: reverse alias lines, and named equations whose mix falls off the palette. The model picks up both new skills and still won't chain them within one forward pass, leaving held-out named accuracy at zero.
+    The previous model never answered a held-out _named_ pair, so we changed the grammar to make composition the only route: reverse alias lines, and named equations whose mix falls off the palette. The model picks up both new skills and still won't chain them within one forward pass, leaving held-out named accuracy at zero.
 
     <span class="tags">`char-tokens` `hex-colors` `color-names` `composition` `grammar-design`</span>
 
@@ -102,9 +102,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.1.5/report.py -->
 
-- [2.1.6. Anchoring *red* in a transformer](./m2/ex-2.1.6/report.py)
+- [2.1.6. Anchoring _red_ in a transformer](./m2/ex-2.1.6/report.py)
 
-    Our first anchored transformer, with a single attractive term. The anchor moved the activations to the chosen direction, and cost the task nothing measurable. But it moved the whole color cube, rather than *red* in particular.
+    Our first anchored transformer, with a single attractive term. The anchor moved the activations to the chosen direction, and cost the task nothing measurable. But it moved the whole color cube, rather than _red_ in particular.
 
     <span class="tags">`word-tokens` `anchoring` `selectivity`</span>
 
@@ -176,25 +176,25 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     The plan: the claims D2.2 exists to make, the experiments in order with the engineering that precedes them, the risk each retires, and what is out of scope.
 
-- [2.2.1. Suppressing *red* in the anchored transformer](./m2/ex-2.2.1/report.py)
+- [2.2.1. Suppressing _red_ in the anchored transformer](./m2/ex-2.2.1/report.py)
 
-    The first intervention on an anchored transformer: project the anchor axis out of the D2.1 checkpoints and score red lines against non-red lines. The removal works, grades with the line's redness, and stays inside the bound the placed geometry sets; zeroing the axis weights does the same job. Selectivity is partial: the non-red cost comes from the syntax positions, whose embeddings carry a constant component on the axis. Editing the operands alone avoids it, and so does M1's shaped suppression, which removes only half of *red*.
+    The first intervention on an anchored transformer: project the anchor axis out of the D2.1 checkpoints and score red lines against non-red lines. The removal works, grades with the line's redness, and stays inside the bound the placed geometry sets; zeroing the axis weights does the same job. Selectivity is partial: the non-red cost comes from the syntax positions, whose embeddings carry a constant component on the axis. Editing the operands alone avoids it, and so does M1's shaped suppression, which removes only half of _red_.
 
     <span class="tags">`word-tokens` `intervention` `suppression` `checkpoints` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.1/report.py -->
 
-- [2.2.2. A designed response to suppressing *red*](./m2/ex-2.2.2/report.py)
+- [2.2.2. A designed response to suppressing _red_](./m2/ex-2.2.2/report.py)
 
-    Fallback control from M1, adapted to the transformer. It's a training term that teaches the blocks what to answer once *red* is removed, at a designed fallback answer (continuation), with a stop-gradient protecting the placement. The fallback answer is the center of the operand-averaged null, the visible operand mixed with *mid-gray*. It worked: *red* behaved like *mid-gray*, and seed variance was reduced — but it also reduced selectivity.
+    Fallback control from M1, adapted to the transformer. It's a training term that teaches the blocks what to answer once _red_ is removed, at a designed fallback answer (continuation), with a stop-gradient protecting the placement. The fallback answer is the center of the operand-averaged null, the visible operand mixed with _mid-gray_. It worked: _red_ behaved like _mid-gray_, and seed variance was reduced — but it also reduced selectivity.
 
     <span class="tags">`word-tokens` `intervention` `fallback` `training` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.2/report.py -->
 
-- [2.2.3. The multi-op grammar, with *red* anchored again](./m2/ex-2.2.3/report.py)
+- [2.2.3. The multi-op grammar, with _red_ anchored again](./m2/ex-2.2.3/report.py)
 
-    The grammar grows to six operations spelled as words (`mix`, `add`, `screen`, `multiply`, `lighten`, `darken`, each rounded to the grid), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe at two lengths, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts. The recipe transferred (H1, H2), and the frozen rule adopted the survey's `t00` (H3), a heavier anchor that trades contrast and syntax-row cleanliness for margin. Suppression did not transfer as stated (H4): the recipe's removal reads as partial on four of the new ops, and `t00` needs the operand-only edit to keep the non-red lines. A post hoc read adds the lead and selectivity gates the rule left out and narrows the choice to the recipe; a twenty-seed comparison of its two lengths (E6) backs the decision to build D2.2 on `recipe-short`, which grades better for half the compute; the partial removals are lines whose answer never depended on the red operand (E8). Six ops left the operand cube less linearly decodable than three (E4).
+    The grammar grows to six operations spelled as words (`mix`, `add`, `screen`, `multiply`, `lighten`, `darken`, each rounded to the grid), and the D2.1 recipes are checked again on it: the control, the ex-2.1.10 recipe at two lengths, and three survey proposals at fresh seeds, with a frozen rule that names the operating point the rest of D2.2 adopts. The recipe transferred (H1, H2), and the frozen rule adopted the survey's `t00` (H3), a heavier anchor that trades contrast and syntax-embedding cleanliness for margin. Suppression did not transfer as stated (H4): the recipe's removal reads as partial on four of the new ops, and `t00` needs the operand-only edit to keep the non-red lines. A post hoc read adds the lead and selectivity gates the rule left out and narrows the choice to the recipe; a twenty-seed comparison of its two lengths (E6) backs the decision to build D2.2 on `recipe-short`, which grades better for half the compute; the partial removals are lines whose answer never depended on the red operand (E8). Six ops left the operand cube less linearly decodable than three (E4).
 
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 
@@ -224,6 +224,14 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.6/report.py -->
 
+- [2.2.7. A pilot of the syntax embeddings](./m2/ex-2.2.7/report.py)
+
+    A scouting run, no gates, nine seeds per arm, into why the embeddings of the op words and `=` hold part of the anchor axis, which is what a full-position projection pays for on the non-red lines. The readout puts it there, to predict `=` after a red operand, and the tied table passes it to the embedding. Given a readout table of its own, the model keeps the component on that table and the syntax embeddings come mostly clean; leaving the embeddings unanchored does not clean them. Untying costs nothing on task or placement, and brings the non-red cost of the projection down toward the cost of the operand-only edit. The pilot proposes it for the handover, since it needs nothing from the grammar. Under the whole-line labeller a few seeds lose selectivity, so that labeller should go in with a check rather than by default.
+
+    <span class="tags">`pilot` `multi-op` `anchoring` `selectivity`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.7/report.py -->
+
 - [2.2.8. A survey of the intervention operator on the stored ex-2.2.3 checkpoints](./m2/ex-2.2.8/report.py)
 
     A survey, no training and no gates: 84 operators (the shaped suppression over threshold and ramp, M1's repulsion over threshold and landing, each at every position and at the operand positions) scored on the adopted point's twenty stored seeds and on `t00`'s five, through the eval contract. On the adopted point the plain projection is inside the selectivity gate on every op and the frozen rule proposes it; a threshold above the non-red lines' alignment removes less at zero cost, and one inside it costs more than projecting everything. On `t00` only the operand-only edits are feasible.
@@ -231,6 +239,5 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`survey` `intervention` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.8/report.py -->
-
 
 </details>

@@ -210,6 +210,8 @@ ul:has(>li>p),
   gap: 0.5rem;
   overflow-x: auto;
   margin-block: 0.75em;
+  scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
+  scrollbar-width: thin;
 }
 
 .fig-strip img {

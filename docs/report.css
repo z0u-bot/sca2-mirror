@@ -125,6 +125,8 @@ body.dark-theme .sw-themed {
  * tables in Markdown. */
 .report-table-scroll {
   overflow-x: auto;
+  scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
+  scrollbar-width: thin;
 }
 .markdown table.report-table,
 .report-table-scroll .report-table {

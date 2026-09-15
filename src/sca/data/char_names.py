@@ -1,6 +1,6 @@
 """Opaque spelled-out names for the char-level name-only language (ex-2.1.4).
 
-Ex-2.1.3's language gives every color a single atomic token, so a name *is* an embedding row. This module re-renders the same language for a character-level tokenizer, where a name is something the model must read and write one letter at a time. The design trap it exists to avoid: the synthetic grid names (``c05f``) spell the color's value per character, which at char level is just hex with a prefix — and even the classic palette names vary in length, which would confound the answer-emission schedule. So every color gets a random fixed-length letter string, assigned independently of its value::
+Ex-2.1.3's language gives every color a single atomic token, so a name *is* its embedding. This module re-renders the same language for a character-level tokenizer, where a name is something the model must read and write one letter at a time. The design trap it exists to avoid: the synthetic grid names (``c05f``) spell the color's value per character, which at char level is just hex with a prefix — and even the classic palette names vary in length, which would confound the answer-emission schedule. So every color gets a random fixed-length letter string, assigned independently of its value::
 
     tkzk + qwfd = hjnp
 
