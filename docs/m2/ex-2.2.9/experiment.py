@@ -240,6 +240,11 @@ rendered in the method."""
 
 # --- Gates: the task (H1) -----------------------------------------------------------------------
 
+CALIBRATION_FLOOR = 0.05
+"""Before the freeze: the one control seed has learned the grammar when its expected exact match on every kept
+and added op is within 0.05 of the ceiling the drawn answers allow on that op. The ordered subset is recorded
+and does not block."""
+
 TASK_GATE = ex223.TASK_GATE
 TASK_PARTIAL = ex223.TASK_PARTIAL
 """H1: for each scored arm and each op, seed-mean expected exact match on the held-out lines is within 0.02 of
@@ -304,10 +309,35 @@ RESOLUTION_SD = ex223.RESOLUTION_SD
 """A difference between two seed means smaller than 2σ√(1/n_a + 1/n_b), with σ the per-run spread, is reported
 as unresolved, as ex-2.2.3 and ex-2.2.8 report it."""
 
+NOISE_RUN = ex223.NOISE_RUN
+"""Per-run σ of each placement statistic, frozen at the reference. The bands in H2 use these; the handover
+re-measures them on the new grammar and the report prints both, as ex-2.2.3's E5 does."""
+
+# REVIEW: named a σ source for every banded read. H4 and H5 both turn on "more than a band" for
+# statistics that are not in NOISE_RUN, and without a source the person running it picks one.
+# H5's band is gate-like (it decides which arm is adopted), so it takes a frozen σ; H4 carries no
+# gate, so its σ is read from the arms themselves and reported. Verify: ex-2.2.8 tabulates the
+# per-run spread of the non-red deficit under `projection` per op at the reference's twenty seeds.
+DEFICIT_NOISE = "ex-2.2.8, `projection` on `recipe-short`, twenty seeds, per op"
+"""Where σ for the non-red deficit band comes from (H3's reporting and H5's gate): the per-run spread
+ex-2.2.8 measured at the reference, on `mix`. Frozen, so neither candidate arm's own spread moves the
+verdict it is adopted on."""
+
+COMPONENT_NOISE = "pooled within-arm, over the two arms compared"
+"""Where σ for the syntax-embedding component band comes from (H4): ex-2.2.7 reported seed means and ranges
+rather than a per-run spread, so the band is built from the two arms' own seeds and the σ is reported beside
+it. H4 carries no gate, so nothing is adopted on this band."""
+
 # --- The decision rule ---------------------------------------------------------------------------
 
+# REVIEW: the rule now carries H5, which the H5 section already described as deciding between the
+# two candidates ("if either fails, `handover-slot` becomes the grammar of record") while the rule
+# named only H1, H2, and H3. As written it could have adopted `handover` on the strength of
+# comparability with M3 over an arm that showed the selectivity tail H5 exists to catch. Verify:
+# H5 is read on the two candidate arms only, so it can only ever break the tie between them.
 DECISION = f"""\
 The grammar of record after this experiment is the candidate arm (`{HANDOVER.name}` or `{SLOT.name}`) that \
-clears H1, H2 (containment at least partial), and H3 in full. If both do, it is `{HANDOVER.name}`, for \
-comparability with M3. If neither does, the handover is not adopted: ex-2.2.3's grammar stays the grammar \
+clears H1, H2 (margin, grading, and contrast in full; containment at least partial), and H3 in full, with every \
+other partial band a reporting level. If both do, it is `{HANDOVER.name}` when H5 \
+holds, for comparability with M3, and `{SLOT.name}` when either line of H5 fails. If neither does, the handover is not adopted: ex-2.2.3's grammar stays the grammar \
 of record, and the report says which gate each arm missed and what the one-change-back arms say about why."""

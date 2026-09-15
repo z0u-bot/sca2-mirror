@@ -121,7 +121,10 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(rf"""
+    # REVIEW: the Findings line quoted the whole decision rule, which the Decision section states
+    # again a few screens later; it is now a link, so the rule has one home. Verify: the rule is
+    # rendered from `ex.DECISION` under "Decision".
+    mo.md(r"""
     ## Findings
 
     - [Does the model still learn the task? (H1)](#does-the-model-still-learn-the-task-h1) — _to come_
@@ -129,7 +132,7 @@ def _():
     - [Can we still take *red* out cleanly? (H3)](#can-we-still-take-red-out-cleanly-h3) — _to come_
     - [Does the separate readout keep the axis off the syntax words? (H4)](#does-the-separate-readout-keep-the-axis-off-the-syntax-words-h4) — _to come_
     - [Does the whole-line label cost selectivity? (H5)](#does-the-whole-line-label-cost-selectivity-h5) — _to come_
-    - **Decision:** _to come._ {ex.DECISION}
+    - [Which grammar we adopt](#decision) — _to come_
     """)
     return
 
@@ -172,7 +175,7 @@ def _():
 
     **`handover-slot`** switches the label back to the one from ex-2.2.3: only the two operands can draw a label, and the pull covers the prompt. Beside `handover` it is the selectivity check ex-2.2.7 asked for, and the fallback if the whole-line label does not clear its gates. Twenty seeds too, so whichever of the two is adopted has the full count.
 
-    **`handover-tied`** switches the readout back to the shared table. Beside `handover` it shows what untying does on this grammar. Nine seeds, as the pilot had.
+    **`handover-tied`** switches the readout back to the shared table. Beside `handover` it shows what untying does on this grammar. Nine seeds, as the pilot had. It is gated on H1 only; H2 reads it without a gate, and H3 and the decision rule do not read it at all.
 
     **`control`** has no anchor at all. It sets the task bar for H1 and the calibration bar for the drawn answers.
 
@@ -263,7 +266,7 @@ def _():
     **Prediction.** Under `projection`, for each candidate arm:
 
     - *Removal:* on the removal lines of every op, the model keeps at most {ex.RED_KEPT_GATE:g} of its clean expected exact match, seed mean. This is the red-accuracy gate of ex-2.2.3, read as a ratio, because with drawn answers the clean value sits below 1 on the ops that round.
-    - *Selectivity:* the seed-mean deficit on the non-red `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}; partial to {ex.NONRED_DEFICIT_PARTIAL:g}. Reported on every op beside it. On the reference, ex-2.2.8 read 0.040 on `mix`, which is inside the gate by less than a band. With the readout untied we expect the deficit to fall toward the `operands` row, which read 0.012.
+    - *Selectivity:* the seed-mean deficit on the non-red `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}; partial to {ex.NONRED_DEFICIT_PARTIAL:g}. The partial band is a reporting level, as it was in ex-2.2.3: the decision rule asks for the gate. Reported on every op beside it. On the reference, ex-2.2.8 read 0.040 on `mix`, which is inside the gate by less than a band. With the readout untied we expect the deficit to fall toward the `operands` row, which read 0.012. Bands on the deficit use the per-run spread ex-2.2.8 measured under `projection` at the reference's twenty seeds, per op ({ex.DEFICIT_NOISE}), frozen so that an arm's own spread does not move its verdict.
 
     Two more reads come with a direction we expect but no gate. The first is how far the answer moves: on the removal lines, the distance in the unit cube from the answer the model decodes to the answer the rule gives, under `projection`. Beside it we put the distance the rule itself moves when the red operand loses its red. We expect the two rankings of ops to agree, so that the ops where the answer should move furthest (`value-hsv`, `hue-hsv`, `sat-hsv`) are where it does.
 
@@ -288,7 +291,7 @@ def _():
 
     **Prediction.** On `handover` against `handover-tied`, same labeller, twenty seeds against nine:
 
-    - The axis component on the syntax embeddings (`=`, the op words, and `⏎`), read from the embedding-component table of ex-2.2.7, is lower on `handover` than on `handover-tied` by more than a band. On `=`, `handover` sits within a band of the hard-zeroed ceiling from ex-2.2.7 (`{ex.EX227_CEILING}`, where the component is zero by construction). The component appears on the readout table of `handover` instead.
+    - The axis component on the syntax embeddings (`=`, the op words, and `⏎`), read from the embedding-component table of ex-2.2.7, is lower on `handover` than on `handover-tied` by more than a band ({ex.COMPONENT_NOISE}, since ex-2.2.7 published seed means and ranges rather than a per-run spread; the σ is reported beside the comparison). On `=`, `handover` sits within a band of the hard-zeroed ceiling from ex-2.2.7 (`{ex.EX227_CEILING}`, where the component is zero by construction). The component appears on the readout table of `handover` instead.
     - The non-red `mix` deficit under `projection` is lower on `handover` than on `handover-tied`, by more than a band.
 
     Neither line is a gate. Ex-2.2.7 already took the readout decision, and this section either confirms it or reports that it did not carry. If the second line fails while the first holds, then on this grammar the syntax embeddings were not where the cost came from.
@@ -313,7 +316,7 @@ def _():
     - The seed-mean non-red `mix` deficit differs by less than a band, and
     - the count of seeds whose deficit is above {ex.TAIL:g} (the level at which ex-2.2.7 read its tail) is no more than two higher on `handover` than on `handover-slot`.
 
-    If both hold, the whole-line label carries and the decision rule prefers `handover`. If either fails, the tail is real, `handover-slot` becomes the grammar of record, and the whole-line label goes back to the backlog with the seed count it needs. We are not sure which way this goes: the tail in ex-2.2.7 was three seeds out of nine, enough to expect it and too few to be sure.
+    The whole-line label changes two things at once: which positions the pull can land on, and which lines get a label at all, since the answer draws at its own redness rate. So a miss here says the label as a whole costs selectivity, and not which half of it did. If both lines hold, the label carries and the decision rule prefers `handover`. If either fails, the tail is real, `handover-slot` becomes the grammar of record, and the whole-line label goes back to the backlog with the seed count it needs. We are not sure which way this goes: the tail in ex-2.2.7 was three seeds out of nine, enough to expect it and too few to be sure.
 
     /// admonition | TODO
         type: warning
@@ -391,7 +394,7 @@ def _():
 
     ### Before the freeze
 
-    One seed of `control` trains first, and its expected exact match per op is recorded here, so that the gate in H1 is read against a control that learned the grammar. Two pieces of code land with the DAG: the holdout draw, now keyed on the position of the op in this table rather than in the table of ex-2.2.3 (`sca.data.ops.holdout`), and a probe draw that walks both slots for the ordered subset (`probe_partners`). Neither changes a number in the design.
+    One seed of `control` trains first, and its expected exact match per op is recorded here, so that the gate in H1 is read against a control that learned the grammar. It has, when its expected exact match on every kept and added op is within {ex.CALIBRATION_FLOOR:g} of the ceiling the drawn answers allow on that op (ex-2.2.5 saw the six-op control within 0.04 on the ops that round). A lower value on the ordered subset is recorded and does not stop the run, since it says something about the grammar rather than about the anchor; a miss on a commutative op does stop it, and sends the corpus size and epoch count back for a look. Two pieces of code land with the DAG: the holdout draw, now keyed on the position of the op in this table rather than in the table of ex-2.2.3 (`sca.data.ops.holdout`), and a probe draw that walks both slots for the ordered subset (`probe_partners`). Neither changes a number in the design.
 
     /// admonition | TODO
         type: warning
