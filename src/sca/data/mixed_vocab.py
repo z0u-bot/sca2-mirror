@@ -273,7 +273,7 @@ adjacent characters — discrete digits — so only variable-length forms (named
 drawn as a smooth slide. Its companion is ``GAP_RISERS``, which every form shares."""
 
 
-GAP_RISERS: frozenset[int] = frozenset()
+GAP_RISERS: frozenset[int] = frozenset[int]()
 """Indices *i* where landmark *i*→*i+1* straddles an unprobed character in the fixed
 grammar. Empty since the four delimiter spaces became landmarks: the fixed part of the
 grammar is now measured character by character in both forms, so no riser there

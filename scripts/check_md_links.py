@@ -21,6 +21,7 @@ import sys
 from collections.abc import Iterable, Iterator
 from dataclasses import dataclass
 from pathlib import Path
+from typing import cast
 from urllib.parse import unquote
 
 from mini.reports import github_slug
@@ -109,7 +110,7 @@ def strip_code(text: str) -> str:
     for line in text.split("\n"):
         if (m := FENCE.match(line)) is not None:
             if fence is None:
-                fence = m["fence"]
+                fence = cast(str, m["fence"])
                 out.append("")
                 continue
             # A closer matches the opener's kind and is at least as long; anything else is content.

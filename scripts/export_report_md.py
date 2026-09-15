@@ -19,6 +19,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import cast
 
 from marimo_md_export.export import export_html, export_md, strip_header_from_frontmatter
 from marimo_md_export.inject import inject_outputs
@@ -49,7 +50,7 @@ def fenced_spans(md: str) -> list[tuple[int, int]]:
         stripped = line.lstrip()
         m = FENCE_RE.match(stripped)
         if m:
-            token = m.group(1)
+            token = cast(str, m.group(1))
             if open_fence is None:
                 open_fence, start = token, pos
             elif token[0] == open_fence[0] and len(token) >= len(open_fence) and not stripped[len(token) :].strip():
@@ -166,7 +167,7 @@ def localize_links(md: str, *, base: Path, out_dir: Path) -> tuple[str, list[str
     # already placed relative to the output must not be resolved a second time.
     md = MD_ASSET_LINK_RE.sub(replace_asset_link, md)
     md = MD_IMAGE_RE.sub(replace_md, md)
-    md = clean_marimo_md.IMG_RE.sub(replace_tag, md)
+    md = cast(str, clean_marimo_md.IMG_RE.sub(replace_tag, md))
     return md, unresolved
 
 

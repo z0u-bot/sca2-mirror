@@ -116,6 +116,38 @@ build-backend = "uv_build"
 [tool.uv.build-backend]
 namespace = true
 
+[tool.ty.rules]
+# Flags an assignment whose value is *assignable* to the declared type but not a
+# *subtype* of it, which in practice means one thing: an `Any` landed in a typed
+# slot. `Any` is assignable to everything, so the ordinary `invalid-assignment`
+# check waves it through and a wrong type can travel a long way before anything
+# notices. Turning it on caught one of those on its first run (see the notes in
+# `todo/eng/ty-unsound-assignment.md`).
+unsound-assignment = "error"
+
+[[tool.ty.overrides]]
+# Reports annotate the first binding out of an untyped dict — `epochs: int =
+# c["epochs"]` — and that annotation *is* the point: it is the author saying what
+# shape the dict has, and Marimo copies it onto every downstream cell signature
+# (see the `style-py` skill). The rule reads the same line as an unsound
+# assignment, so it argues with the house convention rather than finding bugs.
+include = ["docs/**/*.py"]
+
+[tool.ty.overrides.rules]
+unsound-assignment = "ignore"
+
+[[tool.ty.overrides]]
+# Off here for a cost reason rather than a style one: the eleven findings under
+# `src/sca/` sit in `equinox` boundaries on the training path, and mini keys a
+# memoized task on the *source text* of every project helper it reaches. Editing
+# them re-fingerprints ~76 experiment functions — every `train_one` in M2 — and a
+# stale DONE record re-runs. The fix is written up and ready in
+# `todo/eng/ty-unsound-assignment.md`; it wants a session with a re-run budget.
+include = ["src/sca/**/*.py"]
+
+[tool.ty.overrides.rules]
+unsound-assignment = "ignore"
+
 [tool.ruff]
 line-length = 120
 # Markdown is excluded because ruff 0.16 began formatting fenced code blocks in
