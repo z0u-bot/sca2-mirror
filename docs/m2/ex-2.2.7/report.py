@@ -277,13 +277,11 @@ def _(res: Results):
 
     /// tip |
     <!-- tl;dr -->
-    A scouting run, with no gates. In every anchored model, the embeddings of the op words and `=` hold part of the anchor axis. That is why a full-position projection costs accuracy on the non-red lines.
+    A scouting run into why the embeddings of the op words and `=` hold part of the anchor axis, which is what a full-position projection pays for on the non-red lines.
 
-    To find where that component works, we stripped it from the stored checkpoints, on the input side or the output side of the tied table. We then retrained the recipe three ways, each removing one candidate mechanism: anchoring the blocks only, untying the readout, and holding the syntax embeddings off the axis by a hard constraint.
+    The readout puts it there, to predict `=` after a red operand, and the tied table passes it to the embedding. Given a readout table of its own, the model keeps the component on that table and the syntax embeddings come mostly clean. Leaving the embeddings unanchored does not clean them.
 
-    The logit path puts it there. Given a readout table of its own, the model moves the component onto that table, and the syntax embeddings come mostly clean. Leaving the embedding out of the anchor does not remove the component, and it makes the projection less complete.
-
-    Untying the readout costs nothing we can see, and neither does holding the syntax embeddings at zero after every step. Either one brings the non-red cost of the full-position projection down toward the cost of the operand-only edit. The pilot proposes the untied readout for the handover, since it needs nothing from the grammar. It also flags a tail of poor selectivity under the whole-line labeller.
+    Untying costs nothing on task or placement, and brings the non-red cost of the projection down toward the cost of the operand-only edit. The pilot proposes it for the handover, since it needs nothing from the grammar. Under the whole-line labeller a few seeds lose selectivity, so that labeller should go in with a check rather than by default.
     ///
 
     ## Observations
