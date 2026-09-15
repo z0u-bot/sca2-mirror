@@ -113,7 +113,7 @@ def _():
     <!-- tl;dr -->
     **Draft, before any run.** The last four experiments each turned up one thing we would change about the setup we anchor *red* in: a wider set of operations, answers that are drawn rather than rounded, a label that covers the whole line, and a readout table kept separate from the embedding table. Each was tried on its own and looked fine.
 
-    This experiment turns all four on at once, at twenty seeds. Does *red* still land where we put it? Can it still be removed cleanly? And do the two changes that came with a caveat, the label and the readout, earn their place? Two extra arms switch one of those back each, so we can attribute any change to the right one. At the end, one arm becomes the setup every later D2.2 experiment builds on.
+    This experiment turns all four on at once, at twenty seeds. Does *red* still land where we put it? Can it still be removed cleanly? And do the two changes that came with a caveat, the label and the readout, earn their place? Two extra arms switch one of those back each, so we can tell which one did what. One arm becomes the setup every later D2.2 experiment builds on.
     ///
     """)
     return
@@ -149,12 +149,12 @@ def _():
 
     1. **A wider table of operations** ([ex-2.2.4](../ex-2.2.4/report.py)). Drop `add`, add three ops whose answers spread through the color cube, and add three more that take one attribute from one operand and the rest from the other. Those last three are the first ops where the order of the operands matters.
     2. **Drawn answers instead of rounded ones** ([ex-2.2.5](../ex-2.2.5/report.py)). When a rule lands between two grid colors, the corpus picks one of them at random, with the odds set by where it landed. The model then learns a spread of possible answers rather than one right token, which is what a language model learns.
-    3. **A label that covers the whole line** ([ex-2.2.6](../ex-2.2.6/report.py)). The anchor is told "this line is about red", and it pulls wherever in the line it finds the most red, answer included. That is the shape a document-level label will have in M3. The first pilot found it costs nothing, but a later one saw a few seeds lose selectivity under it, so it goes in with a check.
+    3. **A label that covers the whole line** ([ex-2.2.6](../ex-2.2.6/report.py)). The anchor is told "this line is about red", and it pulls wherever in the line it finds the most red, answer included. That is the shape a document-level label will have in M3. The first pilot found it costs nothing; a later one saw a few seeds lose selectivity under it, so it goes in with a check.
     4. **A separate readout table** ([ex-2.2.7](../ex-2.2.7/report.py)). The output layer of the model was sharing a table with its input embeddings, and that sharing put part of the *red* axis onto the words `=` and `mix`. Giving the output its own table keeps the axis off those words, which is what a clean full-line removal needs.
 
     [ex-2.2.8](../ex-2.2.8/report.py) added one more: the removal operator is the plain projection, which takes the axis out everywhere, with the operand-only edit beside it as the selective reference.
 
-    Each change was tried alone. Here they are tried together, at the same number of seeds as the reference, so that whatever comes out is the grammar and recipe of record for the anchored-op experiments. We call it a handover because the grammar of record changes hands here. Until this runs it is the one from ex-2.2.3; after it, if the gates hold, it is this one.
+    Here the four are tried together, at the same number of seeds as the reference, so that whatever comes out is the grammar and recipe of record for the anchored-op experiments. It is a handover because the grammar of record changes hands here: until this runs it is the one from ex-2.2.3; after it, if the gates hold, it is this one.
     """)
     return
 
@@ -170,13 +170,13 @@ def _():
 
     **`handover`** has everything switched on. It is the candidate grammar of record, at the same twenty seeds as the reference.
 
-    **`handover-slot`** switches the label back to the one from ex-2.2.3: only the two operands can draw a label, and the pull covers the prompt. Beside `handover` it is the selectivity check ex-2.2.7 asked for, and it is the fallback if the whole-line label does not clear its gates. It also has twenty seeds, so whichever of the two is adopted has the full count.
+    **`handover-slot`** switches the label back to the one from ex-2.2.3: only the two operands can draw a label, and the pull covers the prompt. Beside `handover` it is the selectivity check ex-2.2.7 asked for, and the fallback if the whole-line label does not clear its gates. Twenty seeds too, so whichever of the two is adopted has the full count.
 
     **`handover-tied`** switches the readout back to the shared table. Beside `handover` it shows what untying does on this grammar. Nine seeds, as the pilot had.
 
     **`control`** has no anchor at all. It sets the task bar for H1 and the calibration bar for the drawn answers.
 
-    **`handover-wide`** is exploratory. Eleven ops share the same {ex.N_LINES:,} lines, so each op gets about {ex.HANDOVER.lines_per_op:,} lines, about half of what it had at six ops. E4 in ex-2.2.3 found the operand cube less decodable at six ops than at three, and could not tell whether the op count or the lines per op was responsible. This arm holds lines per op at the six-op count ({ex.WIDE.lines_per_op:,}), using a corpus eleven sixths the size for fewer epochs so that the step count matches. It is read only in the exploratory section.
+    **`handover-wide`** is exploratory. Eleven ops share the same {ex.N_LINES:,} lines, so each op gets about {ex.HANDOVER.lines_per_op:,} lines, about half of what it had at six ops. E4 in ex-2.2.3 found the operand cube less decodable at six ops than at three, and could not tell whether the op count or the lines per op was responsible. This arm holds lines per op at the six-op count ({ex.WIDE.lines_per_op:,}), using a corpus eleven sixths the size for fewer epochs so that the step count matches.
 
     The reference arm is not retrained. It is `{ex.EX223_REFERENCE}` from ex-2.2.3, at twenty seeds on the six-op grammar, and its stored statistics are printed beside every placement read.
 
@@ -196,8 +196,6 @@ def _():
     mo.md(r"""
     ## What the words mean
 
-    A short glossary, since the reads below lean on it.
-
     - **Red line, non-red line.** A line is *red* when its redder operand has redness at least 0.8, and *non-red* when neither operand is above 0.2. Redness is r·(1 − g/2 − b/2) on the unit scale, so pure red is 1 and pink is lower.
     - **Removal lines.** The red lines on which the answer given by the rule would move a long way if the red operand had no red in it (its R channel set to zero). These are the lines where losing *red* has to show; on the others the op does not need it. The count per op is in the method.
     - **Expected exact match.** With drawn answers, the correct answer to a line is spread over two or more colors. Expected exact match is the chance that an answer drawn from the model agrees with one drawn from the rule. On the ops that round it cannot reach 1.
@@ -215,9 +213,9 @@ def _():
 
     **In plain words.** Eleven ops in the same number of lines, with drawn answers, is a harder corpus than six ops with rounded ones. Before we read anything about the anchor we need to know that the anchored models learn the task as well as an un-anchored model does on this corpus.
 
-    **Prediction.** For each of the three gated arms and each of the {ex.N_OPS} ops, the seed-mean expected exact match on held-out lines is within {ex.TASK_GATE:g} of the control, which gives the gate {len(ex.SCORED) * ex.N_OPS} comparisons. Partial: every comparison within {ex.TASK_PARTIAL:g}, or all but one within {ex.TASK_GATE:g} and that one within {ex.TASK_PARTIAL:g}. Contrary: an arm more than {ex.TASK_PARTIAL:g} below the control on some op. Ex-2.2.5 saw no task cost from the drawn answers and ex-2.2.7 none from the untied readout, so we expect this to hold.
+    **Prediction.** For each of the three gated arms and each of the {ex.N_OPS} ops, the seed-mean expected exact match on held-out lines is within {ex.TASK_GATE:g} of the control, which gives the gate {len(ex.SCORED) * ex.N_OPS} comparisons. Partial: every comparison within {ex.TASK_PARTIAL:g}, or all but one within {ex.TASK_GATE:g} and that one within {ex.TASK_PARTIAL:g}. Contrary: an arm more than {ex.TASK_PARTIAL:g} below the control on some op.
 
-    Whether the control itself learns the grammar is checked before the freeze, on one seed, rather than gated here. The number to watch is the ordered subset. An op that reads operand order asks the model for something the six-op grammar never did.
+    We expect this to hold: ex-2.2.5 saw no task cost from the drawn answers, ex-2.2.7 none from the untied readout. Whether the control itself learns the grammar is checked before the freeze, on one seed, rather than gated here. The number to watch is the ordered subset, since an op that reads operand order asks the model for something the six-op grammar never did.
 
     /// admonition | TODO
         type: warning
@@ -241,7 +239,9 @@ def _():
     - *Containment:* ᾱ at op1 at most {ex.MEAN_ALIGN_GATE:g}; partial to {ex.MEAN_ALIGN_PARTIAL:g}.
     - *Concentration, attribution, retention, latch:* lead at the embedding at least {ex.LEAD_GATE:g}; contrast at least {ex.CONTRAST_GATE:g} (partial from {ex.CONTRAST_PARTIAL:g}); every run that reaches m_line {ex.RETENTION_FLOOR:g} ends at {ex.RETENTION_GATE:g} of its peak; no run latched.
 
-    Containment is the one we expect to be close. At nine seeds, ex-2.2.7 read ᾱ at 0.13 on its untied arm and 0.23 on its untied whole-line arm, against 0.08 on the reference. The partial band is new, and it is there so that a near miss has a stated meaning. An arm inside the band can still be adopted, with the number flagged for the anchor-op prereg to watch; an arm above it cannot. We expect `handover-slot` to sit inside the gate or the partial band, and `handover` to sit above the gate and perhaps above the band.
+    Containment is the one we expect to be close: at nine seeds, ex-2.2.7 read ᾱ at 0.13 on its untied arm and 0.23 on its untied whole-line arm, against 0.08 on the reference.
+
+    The partial band is new, so that a near miss has a stated meaning. An arm inside the band can still be adopted, with the number flagged for the anchor-op prereg to watch; an arm above it cannot. We expect `handover-slot` to sit inside the gate or the band, and `handover` above the gate and perhaps above the band.
 
     `handover-tied` is read on the same statistics, without a gate, so that we can attribute the containment read. If the tied arm sits with the reference and both untied arms sit higher, the untied readout is what moved it.
 
@@ -258,16 +258,14 @@ def _():
     mo.md(rf"""
     ## Can we still take *red* out cleanly? (H3)
 
-    **In plain words.** Take the axis out of every state and ask two things. On the lines that need *red*, does the model fail? On the lines that never had any, does it still answer? The first is removal, the second selectivity. Ex-2.2.3 could only show removal on two of six ops, because the other four mostly did not need *red*. Table A+ was chosen so that every op has lines that do, and the removal read is scored on those lines only.
+    **In plain words.** Take the axis out of every state. On the lines that need *red*, does the model fail? On the lines that never had any, does it still answer? The first is removal, the second selectivity. Ex-2.2.3 could only show removal on two of six ops, because the other four mostly did not need *red*. Table A+ was chosen so that every op has lines that do, and the removal read is scored on those lines only.
 
     **Prediction.** Under `projection`, for each candidate arm:
 
     - *Removal:* on the removal lines of every op, the model keeps at most {ex.RED_KEPT_GATE:g} of its clean expected exact match, seed mean. This is the red-accuracy gate of ex-2.2.3, read as a ratio, because with drawn answers the clean value sits below 1 on the ops that round.
     - *Selectivity:* the seed-mean deficit on the non-red `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}; partial to {ex.NONRED_DEFICIT_PARTIAL:g}. Reported on every op beside it. On the reference, ex-2.2.8 read 0.040 on `mix`, which is inside the gate by less than a band. With the readout untied we expect the deficit to fall toward the `operands` row, which read 0.012.
 
-    Two more reads come with a direction we expect but no gate.
-
-    The first is how far the answer moves. On the removal lines we measure the distance in the unit cube from the answer the model decodes to the answer the rule gives, under `projection`. Beside it we put the distance the rule itself moves when the red operand loses its red. We expect the two rankings of ops to agree, so that the ops where the answer should move furthest (`value-hsv`, `hue-hsv`, `sat-hsv`) are where it does.
+    Two more reads come with a direction we expect but no gate. The first is how far the answer moves: on the removal lines, the distance in the unit cube from the answer the model decodes to the answer the rule gives, under `projection`. Beside it we put the distance the rule itself moves when the red operand loses its red. We expect the two rankings of ops to agree, so that the ops where the answer should move furthest (`value-hsv`, `hue-hsv`, `sat-hsv`) are where it does.
 
     The second is the operand-only row. It should remove less on the ops where the answer is read at `=` from both operands, and the same amount elsewhere.
 
@@ -284,7 +282,9 @@ def _():
     mo.md(rf"""
     ## Does the separate readout keep the axis off the syntax words? (H4)
 
-    **In plain words.** In ex-2.2.7 the model used its shared table to put some of the *red* axis on the embeddings of `=` and the op words, because that is a cheap way to predict `=` after a red operand. Giving the output its own table moved that component onto the output table and left the input embeddings mostly clean. That was on the six-op grammar at nine seeds. Does it carry to eleven ops, and does it buy the cleaner full-line removal it was adopted for?
+    **In plain words.** In ex-2.2.7 the model used its shared table to put some of the *red* axis on the embeddings of `=` and the op words, because that is a cheap way to predict `=` after a red operand. Giving the output its own table moved that component onto the output table and left the input embeddings mostly clean.
+
+    That was on the six-op grammar at nine seeds. Does it carry to eleven ops, and does it buy the cleaner full-line removal it was adopted for?
 
     **Prediction.** On `handover` against `handover-tied`, same labeller, twenty seeds against nine:
 
@@ -306,14 +306,14 @@ def _():
     mo.md(rf"""
     ## Does the whole-line label cost selectivity? (H5)
 
-    **In plain words.** A label that covers the whole line is the shape M3 will have, so we want it. Ex-2.2.6 found it costs nothing at three seeds. Ex-2.2.7 then ran nine seeds of its untied whole-line arm and saw a few of them lose a lot of non-red lines under the projection, where the operand-only labeller loses almost none. This section reads that at twenty seeds against twenty, and decides.
+    **In plain words.** A label that covers the whole line is the shape M3 will have, so we want it. Ex-2.2.6 found it costs nothing at three seeds. Ex-2.2.7 then ran nine seeds of its untied whole-line arm and saw a few of them lose a lot of non-red lines under the projection, where the operand-only labeller loses almost none. Here it is read at twenty seeds against twenty.
 
     **Prediction.** On `handover` against `handover-slot`, under `projection`:
 
     - The seed-mean non-red `mix` deficit differs by less than a band, and
     - the count of seeds whose deficit is above {ex.TAIL:g} (the level at which ex-2.2.7 read its tail) is no more than two higher on `handover` than on `handover-slot`.
 
-    If both hold, the whole-line label carries and the decision rule prefers `handover`. If either fails, the tail is real, `handover-slot` becomes the grammar of record, and the whole-line label goes back to the backlog with the seed count it needs. We are not sure which way this goes. The tail in ex-2.2.7 was three seeds out of nine, which is enough to expect it and too few to be sure.
+    If both hold, the whole-line label carries and the decision rule prefers `handover`. If either fails, the tail is real, `handover-slot` becomes the grammar of record, and the whole-line label goes back to the backlog with the seed count it needs. We are not sure which way this goes: the tail in ex-2.2.7 was three seeds out of nine, enough to expect it and too few to be sure.
 
     /// admonition | TODO
         type: warning
@@ -369,7 +369,7 @@ def _():
 
     {table_md()}
 
-    Every rule is computed on the 0..15 scale and snapped to the grid. Where it lands between levels, the corpus draws the answer (*stochastic rounding*, ex-2.2.5). The three ordered ops take one HSV attribute from op2 and the other two from op1, so each agrees with its own reverse on under 2% of pairs. Their reads are reported as a subset, and their probe set walks every color in both slots.
+    Every rule is computed on the 0..15 scale and snapped to the grid. Where it lands between levels, the corpus draws the answer (*stochastic rounding*, ex-2.2.5). The three ordered ops take one HSV attribute from op2 and the other two from op1, so each agrees with its own reverse on under 2% of pairs. Their reads are reported as a subset.
 
     ### Op-relevance under A+
 
