@@ -27,7 +27,7 @@ import unicodedata
 from dataclasses import dataclass, field
 from html import escape as html_escape
 from pathlib import Path, PurePosixPath
-from typing import Any
+from typing import Any, cast
 
 from mini.store import active_profile
 
@@ -542,7 +542,7 @@ def _decode_attr(value: str) -> str:
 
     if "\\" in value:
         try:
-            value = json.loads(f'"{value}"')
+            value = cast(str, json.loads(f'"{value}"'))
         except ValueError:
             pass
     return unescape(value)
