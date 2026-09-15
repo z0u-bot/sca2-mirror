@@ -269,7 +269,7 @@ def make_anchored_train_step(
 
     The weights are arguments rather than closures, so the schedules move without recompiling; *tau* is fixed per build, since a condition's pooling does not move over training. With `tau=None` the anchor term is the flat per-position mean (`anchor_term`); with a float (∞ allowed) it is the per-line mellowmax (`pooled_anchor_term`), and *n_lines* bounds the local line index the step's `line_id` argument carries. Returns the three loss terms separately: the anchor term is the training-side view of what the alignment measurements read later, and the anti-subspace term is the same view of the mean alignment the containment gates score. Pass `anti_weight=0` for a bare anchor.
 
-    *slices* restricts both terms to the named residual-stream slices (slice 0 is the embedding); `None` is every slice, the term as ex-2.1 and ex-2.2 trained it. *clean_rows* names embedding rows that may not carry the anchor axis: after each optimizer step and nGPT's re-normalization, the axis component of those rows is zeroed and the rows re-normalized, the same kind of hard constraint as the unit norm. It is the tied-table fix for the syntax-row leak: the rows stay shared between the embedding and the readout, and training finds whatever solution it can with them held off the axis.
+    *slices* restricts both terms to the named residual-stream slices (slice 0 is the embedding); `None` is every slice, the term as ex-2.1 and ex-2.2 trained it. *clean_rows* names embeddings that may not carry the anchor axis: after each optimizer step and nGPT's re-normalization, the axis component of those embeddings is zeroed and they are re-normalized, the same kind of hard constraint as the unit norm. It is the tied-table fix for the syntax-embedding leak: those embeddings stay shared between the embedding table and the readout table, and training finds whatever solution it can with them held off the axis.
     """
     if tau is not None and n_lines < 1:
         raise ValueError(f"pooled anchor (tau={tau}) needs n_lines >= 1, got {n_lines}")
@@ -313,9 +313,9 @@ def make_anchored_train_step(
 
 
 def clean_embedding_rows(model: NGPT, rows: Int[Array, " R"]) -> NGPT:
-    """Zero the anchor-axis component of the named embedding rows and put them back on the sphere.
+    """Zero the anchor-axis component of the named embeddings and put them back on the sphere.
 
-    Applied after `normalize_weights`, so the rows leave at unit length with no component on `ANCHOR_AXIS`. A tied readout reads through the same rows, so the constraint holds on both sides of the table.
+    Applied after `normalize_weights`, so the embeddings leave at unit length with no component on `ANCHOR_AXIS`. A tied readout reads through the same embeddings, so the constraint holds on both sides of the table.
     """
     wte = model.transformer.wte
     cleaned = wte[rows].at[:, ANCHOR_AXIS].set(0.0)

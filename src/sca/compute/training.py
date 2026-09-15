@@ -118,7 +118,7 @@ def _anchored_step(
 ):
     """One call shape for both steps: (model, opt_state, task, anchor, anti, fallback, anti_anchor, fb_lines).
 
-    Without a fallback spec the last three are zeros, so the loop reads eight outputs either way. The slice selection and the row constraint exist on the plain step only; the fallback step has its own reflected pass and has not needed either.
+    Without a fallback spec the last three are zeros, so the loop reads eight outputs either way. The slice selection and the embedding constraint exist on the plain step only; the fallback step has its own reflected pass and has not needed either.
     """
     if fallback is None:
         step = make_anchored_train_step(
@@ -213,7 +213,7 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
         anchor_slices: residual-stream slices the anchor and anti-subspace terms
             act on, or None for every slice. `(1, ..., n_layer)` anchors the
             blocks' outputs and leaves the embedding table to the task alone.
-        clean_rows: embedding rows held off the anchor axis by a hard
+        clean_rows: embeddings held off the anchor axis by a hard
             constraint after every step (`sca.anchoring.clean_embedding_rows`),
             or None for no constraint. Neither option combines with a fallback spec.
         checkpoint_dir: Where to write checkpoints; sweep cells sharing a volume

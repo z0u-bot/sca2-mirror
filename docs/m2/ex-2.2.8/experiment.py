@@ -87,7 +87,7 @@ CONDITIONS = {
     "t00": [f"t00-s{s}" for s in range(5)],
 }
 """Ex-2.2.3's stored runs by condition: the adopted point at all twenty seeds (the five frozen seeds and the
-fifteen of the addendum), and the survey's proposal `t00`, whose syntax rows carry the axis at more than
+fifteen of the addendum), and the survey's proposal `t00`, whose syntax embeddings carry the axis at more than
 twice the recipe's level. The seed of each run is the number after `-s`."""
 
 N_RUNS = sum(len(v) for v in CONDITIONS.values())

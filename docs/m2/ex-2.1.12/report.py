@@ -163,7 +163,7 @@ def _():
 
     **Holdout.** The strict per-value protocol of ex-2.1.5 (`sca.compute.geometry.strict_r2`): to score a channel at a level, every line holding that level in that channel of *any* role — either operand or the answer — leaves the fit together, so the probe must place an unseen level from the others. R² is reported per channel from the out-of-fold predictions, and the prediction curves the figures draw are those same out-of-fold predictions, averaged per color keyed by either operand in turn (the two margins the D2.1 figures use).
 
-    **Teacher forcing.** The ans and `\n` positions have the answer token in the input, so readings there include what the token itself carries; the embedding row is the surface-text control, as in ex-2.1.5.
+    **Teacher forcing.** The ans and `\n` positions have the answer token in the input, so readings there include what the token itself carries; the embedding is the surface-text control, as in ex-2.1.5.
 
     **Noise floor.** The primary condition has nine seeds and the others three. The pooled between-seed standard deviation of per-site R², computed per condition before any comparison is read, sets the resolution: a difference smaller than twice that floor is reported as not resolved.
 

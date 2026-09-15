@@ -1,28 +1,28 @@
 """
-Pilot: where the syntax rows' axis component works, and three ways to train it out.
+Pilot: where the syntax embeddings' axis component works, and three ways to train it out.
 
 A scouting run, in the sense of the science skill: no gates, no verdicts, a record of what
-we ran and what we saw. Every anchored model so far carries the anchor axis on the embedding
-rows of the op words and `=` (ex-2.2.2's E8, ex-2.2.3's E2), and that component is what a
+we ran and what we saw. Every anchored model so far carries the anchor axis on the
+embeddings of the op words and `=` (ex-2.2.2's E8, ex-2.2.3's E2), and that component is what a
 full-position projection pays for on the non-red lines. nGPT ties the readout to the
-embedding, so the same row is read twice: as the residual stream's starting state at slice 0,
+embedding, so the same vector is read twice: as the residual stream's starting state at slice 0,
 and as the logit of that token at every position that predicts it. Three mechanisms could put
 the component there, and the pilot has one arm for each:
 
 - the anchor's direct pull on the labelled span at slice 0, which the op word and `=` sit in
   (`blocks-only`: both anchoring terms skip the embedding slice, the design's Prep C);
 - the tied readout, which raises the next-token logit after a red state by leaning the
-  row toward the axis (`untied`: a second table for the readout, initialised as a copy);
+  embedding toward the axis (`untied`: a second table for the readout, initialised as a copy);
 - the blocks reading the component from the stream, which no table change removes
-  (`rows-clean`: the tied table with the syntax rows held off the axis after every step,
+  (`rows-clean`, shown as `syntax-off-axis`: the tied table with the syntax embeddings held off the axis after every step,
   so the model has to find a solution that does without it).
 
 Before any of that trains, Part A prices the component on ex-2.2.3's stored checkpoints:
-strip it from the syntax rows on the input side only, the output side only, or both, and
+strip it from the syntax embeddings on the input side only, the output side only, or both, and
 read the per-position next-token accuracy and the full-position projection's cost. Part B
 trains the three arms at ex-2.2.3's recipe, plus the first two under the whole-line labeller
 (ex-2.2.6's `line` keying, span 6) that the handover proposes to adopt, and reads Part A's
-table on every run. Every task function but the training step and the row scorer is
+table on every run. Every task function but the training step and the embedding scorer is
 ex-2.2.3's, loaded from its module unchanged; the report reads production's twenty
 `recipe-short` seeds as the reference.
 
@@ -95,7 +95,7 @@ EX223_CHECKPOINT_REF = ex223.CHECKPOINT_REF
 
 STORED = {"recipe-short": 20, "t00": 5, "control-short": 5}
 """Ex-2.2.3 arms whose stored checkpoints Part A scores, and how many seeds of each: the recipe (the
-reference, with its fifteen addendum seeds), the adopted point (twice the recipe's row component), and the
+reference, with its fifteen addendum seeds), the adopted point (twice the recipe's embedding component), and the
 un-anchored control (the floor). The frozen arms have five stored seeds each."""
 STORED_RUNS = [
     (c, s, f"{c}-more-s{s}" if s >= len(ex223.SEEDS[c]) else f"{c}-s{s}")
@@ -106,15 +106,15 @@ STORED_RUNS = [
 STORED_LABELS = [lb for _, _, lb in STORED_RUNS]
 
 SYNTAX_WORDS = (*ex223.OP_NAMES, "=", "\n")
-"""The rows Part A strips and the `rows-clean` arm holds clean: every word of the grammar that is not a
-color. The pad row is left alone; it is never live."""
+"""The embeddings Part A strips and the `rows-clean` arm holds off the axis: every word of the grammar that is
+not a color. The pad embedding is left alone; it is never live."""
 
 Strip = Literal["clean", "input", "output", "both", "input-control"]
 STRIPS: tuple[Strip, ...] = ("clean", "input", "output", "both", "input-control")
-"""Which side of the tied table loses the syntax rows' axis component: neither, the embedding only (the
+"""Which side of the tied table loses the syntax embeddings' axis component: neither, the embedding only (the
 stream's starting state), the readout only (the next-token logits), or both. `input-control` moves the
-embedding rows by the same amount as `input` but along a random direction off the axis, so an input-side
-cost can be read as the axis component's rather than as any disturbance of a syntax row's."""
+syntax embeddings by the same amount as `input` but along a random direction off the axis, so an input-side
+cost can be read as the axis component's rather than as any disturbance of a syntax embedding's."""
 CONTROL_SEED = 0
 N_PRED = 5
 """Next-token predictions per six-token line: positions 0 to 4 predict positions 1 to 5."""
@@ -131,7 +131,7 @@ BLOCK_SLICES = tuple(s for s in SLICES if s > 0)
 
 @dataclass(frozen=True)
 class Arm:
-    """One way of keeping the axis off the syntax rows, under one labeller. Everything else is the recipe."""
+    """One way of keeping the axis off the syntax embeddings, under one labeller. Everything else is the recipe."""
 
     name: str
     seeds: int
@@ -162,14 +162,14 @@ SEEDS = 9
 the run is memoized, so only the new seeds train."""
 BLOCKS_ONLY = Arm("blocks-only", SEEDS, "both terms skip the embedding slice (Prep C)", "blocks-only")
 UNTIED = Arm("untied", SEEDS, "a readout table of its own, from a copy of the embedding", "untied")
-ROWS_CLEAN = Arm("rows-clean", SEEDS, "tied table; the syntax rows held off the axis every step", "rows-clean")
+ROWS_CLEAN = Arm("rows-clean", SEEDS, "tied table; the syntax embeddings held off the axis every step", "rows-clean")
 BLOCKS_ONLY_LINE = Arm(
     "blocks-only-line", SEEDS, "blocks-only, under the whole-line labeller", "blocks-only", "line", WHOLE
 )
 UNTIED_LINE = Arm("untied-line", SEEDS, "untied, under the whole-line labeller", "untied", "line", WHOLE)
 ARMS = (BLOCKS_ONLY, UNTIED, ROWS_CLEAN, BLOCKS_ONLY_LINE, UNTIED_LINE)
 REFERENCE = "recipe-short"
-"""Production's arm the three fixes are read against: tied, every slice anchored, no row constraint."""
+"""Production's arm the three fixes are read against: tied, every slice anchored, no embedding constraint."""
 N_RUNS = sum(a.seeds for a in ARMS)
 
 # --- The probe table under line keying (ex-2.2.6) --------------------------------------------
@@ -199,7 +199,7 @@ def line_keyed_probes(probes, vocabulary: list[str], per_slot_rate: float) -> di
     return {"probes": put(_npz(**arrays), name="ex-2.2.7-probes-line.npz")}
 
 
-# --- Part A: the row scorer -----------------------------------------------------------------
+# --- Part A: the embedding scorer --------------------------------------------------------------
 
 
 def stored_checkpoints(labels: list[str]) -> dict[str, dict]:
@@ -236,7 +236,7 @@ def _strip_rows(table, rows: np.ndarray, control: bool = False):
 
 
 def _stripped(model, strip: Strip, rows: np.ndarray):
-    """The model with the syntax rows' axis component removed on the named side(s) of the table.
+    """The model with the syntax embeddings' axis component removed on the named side(s) of the table.
 
     `input` edits the embedding and keeps the original table as the readout (which unties a tied model for
     the scoring pass); `output` does the reverse; `both` edits each table the model has.
@@ -260,13 +260,13 @@ def _stripped(model, strip: Strip, rows: np.ndarray):
 
 
 def rows_one(trained: dict, probes, condition: str, seed: int, label: str) -> dict:
-    """The row table of one checkpoint, and what stripping the syntax rows on either side of it costs.
+    """The embedding-component table of one checkpoint, and what stripping the syntax embeddings on either side of it costs.
 
-    Returns the axis component of every embedding row (and of every readout row, when the model has a table
+    Returns the axis component of every embedding (and of every readout vector, when the model has a table
     of its own), then for each strip condition and op: the next-token accuracy and mean P(next token) at
     each of the five predicting positions, on the red, non-red and all probe lines, on the clean pass; and
     the answer accuracy and P(answer) deficit under the full-position projection, read the same way. The
-    clean pass says which side the component works on; the projection says whether a model with rows
+    clean pass says which side the component works on; the projection says whether a model with embeddings
     stripped by fiat pays the non-red cost.
     """
     from sca.intervention import Subspace, apply, projection

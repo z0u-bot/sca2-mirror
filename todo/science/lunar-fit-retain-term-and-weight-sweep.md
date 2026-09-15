@@ -9,4 +9,4 @@ Ex-2.2.2's E6 fitted one 64×64 matrix at the embedding of each no-fallback chec
 
 Two things would tighten the spread. The retain term is state-preserving where the score is task-preserving: a KL to the clean logits at the non-qualifying `=` positions asks for what we measure. And the retain weight is a single point; a small sweep with a held-out stopping rule gives a Pareto front instead of one seed-dependent trade.
 
-The map has to move red operand states while leaving syntax states that share the axis alone, so the fit's headroom depends on how the other 63 dimensions separate them, which is the [syntax-row leak](syntax-rows-carry-the-axis-via-tied-readout.md). Scoring-only on the stored checkpoints, a few CPU minutes per fit.
+The map has to move red operand states while leaving syntax states that share the axis alone, so the fit's headroom depends on how the other 63 dimensions separate them, which is the [syntax-row leak](syntax-embeddings-carry-the-axis-via-tied-readout.md). Scoring-only on the stored checkpoints, a few CPU minutes per fit.

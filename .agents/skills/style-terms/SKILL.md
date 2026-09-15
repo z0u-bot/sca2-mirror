@@ -53,6 +53,10 @@ The slice index $\ell$ is not an exception to this, though it starts at 0. It co
 
   The mean over all residual-stream slices of a per-slice statistic ("the layer-mean margin"). A historical name from ex-2.1.6 onward, even though it averages L+1 slices; keep it only where continuity with an old statistic matters (m_op1), and describe new statistics as "the mean over slices" instead (ex-2.1.9's m_span does this).
 
+- embedding, state, and row
+
+  The vector of a token in the embedding table is *its embedding*: "the `=` embedding", "the syntax embeddings", "the red color embeddings". The whole matrix is *the embedding table*. Its counterpart on the output side is *the readout vector* for a token, and *the readout table*. Following a block, a position holds a *state* (the residual-stream state at slice ℓ), which is contextual and is never called an embedding; "the `=` embedding" and "the state at `=`" are different objects, and the contrast between them is important.[^not-row]
+
 - role
 
   The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are crop-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. "Span roles" are the four prompt roles the anchor term can act on.
@@ -77,3 +81,5 @@ The slice index $\ell$ is not an exception to this, though it starts at 0. It co
 
 
 [^not-cell]: In classical DoE a condition is called a cell, but we can't call it that because other senses of "cell" appear in reports and cannot be renamed away: cells of a table or heatmap ("each cell is the seed mean"), and Marimo notebook cells ("the analysis cells below"). Reports also legitimately use it for spatial grids (color-grid cells, Voronoi cells). So in prose, "cell" never means a condition or a run. In _code_, the stored key `metrics["cells"]` can keep its legacy name to avoid invalidating memo keys.
+
+[^not-row]: Like "cell", "row" is heavily overloaded. So in prose, "row" never means a token embedding. It keeps the senses that can't be renamed away: rows of a table, a heatmap, or a figure grid, and the per-run records that code stores as `metrics["rows"]`.

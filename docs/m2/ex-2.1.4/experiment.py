@@ -2,7 +2,7 @@
 
 Ex-2.1.3 removed the hex scaffolding and found that word-level models infer
 the color-space geometry from co-occurrence alone — but every color was a
-single token, so a name *was* an embedding row and the answer had one fixed
+single token, so a name *was* its embedding and the answer had one fixed
 home position. This experiment keeps the language identical (same pairs, same
 splits, same operand orders, same equation count) and changes only the
 tokenizer view: every color is now an opaque fixed-length letter string
