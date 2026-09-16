@@ -2,9 +2,13 @@
 The grammar handover: ex-2.2.3's recipe on table A+, with the stochastic corpus, the whole-line
 labeller, and the untied readout.
 
-Preregistered. This module is the design: the table, the conditions, the probe rule, and the gates,
-each with its wording in a docstring, so the report quotes the same numbers it will be scored on.
-The task DAG lands once the draft is agreed; until then the module is constants only.
+Preregistered. The design comes first: the table, the conditions, the probe rule, and the gates, each
+with its wording in a docstring, so the report quotes the same numbers it will be scored on. The DAG
+follows: two corpora (the 100k one and the wide one), a train and an eval step per run, the eval contract
+under three operators on every run, cube probes on the un-anchored and the exploratory arms, and one
+publish step. A `calibration` stage trains one control seed and stops.
+
+    EX229_STAGES=calibration bin/mini run docs/m2/ex-2.2.9/experiment.py --app modal --max-containers 2
 
 The scouting round (ex-2.2.4) and the pilots (ex-2.2.5 to 2.2.8) each proposed one change to the
 grammar or the recipe. This experiment adopts them together, at fresh seeds, and asks whether the
@@ -20,14 +24,13 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from dataclasses import dataclass
-from typing import Literal
+from dataclasses import asdict, dataclass
+from typing import Any, Literal
 
-from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, Op
+import numpy as np
 
-DESIGN_ONLY = True
-"""Constants only, until the draft is agreed: the e2e test skips this module, and the report renders
-its method from it."""
+from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, Op, Rounding
+from mini import Ctx, Experiment, get_data_dir
 
 
 def _load_ex223():
@@ -53,12 +56,39 @@ ex223 = _load_ex223()
 # Bound by name so a task body never references the module object itself.
 Condition = ex223.Condition
 steps_per_epoch = ex223.steps_per_epoch
+REDNESS = ex223.REDNESS
+GRID_RGB = ex223.GRID_RGB
+PALETTE = ex223.PALETTE
+ANSWER_POS = ex223.ANSWER_POS
+DECODE_POS = ex223.DECODE_POS
+SLICES = ex223.SLICES
+OPERAND_POSITIONS = ex223.OPERAND_POSITIONS
+COMPOSITION = ex223.COMPOSITION
+TRAJ_STRIDE = ex223.TRAJ_STRIDE
+N_EVAL = ex223.N_EVAL
+RED_RATE = ex223.RED_RATE
+_npz = ex223._npz
+_make_config = ex223._make_config
+_load = ex223._load
+_answer_logprobs = ex223._answer_logprobs
+line_margin = ex223.line_margin
+pooled_margin = ex223.pooled_margin
+r2_sim = ex223.r2_sim
+group_weights = ex223.group_weights
+top_quantile = ex223.top_quantile
+schedules = ex223.schedules
+probe_one = ex223.probe_one
 
 METRICS_REF = "reports/m2/ex-2.2.9/metrics"
+CALIBRATION_REF = "reports/m2/ex-2.2.9/calibration"
 ARRAYS_REF = "reports/m2/ex-2.2.9/arrays"
 TRAJ_REF = "reports/m2/ex-2.2.9/trajectories"
 PROBE_REF = "reports/m2/ex-2.2.9/probes"
+GEOMETRY_REF = "reports/m2/ex-2.2.9/geometry"
 CHECKPOINT_REF = "reports/m2/ex-2.2.9/checkpoints/{label}"
+RUN_ARRAYS_REF = "reports/m2/ex-2.2.9/arrays/{label}/{kind}"
+"""Every run's full per-line tables (`eval`: the alignment of every line; `score`: every reading under every
+operator), one ref each. `ARRAYS_REF` stacks the smaller ones across runs for the report."""
 
 EX223_METRICS_REF = ex223.METRICS_REF
 EX223_REFERENCE = "recipe-short"
@@ -97,7 +127,7 @@ SECONDARY_OP = "hsvmix"
 behaves. The switch, if it comes, is after the handover; what it would change is set out in the report's
 method (the reference op): a stronger removal read, on a probe set that rounds on nearly every line."""
 
-ROUNDING = "stochastic"
+ROUNDING: Rounding = "stochastic"
 """An answer between grid levels rounds to the upper level with probability equal to how far up it sits,
 drawn once per line at corpus build (`sca.data.ops.Rounding`). The answer of a line is then a distribution
 over the candidate colors, and every exact-match read becomes an expectation over it (ex-2.2.5)."""
@@ -371,3 +401,893 @@ experiments, when it clears H1, H2 (margin, grading, and contrast in full), and 
 band is a reporting level. Otherwise it is not adopted, and the report says which gate was missed and what the reference \
 conditions say about which change is responsible, because that sets what the next round tries: the labeller if `{SLOT.name}` clears what `{HANDOVER.name}` missed, the readout if \
 `{TIED.name}` does, and the table or the corpus if none of them does."""
+
+SYNTAX_WORDS: tuple[str, ...] = (*OP_NAMES, "=", "\n")
+"""The words whose embedding-axis component H4 reads: every word of the grammar that is not a color."""
+
+OPERATOR_SPEC: dict[str, tuple[str, tuple[int, ...] | None]] = {
+    "projection": ("projection", None),
+    "operands": ("projection", OPERAND_POSITIONS),
+    "shaped-a0.4-p0": ("shaped", None),
+}
+"""Each operator's family and position mask, as ex-2.2.8 spelled its trials."""
+assert tuple(OPERATOR_SPEC) == OPERATORS
+
+CUBE_PROBED: dict[str, list[int]] = {
+    CONTROL.name: list(range(CONTROL.seeds)),
+    HANDOVER.name: list(range(5)),
+    WIDE.name: list(range(WIDE.seeds)),
+}
+"""Which runs get the operand-cube probe scan (the exploratory lines-per-op read): the control, five seeds of
+the candidate, and the wide condition."""
+
+# =============================================================================================
+# The DAG
+# =============================================================================================
+
+
+def corpus_key(n_lines: int) -> str:
+    """One corpus per size: `aplus-100k` for the main arms, `aplus-183k` for `handover-wide`."""
+    return f"aplus-{n_lines // 1000}k"
+
+
+def to_zero_move(op: Op, a, b) -> float:
+    """How far the true answer moves in the unit cube when the redder operand's R channel is set to zero:
+    ex-2.2.4's *to-zero* read, as the report counts it.
+    """
+    from sca.data.colors import redness
+    from sca.data.ops import TOP
+
+    za, zb = ((0, a[1], a[2]), b) if redness(a) >= redness(b) else (a, (0, b[1], b[2]))
+    return float(np.linalg.norm(np.subtract(op(za, zb), op(a, b))) / TOP)
+
+
+def prepare_corpus(
+    ops: tuple[str, ...],
+    n_lines: int,
+    seed: int,
+    holdout_frac: float,
+    rounding: Rounding,
+    n_probe: int,
+    probe_seed: int,
+    both_slots: tuple[str, ...],
+    per_slot_rate: float,
+    red_rate: float,
+    red_dose: float,
+    nonred_dose: float,
+    far_move: float,
+) -> dict:
+    """Build one corpus on table A+, its eval sets, and the probe set of every op.
+
+    Ex-2.2.3's build with the rounding rule as an argument (ex-2.2.5) and the table from this module. The
+    probe arrays carry, per line, both labellers' P(labelled), the answer distribution under stochastic
+    rounding (`q_idx`, `q_p`: up to eight colors and their masses), the to-zero move, and which walk the line
+    belongs to (`walk`: 0 with the palette color as op1, 1 as op2, for the order-sensitive subset). The
+    design constants arrive as arguments so a change to one re-runs this step.
+    """
+    from collections import Counter
+
+    from sca.colorcube import redness as cube_redness
+    from sca.compute.data_pipelines import save_data
+    from sca.config import CorpusMetadata, DatasetMetadata, TokenizerConfig
+    from sca.data import ops as grammar
+    from sca.data.named_colors import WordTokenizer
+    from mini.store import put
+
+    key = corpus_key(n_lines)
+    by_name = grammar.OP_BY_NAME | grammar.CANDIDATE_BY_NAME
+    table = tuple(by_name[o] for o in ops)
+    corpus = grammar.sample_corpus(n_lines, seed, table, holdout_frac, rounding=rounding)
+
+    tokenizer_config = TokenizerConfig(vocabulary=grammar.vocabulary(table))
+    tokenizer = WordTokenizer(tokenizer_config)
+    tokens = grammar.encode_corpus(corpus, tokenizer.stoi)
+    n_chars = sum(len(w) for line in corpus for w in line.words)
+    meta = CorpusMetadata(
+        tokenizer_config=tokenizer_config,
+        total_tokens=len(tokens),
+        total_chars=n_chars,
+        sources=[DatasetMetadata(title=f"table A+ color corpus ({key})", fixes=[], total_chars=n_chars)],
+    )
+    corpus_dir = get_data_dir() / "corpora" / key
+    save_data(tokens, meta, corpus_dir)
+    evals = grammar.eval_sets(N_EVAL, seed, table, holdout_frac, rounding=rounding)
+
+    cs = grammar.colors()
+    palette_index = {c: i for i, c in enumerate(cs)}
+    rgb = np.asarray(cs, dtype=float) / grammar.TOP
+    np.testing.assert_allclose(rgb, GRID_RGB, rtol=0, atol=1e-12)
+    color_redness = cube_redness(rgb)
+    slot_p = np.zeros(tokenizer.vocab_size)
+    for name, sp in zip(grammar.PALETTE, color_redness**8 * per_slot_rate, strict=True):
+        slot_p[tokenizer.stoi[name]] = sp
+    affinity = color_redness**8 * red_rate
+    arrays: dict[str, np.ndarray] = {"slot_p": slot_p, "weights": affinity / affinity.sum(), "redness": color_redness}
+
+    eps = 1e-9
+    counts: dict[str, dict[str, int]] = {}
+    for op in table:
+        probe = grammar.probe_lines(op, n_probe, probe_seed, both_slots=op.name in both_slots)
+        n_walk = len(cs) * n_probe
+        r1 = cube_redness(np.asarray([ln.lhs for ln in probe], dtype=float) / grammar.TOP)
+        r2 = cube_redness(np.asarray([ln.rhs for ln in probe], dtype=float) / grammar.TOP)
+        r3 = color_redness[[palette_index[ln.result] for ln in probe]]
+        p1, p2, p3 = (r**8 * per_slot_rate for r in (r1, r2, r3))
+        dists = [grammar.answer_dist(op, ln.lhs, ln.rhs) for ln in probe]
+        q_idx = np.full((len(probe), 8), -1, dtype=np.int16)
+        q_p = np.zeros((len(probe), 8), dtype=np.float32)
+        for i, d in enumerate(dists):
+            for k, (c, pc) in enumerate(d.items()):
+                q_idx[i, k], q_p[i, k] = palette_index[c], pc
+        move = np.array([to_zero_move(op, ln.lhs, ln.rhs) for ln in probe])
+        dose_ = np.maximum(r1, r2)
+        red, nonred = dose_ >= red_dose - eps, dose_ <= nonred_dose + eps
+        counts[op.name] = {
+            "lines": len(probe),
+            "red": int(red.sum()),
+            "removal": int((red & (move >= far_move - eps)).sum()),
+            "nonred": int(nonred.sum()),
+            "red_answer": int((nonred & (r3 >= red_dose - eps)).sum()),
+            "rounded": int(((q_idx >= 0).sum(1) > 1).sum()),
+        }
+        arrays |= {
+            f"{op.name}/tokens": np.array([tokenizer.encode_words(ln.words) for ln in probe], dtype=np.int32),
+            f"{op.name}/r1": r1,
+            f"{op.name}/r2": r2,
+            f"{op.name}/r3": r3,
+            f"{op.name}/line_p_either": p1 + p2 - p1 * p2,
+            f"{op.name}/line_p_line": 1.0 - (1.0 - p1) * (1.0 - p2) * (1.0 - p3),
+            f"{op.name}/q_idx": q_idx,
+            f"{op.name}/q_p": q_p,
+            f"{op.name}/move": move,
+            f"{op.name}/walk": (np.arange(len(probe)) >= n_walk).astype(np.int8),
+        }
+
+    held = grammar.holdout(seed, holdout_frac, table)
+    rounded = [not grammar.is_on_grid(by_name[ln.op], ln.lhs, ln.rhs) for ln in corpus]
+    stats = {
+        "key": key,
+        "ops": list(ops),
+        "n_lines": n_lines,
+        "rounding": rounding,
+        "total_tokens": int(len(tokens)),
+        "vocab_size": tokenizer.vocab_size,
+        "lines_per_op": dict(Counter(ln.op for ln in corpus)),
+        "distinct_per_op": {o: len({ln.pair for ln in corpus if ln.op == o}) for o in ops},
+        "rounded_per_op": dict(Counter(ln.op for ln, r in zip(corpus, rounded, strict=True) if r)),
+        "n_pairs": len(grammar.unordered_pairs()),
+        "n_holdout_per_op": len(held) // len(ops),
+        "eval_n": N_EVAL,
+        "probe_counts": counts,
+        "line_label_rate": {k: float(arrays[f"mix/line_p_{k}"].mean()) for k in ("either", "line")},
+    }
+    return {
+        "key": key,
+        "meta": meta,
+        "stats": stats,
+        "corpus": put(corpus_dir, name=f"ex-2.2.9-{key}-corpus"),
+        "evals": put(grammar.dump_lines(evals), name=f"ex-2.2.9-{key}-evals.json"),
+        "probes": put(_npz(**arrays), name=f"ex-2.2.9-{key}-probes.npz"),
+    }
+
+
+def cells(conds: tuple[Cond, ...], preps: dict[str, dict], seeds: dict[str, list[int]] | None = None) -> list[dict]:
+    """One row per run: the config (with the readout's tying), both schedules (with the pull's span), the
+    labeller's keying, the corpus it trains on, and its labels.
+    """
+    from sca.utils import align
+
+    rows = []
+    for c in conds:
+        prep = preps[corpus_key(c.n_lines)]
+        tc = prep["meta"].tokenizer_config
+        anchor, anti = schedules(c.condition)
+        anchor = anchor | {"span": c.span}
+        for seed in range(c.seeds) if seeds is None else seeds.get(c.name, []):
+            config = _make_config(align(tc.vocab_size, 64), seed, c.epochs)
+            config.tokenizer = tc.model_copy()
+            config.model = config.model.model_copy(update={"tie_embeddings": c.tie})
+            rows.append(
+                {
+                    "config": config,
+                    "anchor": anchor,
+                    "anti": anti,
+                    "keying": c.keying,
+                    "condition": c.name,
+                    "seed": seed,
+                    "label": f"{c.name}-s{seed}",
+                    "prep": prep,
+                }
+            )
+    return rows
+
+
+def train_one(
+    config, anchor: dict, anti: dict | None, corpus, traj_stride: int, probes, keying: Keying, label: str
+) -> dict:
+    """Train one run under its labeller, recording the m_line trajectory on the `mix` probe lines.
+
+    Ex-2.2.7's step: the readout's tying rides in `config.model`, the pull's span in `anchor`, and the
+    trajectory's line weights follow the labeller (`line_p_line` or `line_p_either`).
+    """
+    from sca.anchoring import AnchorSpec, AntiSpec, LabelSpec
+    from sca.compute.training import train_anchored
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "cells" / label
+    corpus_dir = get(corpus, workdir / "corpus")
+    with np.load(get(probes, workdir / "probes.npz")) as z:
+        probe_tokens, slot_p, weights = z["mix/tokens"], z["slot_p"], z["weights"]
+        line_p = z[f"mix/line_p_{keying}"]
+    stride = len(probe_tokens) // len(weights)
+    first_of_color = probe_tokens[::stride]
+    line_w = line_p[::stride] / line_p[::stride].sum()
+    _, metrics, traj = train_anchored(
+        config,
+        corpus_dir,
+        anchor=AnchorSpec(**anchor),
+        anti=AntiSpec(**anti) if anti is not None else None,
+        label_p=LabelSpec(p=slot_p, keying=keying, pull="span"),
+        probe_tokens=first_of_color,
+        probe_weights=weights,
+        probe_line_w=line_w,
+        checkpoint_dir=workdir,
+        traj_stride=traj_stride,
+    )
+    keep = ("epoch", "m_line", "m_op1", "m_span", "alpha_op1", "val_loss", "weight", "anti_weight")
+    return {
+        "label": label,
+        "val_loss": [m.val_loss for m in metrics],
+        "train_loss": [m.train_loss for m in metrics],
+        "traj": {k: traj[k].tolist() for k in keep if k in traj},
+        "checkpoint": put(workdir / "model", name=f"ex-2.2.9-{label}-ckpt"),
+    }
+
+
+def _probe_ops(z) -> list[str]:
+    """The ops a probe file carries, in table order."""
+    return [o for o in OP_NAMES if f"{o}/tokens" in z.files]
+
+
+def _stochastic_reads(p: np.ndarray, q: np.ndarray, mode: np.ndarray, drawn: np.ndarray) -> dict[str, np.ndarray]:
+    """Per-line reads of a model's color mass *p* (N × 216, off-vocabulary mass left out) against the answer
+    distribution *q*: ex-2.2.5's table with expected exact match first.
+    """
+    rows = np.arange(len(p))
+    guess = p.argmax(axis=1)
+    p_norm = p / np.maximum(p.sum(axis=1, keepdims=True), 1e-12)
+    kl = np.where(q > 0, q * (np.log(np.maximum(q, 1e-12)) - np.log(np.maximum(p_norm, 1e-12))), 0).sum(axis=1)
+    return {
+        "eem": (p * q).sum(axis=1),
+        "ceiling": (q**2).sum(axis=1),
+        "em_drawn": (guess == drawn).astype(float),
+        "em_mode": (guess == mode).astype(float),
+        "expected_em_argmax": q[rows, guess],
+        "mode_ceiling": q[rows, mode],
+        "p_mode": p[rows, mode],
+        "support": (p * (q > 0)).sum(axis=1),
+        "kl": kl,
+        "offvocab": 1.0 - p.sum(axis=1),
+    }
+
+
+def _margin_roles(alpha_lines: np.ndarray, line_w: np.ndarray, roles: int) -> float:
+    """m_line over the first *roles* positions: ex-2.2.3's `line_margin` at 4, the whole line at 6."""
+    m = np.einsum("n,lnt->lt", line_w, alpha_lines) - alpha_lines.mean(axis=1)  # (L1, T)
+    return float(m[:, :roles].max(axis=1).mean())
+
+
+def _placement(cos, weights, line_p, r1, r2, tokens, tok2color, tau: float, color_pos: int) -> tuple[dict, dict]:
+    """The placement statistics of one walk of one op's probe lines: (statistics, arrays).
+
+    *color_pos* is the position the walked palette color sits at (0 for the op1 walk, 2 for the op2 walk), so
+    the per-color contraction and the grading r² read that position.
+    """
+    from sca.anchoring import softmin_weights
+
+    span = ex223.SPAN
+    n_slices, n_lines, n_pos = cos.shape
+    n_partners = n_lines // len(weights)
+    line_w = line_p / line_p.sum()
+    g1, g2 = group_weights(r1, r2)
+    alpha = cos.reshape(n_slices, len(weights), n_partners, n_pos).mean(axis=2)  # (L1, C, T)
+    w_line = softmin_weights(1.0 - cos[:, :, :span], tau)  # (L1, N, SPAN)
+    w_color = w_line.reshape(n_slices, len(weights), n_partners, span).mean(axis=2)
+    pi = np.einsum("lct,c->lt", w_color, weights)
+    w6 = softmin_weights(1.0 - cos, tau).reshape(n_slices, len(weights), n_partners, n_pos).mean(axis=2)
+    pi6 = np.einsum("lct,c->lt", w6, weights)
+    w_group = np.stack([np.einsum("lnt,n->lt", w_line, g) for g in (g1, g2)])  # (2, L1, SPAN)
+    dose_ = np.maximum(r1, r2)
+    redder = REDNESS[tok2color[tokens[:, ANSWER_POS]]] > dose_ + 1e-9
+    stats = {
+        "m_line": line_margin(cos, line_w),
+        "m_line6": _margin_roles(cos, line_w, n_pos),
+        "m_span": pooled_margin(alpha, weights),
+        "alpha_op1": float(alpha[:, :, 0].mean()),
+        "alpha_op2": float(alpha[:, :, 2].mean()),
+        "r2_sim": r2_sim(alpha[:, :, color_pos].mean(axis=0)),
+        "contrast": float(w_group[1, 1:, 2].mean() - w_group[0, 1:, 2].mean()),
+        "latch_pi": float(max(pi[1:, 1].mean(), pi[1:, 3].mean())),
+        "lead_emb": float(w_group[0, 0, 0]),
+        "pi": pi.tolist(),
+        "pi6": pi6.tolist(),
+        "alpha_pos": cos.mean(axis=1).tolist(),
+        "alpha_abs_pos": np.abs(cos).mean(axis=1).tolist(),
+        "n_redder": int(redder.sum()),
+        "color_pos": color_pos,
+    }
+    arrays = {
+        "alpha": alpha.astype(np.float32),
+        "alpha_lines": cos.astype(np.float16),
+        "pi": pi.astype(np.float32),
+        "pi6": pi6.astype(np.float32),
+        "w_group": w_group.astype(np.float32),
+        "dose": dose_.astype(np.float32),
+        "redder": redder,
+    }
+    return stats, arrays
+
+
+def eval_one(trained: dict, evals, probes, tau: float, keying: Keying, condition: str, seed: int, label: str) -> dict:
+    """The eval: behavior per op under stochastic rounding, placement per op's probe lines under the run's own
+    labeller, and the embedding-component table.
+
+    The gated statistics are the `mix` lines' (`PRIMARY_OP`), lifted to the top level; every op's are under
+    `per_op`. For the order-sensitive subset the op2 walk is read on its own under `op2_walk`. Per-line
+    alignment goes to the store in half precision.
+    """
+    from sca.anchoring import alignment
+    from sca.data import ops as grammar
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "eval" / label
+    model, tokenizer, color_ids, tok2color = _load(trained, workdir)
+    by_name = grammar.OP_BY_NAME | grammar.CANDIDATE_BY_NAME
+    palette_index = {c: i for i, c in enumerate(grammar.colors())}
+
+    # --- Behavior: one teacher-forced pass per (op, split), read at the pre-answer position, against the
+    #     answer distribution of every line (ex-2.2.5's reads, with expected exact match first).
+    sets: dict[str, dict[str, dict]] = {}
+    for op, splits in grammar.load_lines(get(evals, workdir / "evals.json").read_bytes()).items():
+        sets[op] = {}
+        for split, lns in splits.items():
+            lp = _answer_logprobs(model, tokenizer, [ln.prompt for ln in lns])
+            p = np.exp(lp[:, color_ids])
+            q = np.zeros_like(p)
+            for i, ln in enumerate(lns):
+                for c, pc in grammar.answer_dist(by_name[op], ln.lhs, ln.rhs).items():
+                    q[i, palette_index[c]] = pc
+            mode = np.array([palette_index[by_name[op](ln.lhs, ln.rhs)] for ln in lns])
+            drawn = np.array([palette_index[ln.result] for ln in lns])
+            line = _stochastic_reads(p, q, mode, drawn)
+            r = (q > 0).sum(axis=1) > 1
+            sets[op][split] = {
+                "n": len(lns),
+                "n_rounded": int(r.sum()),
+                "nll": float(-lp[np.arange(len(lns)), color_ids[drawn]].mean()),
+                **{k: float(v.mean()) for k, v in line.items()},
+                **{f"{k}_rounded": float(v[r].mean()) if r.any() else float("nan") for k, v in line.items()},
+            }
+
+    # --- Placement per op, under the run's own labeller.
+    per_op: dict[str, dict] = {}
+    arrays: dict[str, np.ndarray] = {}
+    with np.load(get(probes, workdir / "probes.npz")) as z:
+        weights = z["weights"]
+        probe = {
+            o: (z[f"{o}/tokens"], z[f"{o}/r1"], z[f"{o}/r2"], z[f"{o}/line_p_{keying}"], z[f"{o}/walk"])
+            for o in _probe_ops(z)
+        }
+    for op, (tokens, r1, r2, line_p, walk) in probe.items():
+        cos = alignment(model, tokens)  # (L1, N, T)
+        for w, color_pos in ((0, 0), (1, 2)):
+            m = walk == w
+            if not m.any():
+                continue
+            stats, arr = _placement(cos[:, m], weights, line_p[m], r1[m], r2[m], tokens[m], tok2color, tau, color_pos)
+            if w == 0:
+                per_op[op] = stats
+                arrays |= {f"{op}/{k}": v for k, v in arr.items()}
+            else:
+                per_op[op]["op2_walk"] = stats
+                arrays |= {f"{op}/op2_walk/{k}": v for k, v in arr.items()}
+
+    # --- The embedding-component table (H4), as ex-2.2.7 read it: the axis component of every word's
+    #     embedding and, when the model has a table of its own, of its readout row.
+    def row_table(table) -> dict[str, float]:
+        comp = np.asarray(table[:, ANCHOR_AXIS])
+        return {w: float(comp[i]) for i in range(len(comp)) if (w := tokenizer.itos.get(i, ""))}
+
+    head = model.transformer.lm_head
+    rows = row_table(model.transformer.wte)
+    rows_readout = None if head is None else row_table(head)
+
+    traj = np.asarray(trained["traj"]["m_line"], dtype=float)
+    peak = float(np.maximum.accumulate(traj).max())
+    primary = per_op[PRIMARY_OP]
+    return {
+        "label": label,
+        "condition": condition,
+        "seed": seed,
+        "tau": tau,
+        "keying": keying,
+        "tied": head is None,
+        "sets": sets,
+        "holdout_eem": {op: s["holdout"]["eem"] for op, s in sets.items()},
+        "holdout_ceiling": {op: s["holdout"]["ceiling"] for op, s in sets.items()},
+        "holdout_em": {op: s["holdout"]["em_drawn"] for op, s in sets.items()},
+        **{k: primary[k] for k in ("m_line", "m_span", "alpha_op1", "r2_sim", "contrast", "latch_pi", "lead_emb")},
+        "m_line_peak": peak,
+        "retention": float(traj[-1] / peak) if peak > 0 else float("nan"),
+        "per_op": per_op,
+        "rows": rows,
+        "rows_readout": rows_readout,
+        "syntax_component": {
+            "wte": float(np.mean([abs(rows[w]) for w in SYNTAX_WORDS])),
+            "readout": None if rows_readout is None else float(np.mean([abs(rows_readout[w]) for w in SYNTAX_WORDS])),
+        },
+        "arrays": put(_npz(**arrays), name=f"ex-2.2.9-{label}-arrays.npz"),
+    }
+
+
+# --- The eval contract ------------------------------------------------------------------------
+
+
+class Readout:
+    """Per-line readings of one answer distribution on one op's probe lines, under stochastic rounding.
+
+    Ex-2.2.3's `_Readout` with expected exact match (the model's color mass against the line's answer
+    distribution) beside P(mode answer), and the groups this experiment reads: `all`, `red`, `nonred`, the
+    `removal` lines (red, and the to-zero move at least `FAR_MOVE`), the `red_answer` lines (non-red, with a
+    red answer), `nonred_excl` (non-red without them), and the red and removal lines split by the slot the
+    red operand sits in.
+    """
+
+    def __init__(self, tokens, r1, r2, q_idx, q_p, move, color_ids, tok2color):
+        self.tokens, self.color_ids, self.tok2color = tokens, color_ids, tok2color
+        self.rows = np.arange(len(tokens))
+        lc = tok2color[tokens]  # (N, T) palette index, −1 at the syntax positions
+        assert (lc[:, [0, 2, ANSWER_POS]] >= 0).all() and (lc[:, [1, 3, 5]] < 0).all()
+        self.answer = tokens[:, ANSWER_POS]
+        self.ans_idx = lc[:, ANSWER_POS]
+        self.q_idx, self.q_p = np.maximum(q_idx, 0), q_p
+        self.move = move
+        self.dose = np.maximum(r1, r2)
+        eps = 1e-9
+        red, nonred = self.dose >= RED_DOSE - eps, self.dose <= NONRED_DOSE + eps
+        red_answer = nonred & (REDNESS[self.ans_idx] >= RED_DOSE - eps)
+        removal = red & (move >= FAR_MOVE - eps)
+        op1 = r1 >= r2
+        self.groups = {
+            "all": np.ones(len(tokens), bool),
+            "red": red,
+            "nonred": nonred,
+            "removal": removal,
+            "red_answer": red_answer,
+            "nonred_excl": nonred & ~red_answer,
+            "red_op1": red & op1,
+            "red_op2": red & ~op1,
+            "removal_op1": removal & op1,
+            "removal_op2": removal & ~op1,
+        }
+        self.dists = np.linalg.norm(GRID_RGB[None] - GRID_RGB[self.ans_idx][:, None], axis=2)  # (N, 216)
+        self.red_operand = np.where(op1, 0, 2)
+        self.cube = np.stack(np.unravel_index(np.arange(len(PALETTE)), (6, 6, 6)), axis=1)
+
+    def by_group(self, v: np.ndarray) -> dict[str, float]:
+        return {g: float(np.nanmean(v[m])) if m.any() else float("nan") for g, m in self.groups.items()}
+
+    def ratio_by_group(self, num: np.ndarray, den: np.ndarray) -> dict[str, float]:
+        """The ratio of group means: what share of *den* the group keeps in *num*."""
+        return {
+            g: float(num[m].mean() / den[m].mean()) if m.any() and den[m].mean() > 0 else float("nan")
+            for g, m in self.groups.items()
+        }
+
+    def __call__(self, logits) -> dict[str, np.ndarray]:
+        from sca.intervention import answer_logprobs
+
+        lp = answer_logprobs(logits, ANSWER_POS)
+        p_color = np.exp(lp[:, self.color_ids])
+        guess = lp.argmax(1)
+        g = self.tok2color[guess]
+        step = np.abs(self.cube[np.maximum(g, 0)] - self.cube[self.ans_idx]).max(1)
+        tests = [
+            guess == self.answer,
+            guess == self.tokens[self.rows, self.red_operand],
+            guess == self.tokens[self.rows, 2 - self.red_operand],
+            (g >= 0) & (step == 1),
+        ]
+        return {
+            "eem": (np.take_along_axis(p_color, self.q_idx, axis=1) * self.q_p).sum(1),
+            "p_ans": np.exp(lp[self.rows, self.answer]),
+            "guess": guess,
+            "argmax_dist": np.where(g >= 0, self.dists[self.rows, np.maximum(g, 0)], np.nan),
+            "expected_dist": (p_color / p_color.sum(1, keepdims=True) * self.dists).sum(1),
+            "offvocab": 1.0 - p_color.sum(1),
+            "composition": np.select(tests, [0, 1, 2, 3], default=4),
+        }
+
+
+def _operator(name: str, sub):
+    """One of `OPERATORS`: (the operator, its position mask or None)."""
+    from sca.intervention import projection, shaped_suppression
+
+    family, positions = OPERATOR_SPEC[name]
+    match family:
+        case "projection":
+            return projection(sub), positions
+        case "shaped":
+            return shaped_suppression(sub, a=SHAPED["a"], b=SHAPED["b"], p=SHAPED["p"]), positions
+        case _:
+            raise ValueError(family)
+
+
+def _score_op(model, sub, read: Readout, operators: tuple[str, ...]) -> tuple[dict, dict[str, np.ndarray]]:
+    """One op's probe lines through the clean pass and every operator: (statistics, per-line arrays)."""
+    from sca.intervention import angle_between, apply, projection, write_angle
+
+    tokens = read.tokens
+    n_pos = tokens.shape[1]
+    nonred = read.groups["nonred"]
+
+    # --- The clean pass: the scorer's own control, and the reference every operator is read against.
+    clean = apply(model, tokens, projection(sub), slices=())
+    alpha_clean = clean.pre[..., ANCHOR_AXIS]  # (L1, N, T)
+    c = read(clean.logits)
+    stats: dict[str, Any] = {
+        "n": {g: int(m.sum()) for g, m in read.groups.items()},
+        "move": read.by_group(read.move),
+        "clean": {
+            "eem": read.by_group(c["eem"]),
+            "acc": read.by_group(c["guess"] == read.answer),
+            "p_ans": read.by_group(c["p_ans"]),
+            "argmax_dist": read.by_group(c["argmax_dist"]),
+            "expected_dist": read.by_group(c["expected_dist"]),
+            "offvocab": read.by_group(c["offvocab"]),
+            "alpha_q99_nonred": top_quantile(np.abs(alpha_clean[:, nonred]), axis=1).tolist(),
+        },
+        "operators": {},
+    }
+    arrays: dict[str, np.ndarray] = {
+        "clean/eem": c["eem"].astype(np.float32),
+        "clean/p_ans": c["p_ans"].astype(np.float32),
+        "clean/guess": c["guess"].astype(np.int16),
+        "clean/expected_dist": c["expected_dist"].astype(np.float32),
+    }
+
+    # --- Each operator: apply, check the contract, read, contract per group.
+    for name in operators:
+        operator, mask = _operator(name, sub)
+        positions = None if mask is None else np.isin(np.arange(n_pos), mask).astype(np.float32)
+        out = apply(model, tokens, operator, slices=SLICES, positions=positions)
+        theta = angle_between(out.pre, out.post)  # (L1, N, T): the write at every site
+        alpha_pre = out.pre[..., ANCHOR_AXIS]
+        np.testing.assert_allclose(alpha_pre[0], alpha_clean[0], rtol=0, atol=0)
+        on = np.ones(n_pos, bool) if positions is None else positions > 0
+        np.testing.assert_allclose(theta[:, :, ~on], 0.0, rtol=0, atol=1e-6)
+        if OPERATOR_SPEC[name][0] == "projection":
+            np.testing.assert_allclose(theta[:, :, on], write_angle(alpha_pre[:, :, on]), rtol=0, atol=2e-3)
+        r = read(out.logits)
+        disp = angle_between(out.post[-1, :, DECODE_POS], clean.post[-1, :, DECODE_POS])
+        stats["operators"][name] = {
+            "eem": read.by_group(r["eem"]),
+            "kept": read.ratio_by_group(r["eem"], c["eem"]),
+            "deficit": read.by_group(c["eem"] - r["eem"]),
+            "acc": read.by_group(r["guess"] == read.answer),
+            "p_ans": read.by_group(r["p_ans"]),
+            "deficit_p": read.by_group(c["p_ans"] - r["p_ans"]),
+            "argmax_dist": read.by_group(r["argmax_dist"]),
+            "expected_dist": read.by_group(r["expected_dist"]),
+            "offvocab": read.by_group(r["offvocab"]),
+            "disp": read.by_group(disp),
+            "q99_write_nonred": top_quantile(theta[:, nonred], axis=1).tolist(),
+            "mean_write_nonred": theta[:, nonred].mean(1).tolist(),
+            "alpha_red_operand": [
+                float(alpha_pre[s, read.rows[m], read.red_operand[m]].mean())
+                if (m := read.groups["red"]).any()
+                else float("nan")
+                for s in range(alpha_pre.shape[0])
+            ],
+            "composition_red": np.bincount(r["composition"][read.groups["red"]], minlength=len(COMPOSITION)).tolist(),
+            "composition_removal": np.bincount(
+                r["composition"][read.groups["removal"]], minlength=len(COMPOSITION)
+            ).tolist(),
+        }
+        arrays |= {
+            f"{name}/eem": r["eem"].astype(np.float32),
+            f"{name}/p_ans": r["p_ans"].astype(np.float32),
+            f"{name}/guess": r["guess"].astype(np.int16),
+            f"{name}/expected_dist": r["expected_dist"].astype(np.float32),
+            f"{name}/composition": r["composition"].astype(np.int8),
+        }
+    return stats, arrays
+
+
+def score_one(trained: dict, probes, operators: tuple[str, ...], condition: str, seed: int, label: str) -> dict:
+    """Score one checkpoint on every op's probe lines under every operator, one op at a time.
+
+    Per-run statistics return as the result; per-line arrays go to the store. The ops are scored one at a
+    time rather than concatenated (ex-2.2.8's shortcut) since eleven probe sets, three of them doubled, are
+    too many lines to keep the whole stream of at once.
+    """
+    from sca.intervention import Subspace
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "score" / label
+    model, _, color_ids, tok2color = _load(trained, workdir)
+    sub = Subspace.axis(model.transformer.wte.shape[1], ANCHOR_AXIS)
+    keys = ("tokens", "r1", "r2", "q_idx", "q_p", "move")
+    with np.load(get(probes, workdir / "probes.npz")) as z:
+        probe = {o: {k: z[f"{o}/{k}"] for k in keys} for o in _probe_ops(z)}
+
+    ops: dict[str, dict] = {}
+    arrays: dict[str, np.ndarray] = {}
+    for op, f in probe.items():
+        read = Readout(f["tokens"], f["r1"], f["r2"], f["q_idx"], f["q_p"], f["move"], color_ids, tok2color)
+        stats, per_line = _score_op(model, sub, read, operators)
+        ops[op] = stats
+        arrays |= {f"{op}/{k}": v for k, v in per_line.items()}
+        arrays[f"{op}/dose"] = read.dose.astype(np.float32)
+    return {
+        "label": label,
+        "condition": condition,
+        "seed": seed,
+        "operators": list(operators),
+        "ops": ops,
+        "arrays": put(_npz(**arrays), name=f"ex-2.2.9-{label}-score.npz"),
+    }
+
+
+# --- Publishing ------------------------------------------------------------------------------
+
+
+def design() -> dict[str, Any]:
+    """The design constants the report checks its rendered values against."""
+    return {
+        "n_runs": N_RUNS,
+        "conditions": [asdict(c) | {"steps": c.steps, "lines_per_op": c.lines_per_op} for c in CONDS],
+        "candidate": HANDOVER.name,
+        "ops": list(OP_NAMES),
+        "kept": list(KEPT),
+        "added": list(ADDED),
+        "order_sensitive": list(ORDER_SENSITIVE),
+        "primary_op": PRIMARY_OP,
+        "secondary_op": SECONDARY_OP,
+        "rounding": ROUNDING,
+        "n_probe": N_PROBE,
+        "probe_seed": PROBE_SEED,
+        "probe_both_slots": list(PROBE_BOTH_SLOTS),
+        "spans": {"prompt": PROMPT_SPAN, "whole": WHOLE_SPAN},
+        "epochs": {"main": EPOCHS, "wide": EPOCHS_WIDE},
+        "n_lines": {"main": N_LINES, "wide": N_LINES_WIDE},
+        "steps_per_epoch": {"main": steps_per_epoch(N_LINES), "wide": steps_per_epoch(N_LINES_WIDE)},
+        "noise_run": NOISE_RUN,
+        "gates": {
+            "calibration_floor": CALIBRATION_FLOOR,
+            "task": TASK_GATE,
+            "task_partial": TASK_PARTIAL,
+            "ref_m_line": REF_M_LINE,
+            "margin_ratio": MARGIN_RATIO,
+            "margin_partial": MARGIN_PARTIAL,
+            "ref_r2_sim": REF_R2_SIM,
+            "grade_r2_ratio": GRADE_R2_RATIO,
+            "mean_align_ref": MEAN_ALIGN_REF,
+            "retention_floor": RETENTION_FLOOR,
+            "retention": RETENTION_GATE,
+            "lead": LEAD_GATE,
+            "contrast": CONTRAST_GATE,
+            "contrast_partial": CONTRAST_PARTIAL,
+            "latch": LATCH_PI,
+            "red_kept": RED_KEPT_GATE,
+            "nonred_deficit": NONRED_DEFICIT_GATE,
+            "nonred_deficit_partial": NONRED_DEFICIT_PARTIAL,
+            "tail": TAIL,
+            "resolution_sd": RESOLUTION_SD,
+        },
+        "operators": {k: {"family": f, "positions": p} for k, (f, p) in OPERATOR_SPEC.items()},
+        "shaped": SHAPED,
+        "dose": {"red": RED_DOSE, "nonred": NONRED_DOSE, "far_move": FAR_MOVE},
+        "composition": list(COMPOSITION),
+        "syntax_words": list(SYNTAX_WORDS),
+        "cube_probed": CUBE_PROBED,
+    }
+
+
+def _slim(r: dict) -> dict:
+    return {k: v for k, v in r.items() if k not in ("arrays", "traj", "val_loss", "train_loss")}
+
+
+def publish_calibration(evaled: list[dict], corpora: list[dict]) -> dict:
+    """The pre-freeze calibration: the one control seed, as plain metrics under `CALIBRATION_REF`, with the
+    read against `CALIBRATION_FLOOR` on every kept and added op.
+    """
+    import json
+
+    from mini.store import put, set_ref
+
+    payload = {"runs": [_slim(r) for r in evaled], "corpora": corpora, "design": design()}
+    set_ref(CALIBRATION_REF, put(json.dumps(payload, indent=2).encode(), name="ex-2.2.9-calibration.json"))
+    gaps = {r["label"]: {op: r["holdout_ceiling"][op] - r["holdout_eem"][op] for op in OP_NAMES} for r in evaled}
+    return {
+        "stage": "calibration",
+        "holdout_eem": {r["label"]: r["holdout_eem"] for r in evaled},
+        "gap_to_ceiling": gaps,
+        "clears": {lb: all(g[op] <= CALIBRATION_FLOOR for op in (*KEPT, *ADDED)) for lb, g in gaps.items()},
+    }
+
+
+STACKED = {
+    "eval": ("alpha", "pi", "pi6", "w_group", "dose", "redder"),
+    "score": ("dose", "clean/eem", "clean/guess", "*/eem", "*/guess", "*/composition"),
+}
+"""Which per-run arrays the stacked file carries (per op; `*` is any operator). The per-line alignment
+stays in each run's own file under `RUN_ARRAYS_REF`."""
+
+
+def _stacked(name: str, kind: str) -> bool:
+    import fnmatch
+
+    tail = name.split("/", 1)[1] if "/" in name else name
+    if "op2_walk/" in tail:
+        tail = tail.replace("op2_walk/", "")
+    return any(fnmatch.fnmatch(tail, pat) for pat in STACKED[kind])
+
+
+def publish_results(
+    trained: list[dict], evaled: list[dict], scored: list[dict], probed: list[dict], corpora: list[dict], probes
+) -> dict:
+    """Publish the frozen stage: metrics (JSON), trajectories (JSON), the stacked per-run arrays (npz), each
+    run's full arrays, the probe set, the cube probes (JSON), and every checkpoint under its own ref.
+    """
+    import json
+
+    from mini.store import get, put, set_ref
+
+    metrics = {
+        "runs": [_slim(r) for r in evaled],
+        "scores": [_slim(r) for r in scored],
+        "corpora": corpora,
+        "design": design(),
+    }
+    set_ref(METRICS_REF, put(json.dumps(metrics, indent=2).encode(), name="ex-2.2.9-metrics.json"))
+    traj = {t["label"]: {k: t[k] for k in ("traj", "val_loss", "train_loss")} for t in trained}
+    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="ex-2.2.9-trajectories.json"))
+    set_ref(GEOMETRY_REF, put(json.dumps({"runs": probed}).encode(), name="ex-2.2.9-geometry.json"))
+    set_ref(PROBE_REF, probes)
+    for t in trained:
+        set_ref(CHECKPOINT_REF.format(label=t["label"]), t["checkpoint"])
+
+    arrays = {}
+    for r in evaled + scored:
+        kind = "eval" if "per_op" in r else "score"
+        set_ref(RUN_ARRAYS_REF.format(label=r["label"], kind=kind), r["arrays"])
+        path = get(r["arrays"], get_data_dir() / "publish" / f"{r['label']}-{kind}.npz")
+        with np.load(path) as z:
+            arrays |= {f"{r['label']}/{kind}/{name}": z[name] for name in z.files if _stacked(name, kind)}
+    set_ref(ARRAYS_REF, put(_npz(**arrays), name="ex-2.2.9-arrays.npz"))
+    return {
+        "stage": "full",
+        "n_runs": len(evaled),
+        "n_scored": len(scored),
+        "n_probed": len(probed),
+        "holdout_eem": {r["label"]: r["holdout_eem"] for r in evaled},
+    }
+
+
+# --- Orchestration ----------------------------------------------------------------------------
+
+
+def _stages() -> set[str]:
+    """Which stage this wake may launch: `EX229_STAGES`, `full` by default.
+
+    `calibration` trains and evaluates one control seed and stops, so the corpus can be checked for
+    learnability before the design freezes. The full stage re-uses that run.
+    """
+    import os
+
+    return {s.strip() for s in os.environ.get("EX229_STAGES", "full").split(",")}
+
+
+def _train_and_eval(ctx: Ctx, rows: list[dict]) -> tuple[list[dict], list[dict]]:
+    n = len(rows)
+    trained = ctx.map(
+        train_one,
+        [r["config"] for r in rows],
+        [r["anchor"] for r in rows],
+        [r["anti"] for r in rows],
+        [r["prep"]["corpus"] for r in rows],
+        [TRAJ_STRIDE] * n,
+        [r["prep"]["probes"] for r in rows],
+        [r["keying"] for r in rows],
+        [r["label"] for r in rows],
+        role="train",
+    )
+    evaled = ctx.map(
+        eval_one,
+        trained,
+        [r["prep"]["evals"] for r in rows],
+        [r["prep"]["probes"] for r in rows],
+        [r["anchor"]["tau"] for r in rows],
+        [r["keying"] for r in rows],
+        [r["condition"] for r in rows],
+        [r["seed"] for r in rows],
+        [r["label"] for r in rows],
+        role="eval",
+    )
+    return trained, evaled
+
+
+def main(ctx: Ctx) -> dict:
+    sizes = {corpus_key(c.n_lines): c.n_lines for c in CONDS}
+    keys = list(sizes)
+    n = len(keys)
+    prepped = ctx.map(
+        prepare_corpus,
+        [OP_NAMES] * n,
+        [sizes[k] for k in keys],
+        [CORPUS_SEED] * n,
+        [HOLDOUT_FRAC] * n,
+        [ROUNDING] * n,
+        [N_PROBE] * n,
+        [PROBE_SEED] * n,
+        [PROBE_BOTH_SLOTS] * n,
+        [PER_SLOT_RATE] * n,
+        [RED_RATE] * n,
+        [RED_DOSE] * n,
+        [NONRED_DOSE] * n,
+        [FAR_MOVE] * n,
+        role="prep",
+    )
+    preps = dict(zip(keys, prepped, strict=True))
+    corpora = [preps[k]["stats"] for k in keys]
+
+    if _stages() == {"calibration"}:
+        rows = cells((CONTROL,), preps, seeds={CONTROL.name: [0]})
+        _, evaled = _train_and_eval(ctx, rows)
+        return ctx.run(publish_calibration, evaled, corpora, role="prep")
+
+    rows = cells(CONDS, preps)
+    trained, evaled = _train_and_eval(ctx, rows)
+    scored = ctx.map(
+        score_one,
+        trained,
+        [r["prep"]["probes"] for r in rows],
+        [OPERATORS] * len(rows),
+        [r["condition"] for r in rows],
+        [r["seed"] for r in rows],
+        [r["label"] for r in rows],
+        role="score",
+    )
+    cube = [(r, t) for r, t in zip(rows, trained, strict=True) if r["seed"] in CUBE_PROBED.get(r["condition"], [])]
+    probed = ctx.map(
+        probe_one,
+        [t for _, t in cube],
+        [r["prep"]["probes"] for r, _ in cube],
+        [r["condition"] for r, _ in cube],
+        [r["seed"] for r, _ in cube],
+        [r["label"] for r, _ in cube],
+        role="probe",
+    )
+    main_key = corpus_key(HANDOVER.n_lines)
+    return ctx.run(publish_results, trained, evaled, scored, probed, corpora, preps[main_key]["probes"], role="prep")
+
+
+experiment = Experiment(
+    name="ex-2.2.9",
+    main=main,
+    roles={
+        # Corpus sampling over 100k or 183k lines, then eleven probe sets (three doubled) with an answer
+        # distribution and a to-zero move per line: plain Python, a few minutes.
+        "prep": dict(cpu=2, timeout=1800),
+        # 1,650 steps of 64×64 tokens, as ex-2.2.3's short arms. The watchdog is sized for the gap after
+        # the last step: the checkpoint upload emits no step progress.
+        "train": dict(gpu="L4", timeout=3600, watchdog=900, watchdog_grace=900),
+        # 22 teacher-forced eval sets and eleven alignment passes over up to 11,664 lines each.
+        "eval": dict(gpu="L4", timeout=1800),
+        # Four passes (clean and three operators) per op, each keeping the whole stream of up to 11,664 lines.
+        "score": dict(gpu="L4", timeout=2400),
+        # One stream capture and 270 grouped ridge fits on 5,832 × 64 activations: CPU work.
+        "probe": dict(cpu=4, timeout=1800),
+    },
+)

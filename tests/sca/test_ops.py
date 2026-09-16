@@ -61,8 +61,13 @@ def test_holdout_is_keyed_per_op_and_deterministic():
     assert len(held) == 6 * round(23436 * 0.2)
     assert held == ops.holdout(0)
     assert held != ops.holdout(1)
-    # Narrowing the op set keeps each remaining op's draw.
+    # The draw is keyed on the op's position in the table given, so a prefix keeps its ops' draws and a
+    # table that moves an op re-draws it.
     assert ops.holdout(0, ops=(ops.MIX, ops.ADD)) == {k for k in held if k[0] in ("mix", "add")}
+    assert ops.holdout(0, ops=(ops.MIX, ops.SCREEN)) != {k for k in held if k[0] in ("mix", "screen")}
+    assert {p for o, p in ops.holdout(0, ops=(ops.MIX, ops.SCREEN)) if o == "screen"} == {
+        p for o, p in held if o == "add"
+    }
     by_op = {name: {p for o, p in held if o == name} for name in ops.OP_NAMES}
     assert by_op["mix"] != by_op["add"]
 
@@ -79,7 +84,7 @@ def test_sample_corpus_avoids_held_out_keys_and_covers_every_op():
 
 def test_eval_sets_split_on_the_holdout():
     sets = ops.eval_sets(50, 0, ops=(ops.MIX, ops.SCREEN))
-    held = ops.holdout(0)
+    held = ops.holdout(0, ops=(ops.MIX, ops.SCREEN))
     assert {op: sorted(v) for op, v in sets.items()} == {"mix": ["holdout", "seen"], "screen": ["holdout", "seen"]}
     for op, splits in sets.items():
         assert all(line.key in held for line in splits["holdout"])
@@ -98,6 +103,9 @@ def test_probe_lines_walk_the_palette_with_shared_partners():
     assert {(ln.lhs, ln.rhs) for ln in mix_lines} == set(ops.mix_probe_lines())
     assert [(ln.lhs, ln.rhs) for ln in add_lines] == [(ln.lhs, ln.rhs) for ln in screen_lines]
     assert all(len({ln.rhs for ln in add_lines[i : i + n_probe]}) == n_probe for i in range(0, len(add_lines), n_probe))
+    both = ops.probe_lines(ops.ADD, n_probe, 0, both_slots=True)
+    assert both[: len(add_lines)] == add_lines
+    assert [(ln.lhs, ln.rhs) for ln in both[len(add_lines) :]] == [(ln.rhs, ln.lhs) for ln in add_lines]
 
 
 def test_encode_and_roundtrip():
