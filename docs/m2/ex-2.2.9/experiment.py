@@ -94,7 +94,8 @@ PRIMARY_OP = "mix"
 """Every gated statistic is read on `mix`'s probe lines, as in ex-2.2.3, so the gates mean what they meant."""
 SECONDARY_OP = "hsvmix"
 """Reported beside `mix` on every gated read, so a later experiment can make it the reference op if it
-behaves. The switch, if it comes, is after the handover."""
+behaves. The switch, if it comes, is after the handover; what it would change is set out in the report's
+method (the reference op): a stronger removal read, on a probe set that rounds on nearly every line."""
 
 ROUNDING = "stochastic"
 """An answer between grid levels rounds to the upper level with probability equal to how far up it sits,
@@ -243,17 +244,26 @@ NONRED_DOSE = ex223.NONRED_DOSE
 """Dose is the redness of the redder operand. Red lines have dose ≥ 0.8; non-red lines have dose ≤ 0.2. As
 ex-2.2.3."""
 
+# REVIEW: the author asked whether setting R to one grid level rather than zero would keep the hue
+# and so count the red-op2 lines under `hue-hsv` and `sat-hsv`. It does not: a one-level R is a
+# dark red at full saturation, so `hue-hsv` moves as little and `sat-hsv` stops moving. The method
+# says so with the counts (`eps_check` in the report); the rule stays at zero.
 FAR_MOVE = 0.4
 """The removal lines: red lines on which zeroing the red operand's R moves the true answer by at least 0.4
 (distance in the unit cube, ex-2.2.4's *to-zero* read). On `mix` that is every red line, since the move is
 half the red operand's R; on `lighten` it drops the lines whose partner is about as red. The count per op is
 rendered in the method."""
 
-SELECTIVITY_SKIPS_RED_ANSWERS = True
-"""A non-red line whose true answer is red (white minus cyan is red, under `difference`) is left out of the
-selectivity read and counted on its own. Projecting the axis out at `=` removes *red* from the state that has
-to produce the answer, so a miss there is removal on the output side, not a side effect. `mix` has no such
-lines; the order-sensitive ops have a few dozen each (counts in the method)."""
+# REVIEW: the draft set the red-answer lines aside from the selectivity read. The author's review
+# asked for the gate to cover them too, with the separate count kept. `mix` has none, so the gated
+# read is the same either way; on the ops that have them the deficit is reported both ways. Verify:
+# the H3 selectivity read and the glossary say "in the deficit and counted on their own".
+RED_ANSWER_LINES_BOTH_WAYS = True
+"""A non-red line whose true answer is red (white minus cyan is red, under `difference`) stays in the non-red
+deficit and is also counted on its own, and the deficit is reported with and without these lines. Projecting
+the axis out at `=` removes *red* from the state that has to produce the answer, so a miss there is removal
+on the output side; the separate count says how much of a deficit is that. `mix` has no such lines, so the
+gated read is unchanged; the order-sensitive ops have a few dozen each (counts in the method)."""
 
 # --- Gates: the task (H1) -----------------------------------------------------------------------
 
@@ -312,7 +322,7 @@ SHAPED = dict(a=0.4, b=1.0, p=0.0)
 
 RED_KEPT_GATE = ex223.RED_ACC_GATE
 """H3 (removal): under `projection`, on the removal lines of every op, the share of the clean expected exact
-match the model keeps is at most 0.2, seed mean. This is ex-2.2.3's red-accuracy gate read as a ratio, since
+match the model keeps is at most 20%, seed mean. This is ex-2.2.3's red-accuracy gate read as a ratio, since
 under stochastic rounding the clean value sits below 1 on the ops that round (ex-2.2.5)."""
 
 NONRED_DEFICIT_GATE = ex223.NONRED_DEFICIT_GATE
@@ -358,7 +368,6 @@ beside it. H4 carries no gate, so nothing is adopted on this band."""
 DECISION = f"""\
 The handover is adopted, and `{HANDOVER.name}` becomes the grammar and recipe of record for the anchored-op \
 experiments, when it clears H1, H2 (margin, grading, and contrast in full), and H3 in full; every other partial \
-band is a reporting level. Otherwise it is not adopted, ex-2.2.3's grammar stays in place, and the report says \
-which gate was missed and what the reference conditions say about which change is responsible. That points the \
-next round of scouting: the labeller if `{SLOT.name}` clears what `{HANDOVER.name}` missed, the readout if \
+band is a reporting level. Otherwise it is not adopted, and the report says which gate was missed and what the reference \
+conditions say about which change is responsible, because that sets what the next round tries: the labeller if `{SLOT.name}` clears what `{HANDOVER.name}` missed, the readout if \
 `{TIED.name}` does, and the table or the corpus if none of them does."""

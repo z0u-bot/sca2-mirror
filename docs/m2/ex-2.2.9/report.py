@@ -21,10 +21,13 @@ with app.setup(hide_code=True):
     from sca.data.colors import redness
     from sca.data.ops import (
         TOP,
+        answer_dist,
         colors,
         commutativity,
         dose,
+        is_on_grid,
         lines,
+        on_grid,
         probe_lines,
         probe_partners,
         relevance,
@@ -86,6 +89,56 @@ def slot_counts() -> dict[str, dict[str, tuple[int, int]]]:
 
 
 @app.function(hide_code=True)
+def eps_check() -> tuple[int, int]:
+    """Removal lines for a red op2 under `sat-hsv`, as the per-slot table counts them, with the red operand's
+    R set to zero and to one grid level: the epsilon the review asked about.
+    """
+    op = next(o for o in ex.TABLE if o.name == "sat-hsv")
+    partners = probe_partners(ex.N_PROBE, ex.PROBE_SEED)[1]
+    ls = [(b, c) for c, ps in zip(colors(), partners, strict=True) for b in ps]
+    red = [(a, b) for a, b in ls if dose(a, b) >= ex.RED_DOSE and redness(a) < redness(b)]
+
+    def far(eps: int) -> int:
+        return sum(np.linalg.norm(np.subtract(op(a, (eps, b[1], b[2])), op(a, b))) / TOP >= ex.FAR_MOVE for a, b in red)
+
+    return far(0), far(1)
+
+
+@app.function(hide_code=True)
+def refop_facts() -> tuple[float, float, float]:
+    """`hsvmix` as a reference op: its on-grid share of unordered pairs, on-grid partners per color, and the
+    expected-exact-match ceiling of its probe set (the chance that two draws from the true answer agree).
+    """
+    op = next(o for o in ex.TABLE if o.name == ex.SECONDARY_OP)
+    cs = colors()
+    partners = np.mean([sum(is_on_grid(op, c, b) for b in cs) for c in cs])
+    pl = probe_lines(op, ex.N_PROBE, ex.PROBE_SEED)
+    ceiling = np.mean([sum(p * p for p in answer_dist(op, ln.lhs, ln.rhs).values()) for ln in pl])
+    return on_grid(op), float(partners), float(ceiling)
+
+
+@app.function(hide_code=True)
+def refop_md() -> str:
+    counts = removal_counts()
+    rows = []
+    for name in (ex.PRIMARY_OP, ex.SECONDARY_OP):
+        op = next(o for o in ex.TABLE if o.name == name)
+        pl = probe_lines(op, ex.N_PROBE, ex.PROBE_SEED)
+        exact = np.mean([is_on_grid(op, ln.lhs, ln.rhs) for ln in pl])
+        ceiling = np.mean([sum(p * p for p in answer_dist(op, ln.lhs, ln.rhs).values()) for ln in pl])
+        red = [(ln.lhs, ln.rhs) for ln in pl if dose(ln.lhs, ln.rhs) >= ex.RED_DOSE]
+        move = np.mean([to_zero_move(op, a, b) for a, b in red])
+        alone = relevance(op, ex.TABLE, lines()).get(0, 0)
+        n_red, far, ra = counts[name]
+        rows.append(f"| `{name}` | {exact:.0%} | {ceiling:.2f} | {far / n_red:.0%} | {move:.2f} | {ra} | {alone:.0%} |")
+    head = (
+        "| op | probe lines on the grid | expected exact match ceiling | red lines that are removal lines | "
+        "mean to-zero move | red-answer lines | alone |\n| --- | ---: | ---: | ---: | ---: | ---: | ---: |\n"
+    )
+    return head + "\n".join(rows)
+
+
+@app.function(hide_code=True)
 def coverage(lines_per_op: float) -> tuple[float, float]:
     """The share of an op's trainable lines a model sees at least once: over ordered lines, and over unordered
     pairs. Lines are drawn i.i.d. with held-out pairs rejected, so this is 1 − exp(−draws / pool).
@@ -114,11 +167,11 @@ def conds_md() -> str:
         labeller = "—" if c.lam == 0 else ("whole line" if c.keying == "line" else "either slot, prompt span")
         readout = "tied" if c.tie else "untied"
         rows.append(
-            f"| **{c.name}** | {c.title} | {anchor} | {labeller} | {readout} | {c.lines_per_op:,} | {c.epochs} ({c.steps:,}) | {c.seeds} | {c.role} |"
+            f"| **{c.name}**, {c.role}: {c.title} | {anchor} | {labeller} | {readout} | {c.lines_per_op:,} | {c.epochs} ({c.steps:,}) | {c.seeds} |"
         )
     head = (
-        "| condition | what | anchor | labeller | readout | lines per op | epochs (steps) | seeds | role |\n"
-        "| --- | --- | --- | --- | --- | ---: | ---: | ---: | --- |\n"
+        "| condition | anchor | labeller | readout | lines per op | epochs (steps) | seeds |\n"
+        "| --- | --- | --- | --- | ---: | ---: | ---: |\n"
     )
     return head + "\n".join(rows)
 
@@ -159,9 +212,9 @@ def slot_md() -> str:
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
-    # Ex 2.2.9: the grammar handover
+    <mark class="draft">DRAFT</mark>
 
-    <mark>DRAFT</mark>
+    # Ex 2.2.9: the grammar handover
 
     /// tip |
     <!-- tl;dr -->
@@ -200,14 +253,14 @@ def _():
 
     ## Why this experiment
 
-    Ex-2.2.3 anchored *red* on a grammar of six operations and then tried to remove it. Removal came out partial on four ops, and the ops themselves were confounding. On `lighten`, say, most lines with a red operand have an answer that stays the same when the operand is a little less red, so a model that has lost *red* can still answer them.
+    Ex-2.2.3 anchored *red* on a grammar of six operations and then tried to remove it. Removal was partial on four ops, and the ops themselves were confounding. On `lighten`, say, most lines with a red operand have an answer that stays the same when the operand is a little less red, so a model that has lost *red* can still answer them.
 
     Our investigations suggest:
 
     1. **A wider table of operations** ([ex-2.2.4](../ex-2.2.4/report.py)). Drop `add`, add three ops whose answers spread through the color cube, and add three more that take one attribute from one operand and the rest from the other. Those last three are the first ops where the order of the operands matters.
     2. **Stochastic answers instead of rounded ones** ([ex-2.2.5](../ex-2.2.5/report.py)). When an answer lands between two grid colors, the corpus picks one of them at random, rather than rounding deterministically. The model then learns a spread of possible answers rather than one biased token.
     3. **A label that covers the whole line** ([ex-2.2.6](../ex-2.2.6/report.py)). Previously, only the two operands could draw a label, and the pull covered the prompt. Now the anchor is told "this line is about red", and it pulls wherever in the line it finds the most red, answer included. That is the shape a document-level label will have in M3. The first pilot found it costs nothing; a later one saw a few seeds lose selectivity under it, so it goes in with a check.
-    4. **A separate readout table** ([ex-2.2.7](../ex-2.2.7/report.py)). The output layer of the model was sharing a table with the input embeddings, and that sharing put part of the *red* axis onto the tokens `=` and `mix`. Giving the output its own table keeps the axis off those tokens.
+    4. **A separate, untied readout table** ([ex-2.2.7](../ex-2.2.7/report.py)). The output layer of the model was sharing a table with the input embeddings, and that put part of the *red* axis onto the tokens `=` and `mix`. Giving the output its own table keeps the axis off those tokens.
 
     In [ex-2.2.8](../ex-2.2.8/report.py), we found that the removal operator to score is the plain projection, which takes the axis out everywhere, with the operand-only edit beside it as the selective reference.
 
@@ -229,7 +282,7 @@ def _():
 
     **`handover`** has everything enabled. It is the one candidate for the grammar of record, at the same twenty seeds as the reference, and the gates are read on it alone.
 
-    **`handover-slot`** switches the label back to the one from ex-2.2.3: only the two operands can draw a label, and the pull covers the prompt. Beside `handover` it is the selectivity check ex-2.2.7 asked for, at twenty seeds so that the comparison has the resolution of the gates. It is a reference and not a fallback: that labeller needs to know which tokens are the operands, and M3 will not have that.
+    **`handover-slot`** switches the label back to the one from ex-2.2.3: only the two operands can draw a label, and the pull covers the prompt. Beside `handover` it is the selectivity check ex-2.2.7 asked for, at twenty seeds so that the comparison has the resolution of the gates. It is not a fallback: that labeller needs to know which tokens are the operands, and M3 will not have that.
 
     **`handover-tied`** switches the readout back to the shared table. Beside `handover` it shows what untying does on this grammar. Nine seeds, as the pilot had.
 
@@ -252,60 +305,40 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
-    mo.md(r"""
+    # A definition list, written as HTML: Marimo's Markdown has no syntax for one, and the
+    # markup inside the block is HTML too, since Markdown is not processed there.
+    low = min(far / red for red, far, _ in removal_counts().values())
+    mo.md(rf"""
     ## Glossary
 
-    - **Red line, non-red line**
-
-        A line is *red* when its redder operand has redness at least 0.8, and *non-red* when neither operand is above 0.2. Redness is r·(1 − g/2 − b/2) on the unit scale. The redness of the redder operand is the line's *dose*.
-
-    - **Removal lines**
-
-        The red lines on which the true answer would move a long way if the red operand had no red in it (its R channel set to zero). These are the lines where losing *red* has to show; on the others the op does not need it. The count per op is in the method.
-
-    - **Red-answer lines**
-
-        Non-red lines whose true answer is red (white minus cyan, under `difference`). They are left out of the selectivity read and counted on their own, since projecting the axis out at `=` takes *red* from the state that has to produce the answer.
-
-    - **Expected exact match**
-
-        With drawn answers, the correct answer to a line is spread over two or more colors. Expected exact match is the chance that an answer drawn from the model agrees with one drawn from the true distribution. On the ops that round it cannot reach 1.
-
-    - **m_line**
-
-        How far *red* is pushed onto the axis: at the best position in the span, the label-weighted mean alignment minus the unweighted mean, averaged over slices. Ex-2.1.10's margin, read on the `mix` lines.
-
-    - **ᾱ (containment)**
-
-        The mean alignment with the axis over all 216 colors at op1. High when colors that are not red drift onto the axis at that position.
-
-    - **Lead**
-
-        On the red lines, the largest share of the pull that any one position receives at the embedding slice. High when the pull is concentrated on one token rather than spread over the span.
-
-    - **Contrast**
-
-        How much more the pull lands on op2 when op2 is the red operand than when it is not, averaged over the post-attention slices. It says the pull follows the red operand rather than a fixed position.
-
-    - **Grading r²**
-
-        How well alignment with the axis tracks redness across colors, fit against the sim^1.5 target of ex-2.1.11.
-
-    - **Retention**
-
-        Whether the placement holds to the end of training, after the anchor weight's anneal: the final m_line as a share of the run's peak.
-
-    - **Latch**
-
-        A run in which the non-red group puts more than half of its softmin weight on op1: the pull has found a position rather than a concept.
-
-    - **Deficit**
-
-        How much expected exact match a model loses on the non-red lines when the axis is projected out. This is a measure of the selectivity; a clean removal costs nothing here.
-
-    - **Band**
-
-        Our measurement precision. Two seed means are told apart only when they differ by more than 2σ√(1/n_a + 1/n_b), with σ the per-run spread and n the seed counts. Smaller differences are reported as unresolved.
+    <dl>
+    <dt>Red line, non-red line</dt>
+    <dd>A line is <em>red</em> when its redder operand has redness at least 0.8, and <em>non-red</em> when neither operand is above 0.2. Redness is r·(1 − g/2 − b/2) on the unit scale. The redness of the redder operand is the line's <em>dose</em>.</dd>
+    <dt>Removal lines</dt>
+    <dd>The red lines on which the true answer would move a long way if the red operand had no red in it (its R channel set to zero). These are the lines where losing <em>red</em> has to show; on the others the op does not need it. On <code>mix</code> every red line is a removal line; on the other ops at least {low:.0%} of them are, and the count per op is in the method.</dd>
+    <dt>Red-answer lines</dt>
+    <dd>Non-red lines whose true answer is red (white minus cyan, under <code>difference</code>). Projecting the axis out at <code>=</code> takes <em>red</em> from the state that has to produce the answer, so a miss there is removal on the output side. They stay in the non-red deficit and are also counted on their own, and the deficit is reported with and without them. <code>mix</code> has none, so the gated read is the same either way.</dd>
+    <dt>Expected exact match</dt>
+    <dd>With drawn answers, the correct answer to a line is spread over two or more colors. Expected exact match is the chance that an answer drawn from the model agrees with one drawn from the true distribution. On the ops that round it cannot reach 1.</dd>
+    <dt>m_line</dt>
+    <dd>How far <em>red</em> is pushed onto the axis: at the reddest position in the span, the label-weighted mean alignment minus the unweighted mean, averaged over slices. Ex-2.1.10's margin, read on the <code>mix</code> lines.</dd>
+    <dt>ᾱ (containment)</dt>
+    <dd>The mean alignment with the axis over all 216 colors at op1. High when colors that are not red drift onto the axis at that position.</dd>
+    <dt>Lead</dt>
+    <dd>On the red lines, the largest share of the pull that any one position receives at the embedding slice. High when the pull is concentrated on one token rather than spread over the span.</dd>
+    <dt>Contrast</dt>
+    <dd>How much more the pull lands on op2 when op2 is the red operand than when it is not, averaged over the post-attention slices. It says the pull follows the red operand rather than a fixed position.</dd>
+    <dt>Grading r²</dt>
+    <dd>How well alignment with the axis tracks redness across colors, fit against the sim^1.5 target of ex-2.1.11.</dd>
+    <dt>Retention</dt>
+    <dd>Whether the placement holds to the end of training, after the anchor weight's anneal: the final m_line as a share of the run's peak.</dd>
+    <dt>Latch</dt>
+    <dd>A run in which the non-red group puts more than half of its softmin weight on op1: the pull has found a position rather than a concept.</dd>
+    <dt>Deficit</dt>
+    <dd>How much expected exact match a model loses on the non-red lines when the axis is projected out. This is a measure of the selectivity; a clean removal costs nothing here.</dd>
+    <dt>Band</dt>
+    <dd>Our measurement precision. Two seed means are told apart only when they differ by more than 2σ√(1/n_a + 1/n_b), with σ the per-run spread and n the seed counts. Smaller differences are reported as unresolved.</dd>
+    </dl>
     """)
     return
 
@@ -317,13 +350,13 @@ def _():
 
     **Background.** Eleven ops in the same number of lines, with drawn answers, is a harder corpus than six ops with rounded ones. Before we read anything about the anchor we need to know that the anchored model learns the task as well as an un-anchored model does on this corpus.
 
-    **Prediction.** For each of the {ex.N_OPS} ops, `handover`'s seed-mean expected exact match on held-out lines is within {ex.TASK_GATE:g} of the control's. Partial: every op within {ex.TASK_PARTIAL:g}. Contrary: more than {ex.TASK_PARTIAL:g} below the control on some op. A comparison that misses by less than a band is reported as unresolved rather than as a miss; the band on this read is computed from the runs and printed beside the gate. The reference conditions are read on the same table without a gate, and a reference that does not learn the task has its later comparisons read with that caveat.
+    **Prediction.** For each of the {ex.N_OPS} ops, the `handover` seed-mean expected exact match on held-out lines is within {ex.TASK_GATE:g} of the control. Partial: every op within {ex.TASK_PARTIAL:g}. Contrary: more than {ex.TASK_PARTIAL:g} below the control on some op. A comparison that misses by less than a band is reported as unresolved rather than as a miss; the band on this read is computed from the runs and printed beside the gate. The reference conditions are read on the same table without a gate, and a reference that does not learn the task has its later comparisons read with that caveat.
 
     We expect this to hold: ex-2.2.5 saw no task cost from the drawn answers, ex-2.2.7 none from the untied readout. Whether the control itself learns the grammar is checked before the freeze, on one seed, rather than gated here. The number to watch is the order-sensitive subset, since an op that reads operand order asks the model for something the six-op grammar never did.
 
     /// admonition | TODO
         type: warning
-    Results to come. The section will show expected exact match per condition and op against the control, and the calibration of the answer mass against the true distribution (P(mode) and KL, as ex-2.2.5 read them) beside it.
+    Results to come. The section will chart expected exact match per condition and op against the control, with the numbers in a table, and the calibration of the answer mass against the true distribution (P(mode) and KL, as ex-2.2.5 read them) beside it.
     ///
     """)
     return
@@ -348,7 +381,7 @@ def _():
 
     /// admonition | TODO
         type: warning
-    Results to come. The section will show the placement table (condition × statistic, with the reference beside) and the softmin profile over roles under each labeller.
+    Results to come. The section will chart each placement statistic per condition with the reference beside, tabulate them (condition × statistic), and show the softmin profile over roles under each labeller.
     ///
     """)
     return
@@ -363,8 +396,8 @@ def _():
 
     **Prediction.** Under `projection`, for `handover`:
 
-    - *Removal:* on the removal lines of every op, the model keeps at most {ex.RED_KEPT_GATE:g} of its clean expected exact match, seed mean. This is the red-accuracy gate of ex-2.2.3, read as a ratio, because with drawn answers the clean value sits below 1 on the ops that round.
-    - *Selectivity:* the seed-mean deficit on the non-red `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}; partial to {ex.NONRED_DEFICIT_PARTIAL:g}. The partial band is a reporting level, as it was in ex-2.2.3: the decision rule asks for the gate. The read stays on `mix` so that it means what it meant at the reference; `hsvmix` and every other op are reported beside it, and a switch of reference op, if one comes, is a later experiment's call. On the reference, ex-2.2.8 read 0.040 on `mix`, which is inside the gate by less than a band. With the readout untied we expect the deficit to fall toward the `operands` row, which read 0.012. Bands on the deficit use the per-run spread ex-2.2.8 measured under `projection` at the reference's twenty seeds, per op ({ex.DEFICIT_NOISE}), frozen so that the candidate's own spread does not move its verdict. Non-red lines whose true answer is red are counted separately (see the glossary); `mix` has none.
+    - *Removal:* on the removal lines of every op, the model keeps at most {ex.RED_KEPT_GATE:.0%} of its clean expected exact match, seed mean. This is the red-accuracy gate of ex-2.2.3, read as a ratio, because with drawn answers the clean value sits below 1 on the ops that round.
+    - *Selectivity:* the seed-mean deficit on the non-red `mix` lines is at most {ex.NONRED_DEFICIT_GATE:g}; partial to {ex.NONRED_DEFICIT_PARTIAL:g}. The partial band is a reporting level, as it was in ex-2.2.3: the decision rule asks for the gate. The read stays on `mix` so that it means what it meant at the reference; `hsvmix` and every other op are reported beside it; what a switch to `hsvmix` would change is set out in the method ([The reference op](#the-reference-op)). On the reference, ex-2.2.8 read 0.040 on `mix`, which is inside the gate by less than a band. With the readout untied we expect the deficit to fall toward the `operands` row, which read 0.012. Bands on the deficit use the per-run spread ex-2.2.8 measured under `projection` at the reference's twenty seeds, per op ({ex.DEFICIT_NOISE}), frozen so that the candidate's own spread does not move its verdict. Non-red lines whose true answer is red are in the deficit and also counted on their own (see the glossary); `mix` has none.
 
     Two further reads have an expected direction and no gate.
 
@@ -374,7 +407,7 @@ def _():
 
     /// admonition | TODO
         type: warning
-    Results to come. The section will show removal and selectivity per op and condition under the three operators, and the answer-distance read against the to-zero distance.
+    Results to come. The section will chart removal and selectivity per op and condition under the three operators, with the table beside, and the answer-distance read against the to-zero distance.
     ///
     """)
     return
@@ -394,11 +427,11 @@ def _():
     - The axis component on the syntax embeddings (`=`, the op words, and `⏎`), read from the embedding-component table of ex-2.2.7, is lower on `handover` than on `handover-tied` by more than a band ({ex.COMPONENT_NOISE}, since ex-2.2.7 published seed means and ranges rather than a per-run spread; the σ is reported beside the comparison). On `=`, `handover` sits within a band of the hard-zeroed ceiling from ex-2.2.7 (`{ex.EX227_CEILING}`, where the component is zero by construction). The component appears on the readout table of `handover` instead.
     - The non-red `mix` deficit under `projection` is lower on `handover` than on `handover-tied`, by more than a band.
 
-    Neither line is a gate. Ex-2.2.7 already took the readout decision, and this section either confirms it or reports that it did not carry. If the second line fails while the first holds, then on this grammar the syntax embeddings were not where the cost came from.
+    Neither prediction is a gate. Ex-2.2.7 already took the readout decision, and this section either confirms it or reports that it did not carry. If the second prediction fails while the first holds, then on this grammar the syntax embeddings were not where the cost came from.
 
     /// admonition | TODO
         type: warning
-    Results to come. The section will show the embedding-component table per condition and the deficit under `projection` for the two conditions.
+    Results to come. The section will chart the embedding component per condition and the deficit under `projection` for the two conditions, with the tables beside.
     ///
     """)
     return
@@ -416,11 +449,11 @@ def _():
     - The seed-mean non-red `mix` deficit differs by less than a band, and
     - the count of seeds whose deficit is above {ex.TAIL:g} (the level at which ex-2.2.7 read its tail) is no more than two higher on `handover` than on `handover-slot`.
 
-    The whole-line label changes two things at once: which positions the pull can land on, and which lines get a label at all, since the answer draws at its own redness rate. So a miss here says the label as a whole costs selectivity, and not which half of it did. Neither line is a gate, and `handover-slot` is not a fallback: we need the whole-line label, so a cost here is something to understand and fix, and the size of the gap to `handover-slot` says how much there is to fix. We are not sure which way this goes: the tail in ex-2.2.7 was three seeds out of nine, enough to expect it and too few to be sure.
+    The whole-line label changes two things at once: which positions the pull can land on, and which lines get a label at all, since the answer draws at its own redness rate. So a miss here says the label as a whole costs selectivity, but not which half of it did. Neither prediction is a gate, and `handover-slot` is not a fallback: we need the whole-line label, so a cost here is something to understand and fix, and the size of the gap to `handover-slot` says how much there is to fix. We are not sure which way this goes: the tail in ex-2.2.7 was three seeds out of nine, enough to expect it and too few to be sure.
 
     /// admonition | TODO
         type: warning
-    Results to come. The section will show the per-seed deficit under `projection` for the two conditions, side by side, and the `operands` row beside it.
+    Results to come. The section will chart the per-seed deficit under `projection` for the two conditions, side by side, with the `operands` row beside it.
     ///
     """)
     return
@@ -431,7 +464,7 @@ def _():
     mo.md(rf"""
     ## Decision
 
-    A gate is registered only where a decision hangs on it, and one does here: whether the anchored-op experiments run on this grammar. H1 to H3 carry gates for that reason. H4 and H5 are predictions, written down so that the result can be read against them, and what we do about a miss there is decided after reading it.
+    H1 to H3 carry gates because one decision hangs on them: whether the anchored-op experiments run on this grammar. H4 and H5 are predictions, written down so that the result can be read against them, and what we do about a miss there is decided after reading it.
 
     {ex.DECISION}
 
@@ -468,6 +501,8 @@ def _():
 
 @app.cell(hide_code=True)
 def _():
+    hsv_on_grid, hsv_partners, hsv_ceiling = refop_facts()
+    sat_op2, eps_sat = eps_check()
     mo.md(rf"""
     ## Method
 
@@ -485,15 +520,25 @@ def _():
 
     ### The removal lines
 
-    Per op, on its probe set: the red lines (dose ≥ {ex.RED_DOSE:g}, where dose is the redness of the redder operand) and, of those, the lines on which setting the R channel of the red operand to zero moves the true answer by at least {ex.FAR_MOVE:g} in the unit cube. The removal read in H3 is scored on the second column. The last column counts the non-red lines (dose ≤ {ex.NONRED_DOSE:g}) whose true answer is red; those are set aside from the selectivity read.
+    Per op, on its probe set: the red lines (dose ≥ {ex.RED_DOSE:g}, where dose is the redness of the redder operand) and, of those, the lines on which setting the R channel of the red operand to zero moves the true answer by at least {ex.FAR_MOVE:g} in the unit cube. The removal read in H3 is scored on the second column. The last column counts the non-red lines (dose ≤ {ex.NONRED_DOSE:g}) whose true answer is red; those are in the selectivity read and also counted on their own.
 
     {removal_md()}
 
     Replacing the red operand with a mid-gray instead of zeroing its R channel was considered. On `mix` it counts far fewer lines (a gray partner moves the mix less than a dark one does), and elsewhere it changes the counts without changing which ops need *red*, so the to-zero rule stays.
 
-    For the order-sensitive ops, the both-slot probe set splits by where the red operand sits. The one place the rule under-counts is a red op2 under `hue-hsv` or `sat-hsv`: zeroing red's R gives black, which has red's hue and no saturation, so the true answer moves little even though the model has lost the operand it copies from. Those lines are reported and not gated.
+    For the order-sensitive ops, the both-slot probe set splits by where the red operand sits. The one place the rule under-counts is a red op2 under `hue-hsv` or `sat-hsv`. Zeroing the R of a pure red gives black, which HSV reads as hue 0 (red) at no saturation: under `hue-hsv` the answer keeps its hue, and under `sat-hsv` op1 only loses its saturation, which moves it far only when it was saturated. Setting R to one grid level instead of zero does not help. The operand is then a very dark red at full saturation, so `hue-hsv` moves as little as before and `sat-hsv` stops moving at all ({eps_sat} lines counted against {sat_op2} at zero). There is no hue a color should have once its red is gone, so these lines are reported and not gated.
 
     {slot_md()}
+
+    ### The reference op
+
+    Every gated read is on `mix`, and `hsvmix` is reported beside it as the op a later experiment might promote. This is what the switch would change, on each op's probe set as ex-2.2.3 draws it.
+
+    {refop_md()}
+
+    `hsvmix` is the better op for the removal read: nearly every red line is a removal line, and the answer moves further when the red operand loses its red, since a hue mean loses the red hue outright where a channel mean halves it. It is also a little less distinctive, which the anchored-op predictions want. Its placement reads (H2) would look much like `mix`'s, since the label reads the colors in the line rather than the op word.
+
+    What it costs is the probe set. `mix` has {ex.N_PROBE} partners per color on which its answer lands on the grid without rounding, its probe lines are those, and so a clean model can match every answer and a deficit is a count of lines lost. `hsvmix` lands on the grid on {hsv_on_grid:.0%} of pairs, about {hsv_partners:.0f} partners per color, so its probe set is the shared random draw, and the best any model can do on it is an expected exact match of about {hsv_ceiling:.2f}. On that base the removal gate reads on a clean value near {hsv_ceiling:.1f} rather than 1, and the {ex.NONRED_DEFICIT_GATE:g} selectivity gate is an eighth of the clean value rather than a twentieth; both would need re-setting, and neither could be read against the reference's numbers. Had the program used `hsvmix` from the start, every exact-match read before ex-2.2.5 would have been on answers that round on {1 - hsv_on_grid:.0%} of lines, which is the bias that experiment found and fixed; D2.1 and ex-2.2.3 could read removal and selectivity as counts because `mix`'s probe set never rounds. The switch is open now that answers are drawn, at the price of a noisier deficit, and it is a later experiment's call, made with this experiment's `hsvmix` rows in hand.
 
     ### The corpus, the probes, the labellers
 

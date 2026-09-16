@@ -97,9 +97,41 @@ body.dark-theme .sw-themed {
 
 /* Markdown tables. Marimo right-aligns every cell, as if all were numbers; text reads
  * better ragged-right, so cells start left and a numeric column opts in with `---:` in
- * the Markdown (which lands as an inline text-align, outranking this). */
+ * the Markdown (which lands as an inline text-align, outranking this). Cells sit at the
+ * top of their row, so a wrapped cell reads from the same line as its neighbours, and
+ * rows carry no stripe: the shading reads as meaning on paper. The selectors carry
+ * `.output` to outrank Marimo's own `.markdown table tr` and `tr:nth-child` rules. */
 .markdown table :is(th, td) {
   text-align: left;
+}
+.output .markdown table :is(tr, th, td) {
+  vertical-align: top;
+}
+.output .markdown table tbody tr:nth-child(n) {
+  background: transparent;
+}
+
+/* A definition list (a glossary). Marimo's Markdown has no definition-list syntax, so a
+ * report writes the <dl> itself; this gives it the shape of one. */
+.markdown dl > dt {
+  font-weight: 600;
+  margin-top: 0.8em;
+}
+.markdown dl > dd {
+  margin-inline-start: 1.5em;
+  margin-block: 0.25em 0;
+}
+
+/* A status badge on the title page — `<mark class="draft">DRAFT</mark>` written before
+ * the h1 — floats to the top right, beside the title rather than under it. */
+.markdown mark.draft {
+  float: right;
+  margin: 0.4em 0 0.5em 1em;
+  padding: 0.1em 0.5em;
+  border-radius: 3px;
+  font-size: 0.8em;
+  font-weight: 600;
+  letter-spacing: 0.05em;
 }
 
 /* Authored report tables. Headings left-align with their columns by default; annotate
@@ -256,10 +288,15 @@ body.dark-theme .sw-themed {
     line-height: 2.5;
   }
 
-  /* Ink. Half-transparent text is faint on e-ink, so lift the muted elements. */
+  /* Ink. Half-transparent text is faint on e-ink, so lift the muted elements, and darken
+   * links: Marimo's link blue prints as a mid grey that reads as faded text. */
   .output .footnote > ol > li,
   .output .footnote .footnote-backref {
     opacity: 0.85;
+  }
+  .output .markdown a,
+  .output .markdown a:visited {
+    color: #1d3f78;
   }
 
   /* Each top-level section starts a fresh page, so the reader swipes between sections and
