@@ -4,11 +4,17 @@ labeller, and the untied readout.
 
 Preregistered. The design comes first: the table, the conditions, the probe rule, and the gates, each
 with its wording in a docstring, so the report quotes the same numbers it will be scored on. The DAG
-follows: two corpora (the 100k one and the wide one), a train and an eval step per run, the eval contract
+follows: two corpora (the 300k one and the narrow one), a train and an eval step per run, the eval contract
 under three operators on every run, cube probes on the un-anchored and the exploratory arms, and one
 publish step. A `calibration` stage trains one control seed and stops.
 
-    EX229_STAGES=calibration bin/mini run docs/m2/ex-2.2.9/experiment.py --app modal --max-containers 2
+    EX229_STAGES=calibration bin/mini run -w docs/m2/ex-2.2.9/experiment.py --app modal --max-containers 2
+
+A miss on a commutative op sends the corpus size and epoch count back for a look: `EX229_CALIBRATION_EPOCHS=50,100,150`
+trains one control seed at each count, `EX229_CALIBRATION_LINES=100000,200000` one at each corpus size, and
+`EX229_CALIBRATION_MODELS=64x4,64x6` one at each width×depth (the design's own point is memoised), or
+`EX229_CALIBRATION_POINTS=100000/50/64x4,200000/50/64x4` names the points one by one. Every look is published
+under the calibration ref, merged with the looks before it, so the report shows them all.
 
 The scouting round (ex-2.2.4) and the pilots (ex-2.2.5 to 2.2.8) each proposed one change to the
 grammar or the recipe. This experiment adopts them together, at fresh seeds, and asks whether the
@@ -61,14 +67,34 @@ GRID_RGB = ex223.GRID_RGB
 PALETTE = ex223.PALETTE
 ANSWER_POS = ex223.ANSWER_POS
 DECODE_POS = ex223.DECODE_POS
-SLICES = ex223.SLICES
+N_EMBD, N_LAYER = 64, 4
+"""The model's width and depth: the d64-L4 of every experiment since ex-2.1.3. The calibration look can try
+another shape (`EX229_CALIBRATION_MODELS`); the freeze names the one adopted."""
+SLICES = tuple(range(N_LAYER + 1))
+"""The residual-stream slices the operators act on: the embedding and the output of every block."""
 OPERAND_POSITIONS = ex223.OPERAND_POSITIONS
 COMPOSITION = ex223.COMPOSITION
 TRAJ_STRIDE = ex223.TRAJ_STRIDE
 N_EVAL = ex223.N_EVAL
 RED_RATE = ex223.RED_RATE
 _npz = ex223._npz
-_make_config = ex223._make_config
+
+
+def _make_config(vocab_size: int, seed: int, epochs: int, n_embd: int = 64, n_layer: int = 4):
+    """Ex-2.2.3's config (d64-L4 from ex-2.1.3) with the model's width and depth as parameters, so the
+    pre-freeze look can try another shape on the new grammar. The width is a multiple of 64 (`ModelConfig` wants
+    eight heads of at least eight dimensions), and the MLP is 4× it.
+    """
+    from sca.config import ModelConfig
+
+    base = ex223._make_config(vocab_size, seed, epochs)
+    base.model = ModelConfig.model_validate(
+        base.model.model_dump()
+        | {"n_embd": n_embd, "n_head": 8, "n_head_dim": n_embd // 8, "n_ff": 4 * n_embd, "n_layer": n_layer}
+    )
+    return base
+
+
 _load = ex223._load
 _answer_logprobs = ex223._answer_logprobs
 line_margin = ex223.line_margin
@@ -134,10 +160,13 @@ over the candidate colors, and every exact-match read becomes an expectation ove
 
 # --- The corpus ------------------------------------------------------------------------------
 
-N_LINES = ex223.N_LINES
-"""D2.1's corpus size, unchanged: 100k lines. Ops are drawn uniformly, so each has about a tenth of the lines,
-close to half of what each op had at six ops. Lines per op is the confound E4 of ex-2.2.3 named; the `wide`
-condition below reads it. Coverage is rendered in the report's method."""
+N_LINES = 300_000
+"""Three times D2.1's 100k lines: the point the pre-freeze calibration look settled on. At 100k lines the control
+missed the calibration bar on `difference` and `hsvmix` at every epoch count and depth looked at; what closed
+the gap was more distinct lines, since `hsvmix` rounds on nearly every line and the model has to learn a
+distribution it sees one draw of per pair. Ops are drawn uniformly, so each has about 27k lines, more than the
+16.7k each op had at six ops. Lines per op is the confound E4 of ex-2.2.3 named; the `narrow` condition below
+reads it. Coverage is rendered in the report's method."""
 
 CORPUS_SEED = ex223.CORPUS_SEED
 HOLDOUT_FRAC = ex223.HOLDOUT_FRAC
@@ -145,14 +174,17 @@ HOLDOUT_FRAC = ex223.HOLDOUT_FRAC
 so the held-out share of an op's lines is the same 20% whether or not the op reads operand order."""
 
 EPOCHS = ex223.EPOCHS_SHORT
-"""The adopted point's length: 50 epochs of 100k lines, 1,650 steps."""
+"""The adopted point's epoch count, 50, now over 300k lines: 4,950 steps, three times the reference's 1,650. The
+calibration look found that more passes over the same lines push `hsvmix` away from its ceiling again (the
+model memorises the drawn labels), so the extra steps come from the larger corpus rather than more epochs."""
 
-N_LINES_WIDE = round(N_LINES * N_OPS / len(ex223.OP_NAMES))
-EPOCHS_WIDE = round(EPOCHS * N_LINES / N_LINES_WIDE)
-"""The `wide` condition holds lines per op at ex-2.2.3's count (about 16.7k), so its corpus is eleven sixths
-the size, and it runs for fewer epochs so that the step count stays at the recipe's. What differs from the
-handover condition is then how many distinct lines of each op the model sees, and how often it sees each."""
-assert abs(EPOCHS_WIDE * steps_per_epoch(N_LINES_WIDE) - EPOCHS * steps_per_epoch(N_LINES)) <= 60
+N_LINES_NARROW = round(ex223.N_LINES * N_OPS / len(ex223.OP_NAMES))
+EPOCHS_NARROW = round(EPOCHS * N_LINES / N_LINES_NARROW)
+"""The `narrow` condition holds lines per op at ex-2.2.3's count (about 16.7k), so its corpus is eleven sixths
+of D2.1's 100k and about three fifths of the main corpus, and it runs for more epochs so that the step count
+matches. What differs from the handover condition is then how many distinct lines of each op the model sees,
+and how often it sees each."""
+assert abs(EPOCHS_NARROW * steps_per_epoch(N_LINES_NARROW) - EPOCHS * steps_per_epoch(N_LINES)) <= 60
 
 # --- The recipe --------------------------------------------------------------------------------
 
@@ -200,6 +232,8 @@ class Cond:
     tie: bool = TIE_EMBEDDINGS
     n_lines: int = N_LINES
     epochs: int = EPOCHS
+    n_embd: int = N_EMBD
+    n_layer: int = N_LAYER
 
     @property
     def condition(self) -> Condition:
@@ -241,18 +275,20 @@ TIED = Cond("handover-tied", 9, "as handover, with the tied readout", "reference
 """The readout changed back. Beside `handover` this reads what untying does on the new grammar (H4): the
 component on the syntax embeddings, and the non-red cost of the full-position projection."""
 
-WIDE = Cond(
-    "handover-wide",
+NARROW = Cond(
+    "handover-narrow",
     5,
     "as handover, lines per op held at ex-2.2.3's count",
     "exploratory",
-    n_lines=N_LINES_WIDE,
-    epochs=EPOCHS_WIDE,
+    n_lines=N_LINES_NARROW,
+    epochs=EPOCHS_NARROW,
 )
 """Exploratory: the lines-per-op confound of E4 (ex-2.2.3), read on the operand-cube probe scan and on the
-task. Not gated."""
+task. Not gated. (The prereg draft called this `handover-wide`, when the main corpus was D2.1's 100k lines and
+holding lines per op at the six-op count meant a larger corpus; the calibration look made the main corpus
+the larger one.)"""
 
-CONDS: tuple[Cond, ...] = (CONTROL, HANDOVER, SLOT, TIED, WIDE)
+CONDS: tuple[Cond, ...] = (CONTROL, HANDOVER, SLOT, TIED, NARROW)
 ANCHORED: tuple[Cond, ...] = tuple(c for c in CONDS if c.lam > 0)
 N_RUNS = sum(c.seeds for c in CONDS)
 assert N_RUNS == 59
@@ -416,10 +452,10 @@ assert tuple(OPERATOR_SPEC) == OPERATORS
 CUBE_PROBED: dict[str, list[int]] = {
     CONTROL.name: list(range(CONTROL.seeds)),
     HANDOVER.name: list(range(5)),
-    WIDE.name: list(range(WIDE.seeds)),
+    NARROW.name: list(range(NARROW.seeds)),
 }
 """Which runs get the operand-cube probe scan (the exploratory lines-per-op read): the control, five seeds of
-the candidate, and the wide condition."""
+the candidate, and the narrow condition."""
 
 # =============================================================================================
 # The DAG
@@ -427,7 +463,7 @@ the candidate, and the wide condition."""
 
 
 def corpus_key(n_lines: int) -> str:
-    """One corpus per size: `aplus-100k` for the main arms, `aplus-183k` for `handover-wide`."""
+    """One corpus per size: `aplus-300k` for the main arms, `aplus-183k` for `handover-narrow`."""
     return f"aplus-{n_lines // 1000}k"
 
 
@@ -584,7 +620,7 @@ def cells(conds: tuple[Cond, ...], preps: dict[str, dict], seeds: dict[str, list
         anchor, anti = schedules(c.condition)
         anchor = anchor | {"span": c.span}
         for seed in range(c.seeds) if seeds is None else seeds.get(c.name, []):
-            config = _make_config(align(tc.vocab_size, 64), seed, c.epochs)
+            config = _make_config(align(tc.vocab_size, 64), seed, c.epochs, c.n_embd, c.n_layer)
             config.tokenizer = tc.model_copy()
             config.model = config.model.model_copy(update={"tie_embeddings": c.tie})
             rows.append(
@@ -1059,9 +1095,10 @@ def design() -> dict[str, Any]:
         "probe_seed": PROBE_SEED,
         "probe_both_slots": list(PROBE_BOTH_SLOTS),
         "spans": {"prompt": PROMPT_SPAN, "whole": WHOLE_SPAN},
-        "epochs": {"main": EPOCHS, "wide": EPOCHS_WIDE},
-        "n_lines": {"main": N_LINES, "wide": N_LINES_WIDE},
-        "steps_per_epoch": {"main": steps_per_epoch(N_LINES), "wide": steps_per_epoch(N_LINES_WIDE)},
+        "epochs": {"main": EPOCHS, "narrow": EPOCHS_NARROW},
+        "model": {"n_embd": N_EMBD, "n_layer": N_LAYER},
+        "n_lines": {"main": N_LINES, "narrow": N_LINES_NARROW},
+        "steps_per_epoch": {"main": steps_per_epoch(N_LINES), "narrow": steps_per_epoch(N_LINES_NARROW)},
         "noise_run": NOISE_RUN,
         "gates": {
             "calibration_floor": CALIBRATION_FLOOR,
@@ -1098,15 +1135,39 @@ def _slim(r: dict) -> dict:
     return {k: v for k, v in r.items() if k not in ("arrays", "traj", "val_loss", "train_loss")}
 
 
-def publish_calibration(evaled: list[dict], corpora: list[dict]) -> dict:
-    """The pre-freeze calibration: the one control seed, as plain metrics under `CALIBRATION_REF`, with the
-    read against `CALIBRATION_FLOOR` on every kept and added op.
+def _published_calibration() -> dict:
+    """The calibration payload published so far, or an empty one."""
+    import json
+    import tempfile
+    from pathlib import Path
+
+    from mini.store import project_store
+
+    store = project_store()
+    art = store.get_refs([CALIBRATION_REF]).get(CALIBRATION_REF)
+    if art is None:
+        return {}
+    with tempfile.TemporaryDirectory() as d:
+        (path,) = store.get_many([(art, Path(d) / "calibration.json")])
+        return json.loads(path.read_text())
+
+
+def publish_calibration(evaled: list[dict], corpora: list[dict], shapes: dict[str, dict] | None = None) -> dict:
+    """The pre-freeze calibration: one control seed per epoch count and model shape looked at, as plain metrics
+    under `CALIBRATION_REF`, with the read against `CALIBRATION_FLOOR` on every kept and added op.
     """
     import json
 
     from mini.store import put, set_ref
 
-    payload = {"runs": [_slim(r) for r in evaled], "corpora": corpora, "design": design()}
+    shapes = shapes or {CONTROL.name: {"epochs": EPOCHS, "n_lines": N_LINES, "n_embd": N_EMBD, "n_layer": N_LAYER}}
+    runs = {r["label"]: _slim(r) | shapes[r["condition"]] for r in evaled}
+    # Merge with the looks published before this one, so the report shows every point looked at; a run
+    # with the same label (a repeat of the same point) replaces the earlier record.
+    before = _published_calibration()
+    runs = {r["label"]: r for r in before.get("runs", [])} | runs
+    by_key = {c["key"]: c for c in [*before.get("corpora", []), *corpora]}
+    payload = {"runs": list(runs.values()), "corpora": list(by_key.values()), "design": design()}
     set_ref(CALIBRATION_REF, put(json.dumps(payload, indent=2).encode(), name="ex-2.2.9-calibration.json"))
     gaps = {r["label"]: {op: r["holdout_ceiling"][op] - r["holdout_eem"][op] for op in OP_NAMES} for r in evaled}
     return {
@@ -1189,6 +1250,43 @@ def _stages() -> set[str]:
     return {s.strip() for s in os.environ.get("EX229_STAGES", "full").split(",")}
 
 
+def _calibration_conds() -> tuple[Cond, ...]:
+    """The control at each point of the look: every corpus size in `EX229_CALIBRATION_LINES` × every epoch
+    count in `EX229_CALIBRATION_EPOCHS` × every width×depth in `EX229_CALIBRATION_MODELS` (each defaulting to
+    the design's). The prereg sends the corpus size and epoch count back for a look when a commutative op
+    misses the calibration bar; each extra point is a fresh control seed under its own name, and the design's
+    own point keeps the `control` name so the full stage re-uses that run.
+    """
+    import os
+    from dataclasses import replace
+
+    def shape(m: str) -> tuple[int, int]:
+        d, n_layer = (int(x) for x in m.split("x"))
+        return d, n_layer
+
+    if points := os.environ.get("EX229_CALIBRATION_POINTS"):
+        grid = []
+        for spec in points.split(","):
+            n_lines, e, m = spec.split("/")
+            grid.append((int(n_lines), int(e), *shape(m)))
+    else:
+        counts = [int(e) for e in os.environ.get("EX229_CALIBRATION_EPOCHS", str(EPOCHS)).split(",")]
+        sizes = [int(n) for n in os.environ.get("EX229_CALIBRATION_LINES", str(N_LINES)).split(",")]
+        models = [shape(m) for m in os.environ.get("EX229_CALIBRATION_MODELS", f"{N_EMBD}x{N_LAYER}").split(",")]
+        grid = [(n_lines, e, d, n_layer) for d, n_layer in models for n_lines in sizes for e in counts]
+    out = []
+    for n_lines, e, d, n_layer in grid:
+        if (d, n_layer, n_lines, e) == (N_EMBD, N_LAYER, N_LINES, EPOCHS):
+            out.append(CONTROL)
+            continue
+        model = "" if (d, n_layer) == (N_EMBD, N_LAYER) else f"-d{d}L{n_layer}"
+        size = "" if n_lines == N_LINES else f"-{n_lines // 1000}k"
+        out.append(
+            replace(CONTROL, name=f"control{model}{size}-e{e}", epochs=e, n_lines=n_lines, n_embd=d, n_layer=n_layer)
+        )
+    return tuple(out)
+
+
 def _train_and_eval(ctx: Ctx, rows: list[dict]) -> tuple[list[dict], list[dict]]:
     n = len(rows)
     trained = ctx.map(
@@ -1219,7 +1317,8 @@ def _train_and_eval(ctx: Ctx, rows: list[dict]) -> tuple[list[dict], list[dict]]
 
 
 def main(ctx: Ctx) -> dict:
-    sizes = {corpus_key(c.n_lines): c.n_lines for c in CONDS}
+    calibrating = _stages() == {"calibration"}
+    sizes = {corpus_key(c.n_lines): c.n_lines for c in (_calibration_conds() if calibrating else CONDS)}
     keys = list(sizes)
     n = len(keys)
     prepped = ctx.map(
@@ -1242,10 +1341,14 @@ def main(ctx: Ctx) -> dict:
     preps = dict(zip(keys, prepped, strict=True))
     corpora = [preps[k]["stats"] for k in keys]
 
-    if _stages() == {"calibration"}:
-        rows = cells((CONTROL,), preps, seeds={CONTROL.name: [0]})
+    if calibrating:
+        conds = _calibration_conds()
+        rows = cells(conds, preps, seeds={c.name: [0] for c in conds})
         _, evaled = _train_and_eval(ctx, rows)
-        return ctx.run(publish_calibration, evaled, corpora, role="prep")
+        shapes = {
+            c.name: {"epochs": c.epochs, "n_lines": c.n_lines, "n_embd": c.n_embd, "n_layer": c.n_layer} for c in conds
+        }
+        return ctx.run(publish_calibration, evaled, corpora, shapes, role="prep")
 
     rows = cells(CONDS, preps)
     trained, evaled = _train_and_eval(ctx, rows)
