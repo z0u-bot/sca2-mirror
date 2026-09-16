@@ -11,6 +11,7 @@ with app.setup(hide_code=True):
     import json
     import math
     import tempfile
+    import textwrap
     from dataclasses import dataclass
     from pathlib import Path
 
@@ -154,27 +155,26 @@ def calibration_md() -> str:
 @app.function(hide_code=True)
 def calibration_verdict() -> str:
     """One line per point looked at on whether that control seed clears the bar."""
-    runs = calibration_runs()
-    lines = []
-    for r in runs:
+    gated = (*ex.KEPT, *ex.ADDED)
+    clears, misses = [], []
+    for r in calibration_runs():
         gaps = calibration_gaps(r)
         e = f"{calibration_label(r)} ({calibration_steps(r):,} steps{', the frozen point' if calibration_is_design(r) else ''})"
-        gated = (*ex.KEPT, *ex.ADDED)
-        misses = [op for op in gated if gaps[op] > ex.CALIBRATION_FLOOR]
-        order = ", ".join(f"`{op}` {gaps[op]:.2f}" for op in ex.ORDER_SENSITIVE)
-        if misses:
-            worst = max(misses, key=lambda op: gaps[op])
-            lines.append(
-                f"- **{e}** misses on {', '.join(f'`{op}`' for op in misses)}, the widest gap being `{worst}` "
-                f"at {gaps[worst]:.2f}. Order-sensitive gaps: {order}."
-            )
+        short = [op for op in gated if gaps[op] > ex.CALIBRATION_FLOOR]
+        if short:
+            misses.append(f"{e} on {', '.join(f'`{op}`' for op in short)}")
         else:
             worst = max(gated, key=lambda op: gaps[op])
-            lines.append(
-                f"- **{e}** clears: every kept and added op is within {ex.CALIBRATION_FLOOR:g} of its ceiling, "
-                f"the widest gap being `{worst}` at {gaps[worst]:.3f}. Order-sensitive gaps: {order}."
-            )
-    return "\n".join(lines)
+            clears.append(f"{e}, widest gap `{worst}` at {gaps[worst]:.3f}")
+    order = max(calibration_gaps(r)[op] for r in calibration_runs() for op in ex.ORDER_SENSITIVE)
+    return (
+        f"- **Clears the bar** (every kept and added op within {ex.CALIBRATION_FLOOR:g} of its ceiling): "
+        + "; ".join(clears)
+        + ".\n"
+        + "- **Misses**: "
+        + "; ".join(misses)
+        + f".\n- The order-sensitive ops are within {order:.2f} of their ceiling at every point."
+    )
 
 
 @app.class_definition(hide_code=True)
@@ -270,8 +270,9 @@ class Results:
         return np.array([r["ops"][op]["trials"]["projection"]["deficit"]["nonred"] for r in runs], float)
 
     def ex227_component(self, cond: str, word: str, table: str = "rows") -> np.ndarray:
+        """Ex-2.2.7's component for `word`, per seed; NaN for a word its grammar never had (the added ops)."""
         rows = sorted((r for r in self.ex227["rows"] if r["condition"] == cond), key=lambda r: r["seed"])
-        return np.array([r[table][word] for r in rows if r[table] is not None], float)
+        return np.array([r[table].get(word, np.nan) for r in rows if r[table] is not None], float)
 
 
 @app.function(hide_code=True)
@@ -565,6 +566,14 @@ def h2_status(res: Results, cond: str = "handover") -> dict[str, tuple[str, floa
 
 
 @app.function(hide_code=True)
+def retention_detail(res: Results, cond: str) -> tuple[int, int, float]:
+    """(seeds below the retention gate, qualifying seeds, the lowest retention) on one condition."""
+    peak, ret = res.stat(cond, "m_line_peak"), res.stat(cond, "retention")
+    q = peak >= ex.RETENTION_FLOOR
+    return int((ret[q] < ex.RETENTION_GATE).sum()), int(q.sum()), float(ret[q].min()) if q.any() else float("nan")
+
+
+@app.function(hide_code=True)
 def h2_verdict(res: Results) -> tuple[str, str]:
     st = h2_status(res)
     full = ("m_line", "r2_sim", "contrast", "lead_emb", "retention", "latch")
@@ -574,7 +583,15 @@ def h2_verdict(res: Results) -> tuple[str, str]:
     label = lambda k: names[k][0] if k in names else k  # noqa: E731
     alpha = f"ᾱ at op1 is {st['alpha_op1'][1]:.2f}, {st['alpha_op1'][0]} the {ex.MEAN_ALIGN_REF:g} the earlier experiments gated."
     if misses:
-        return "miss", f"`handover` misses {', '.join(label(k) for k in misses)}. {alpha}"
+        detail = ""
+        if "retention" in misses:
+            n_below, n_q, low = retention_detail(res, "handover")
+            ref = float(res.ref_stat("retention").mean())
+            detail = (
+                f" On retention, {n_below} of {n_q} qualifying seeds end below {ex.RETENTION_GATE:g} of their peak "
+                f"(the lowest at {low:.2f}); the seed mean is {st['retention'][1]:.2f} against the reference's {ref:.2f}."
+            )
+        return "miss", f"`handover` misses {', '.join(label(k) for k in misses)}.{detail} {alpha}"
     if partials:
         return (
             "partial",
@@ -631,7 +648,7 @@ def h2_figure(res: Results) -> str:
 def h2_profile_figure(res: Results) -> str:
     """The softmin profile over the six roles, per condition: where the labeller's weight lands."""
     conds = [c.name for c in ex.CONDS if c.name != "control"]
-    prof = {c: np.asarray(res.stat(c, "pi6"), float)[:, 1:, :].mean(axis=1) for c in conds}  # (seeds, 6)
+    prof = {c: np.asarray(res.stat(c, "pi6", ex.PRIMARY_OP), float)[:, 1:, :].mean(axis=1) for c in conds}  # (seeds, 6)
     roles = ["op1", "op", "op2", "=", "answer", "⏎"]
 
     @themed(
@@ -883,16 +900,30 @@ def h3_distance_table(res: Results) -> str:
 def h3_prose(res: Results) -> str:
     st = h3_status(res)
     kept = st["kept"]
-    best, worst = min(kept, key=lambda op: kept[op]), max(kept, key=lambda op: kept[op])
+    above = h3_removal_misses(res, "handover")
+    inside = {op: v for op, v in kept.items() if op not in above}
+    best, worst = min(inside, key=lambda op: inside[op]), max(inside, key=lambda op: inside[op])
     others = {op: float(res.deficit("handover", op, "projection").mean()) for op in ex.OP_NAMES}
     hi = max(others, key=lambda op: others[op])
     opnd = float(res.deficit("handover", ex.PRIMARY_OP, "operands").mean())
+    d = res.deficit("handover", ex.PRIMARY_OP, "projection")
+    if above:
+        removal = (
+            f"Taking the axis out removes *red* on {len(inside)} of the {len(kept)} ops: on their removal lines `handover` keeps "
+            f"between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under "
+            f"`projection`. On {', '.join(f'`{op}`' for op in above)} it keeps "
+            f"{', '.join(f'{kept[op]:.0%}' for op in above)}, above the {ex.RED_KEPT_GATE:.0%} gate; the slot split under "
+            f"[Exploratory](#exploratory) says which lines those are."
+        )
+    else:
+        removal = (
+            f"Taking the axis out removes *red* on every op: on the removal lines `handover` keeps between {kept[best]:.0%} "
+            f"(`{best}`) and {kept[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`."
+        )
     return (
-        f"Taking the axis out still removes *red*. On the removal lines `handover` keeps between {kept[best]:.0%} (`{best}`) and "
-        f"{kept[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`. On the non-red `mix` lines the "
-        f"deficit is {st['deficit']:.3f} (seeds from {res.deficit('handover', ex.PRIMARY_OP, 'projection').min():.3f} to "
-        f"{res.deficit('handover', ex.PRIMARY_OP, 'projection').max():.3f}); the `operands` edit, which leaves the syntax "
-        f"positions alone, reads {opnd:.3f}. Across the other ops the deficit runs up to {others[hi]:.3f} on `{hi}`."
+        f"{removal} On the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), "
+        f"against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference; the `operands` edit, which leaves the "
+        f"syntax positions alone, reads {opnd:.3f}. No op's non-red deficit is above {others[hi]:.3f} (`{hi}`)."
     )
 
 
@@ -1014,7 +1045,7 @@ def h4_table(res: Results) -> str:
                 f"{np.abs(res.component('handover-tied', w)).mean():.3f}",
                 f"{np.abs(res.component('handover', w)).mean():.3f}",
                 f"{np.abs(res.component('handover', w, 'rows_readout')).mean():.3f}",
-                f"{np.abs(res.ex227_component(ex.EX227_CEILING, w)).mean():.3f}",
+                "—" if np.isnan(c := np.abs(res.ex227_component(ex.EX227_CEILING, w)).mean()) else f"{c:.3f}",
             ]
         )
     rows.append(
@@ -1033,6 +1064,9 @@ def h4_table(res: Results) -> str:
 @app.function(hide_code=True)
 def h4_prose(res: Results) -> str:
     st = h4_status(res)
+    comp = {w: float(np.mean([abs(r["rows"][w]) for r in res.runs("handover")])) for w in ex.SYNTAX_WORDS}
+    eol = comp["\n"]
+    rest = max(v for w, v in comp.items() if w != "\n")
     where = "within" if st["eq_holds"] else "outside"
     return (
         f"The separate readout keeps the axis off the syntax embeddings on this grammar too. Averaged over the op words, `=`, "
@@ -1040,7 +1074,10 @@ def h4_prose(res: Results) -> str:
         f"On `=` alone, `handover` reads {st['eq'][0]:.3f}, {where} a band ({st['eq'][2]:.3f}) of ex-2.2.7's hard-zeroed {st['eq'][1]:.3f}, "
         f"while its readout row for `=` carries {st['readout']:.3f}: the component moved to the readout, as it did in the pilot. "
         f"Under `projection` the non-red `mix` deficit is {st['deficit'][0]:.3f} on `handover` against {st['deficit'][1]:.3f} on "
-        f"`handover-tied`, with a band of {st['deficit'][2]:.3f}."
+        f"`handover-tied`, with a band of {st['deficit'][2]:.3f}; both sit under the reference's "
+        f"{float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f}, so the cost the pilot saw on the shared table is small here on "
+        f"either table. One word the untied table did not clean: `⏎`, whose embedding row reads {eol:.3f} on `handover` "
+        f"where every other syntax word is under {rest:.2f}."
     )
 
 
@@ -1193,19 +1230,57 @@ def decision(res: Results) -> tuple[bool, str]:
             True,
             "`handover` clears H1, every H2 gate, and H3 in full, so **the handover is adopted**: table A+ with stochastic rounding, the whole-line labeller, and the untied readout become the grammar and recipe of record for the anchored-op experiments.",
         )
-    # Which reference clears what the candidate missed?
+    # Which reference clears what the candidate missed? `handover-slot` differs from `handover` by the labeller,
+    # `handover-tied` by the readout, so a reference that clears a missed gate points at its change.
+    joined = " ".join(misses)
     who = []
-    slot3, tied3 = h3_status_for(res, "handover-slot"), h3_status_for(res, "handover-tied")
-    if "H3 selectivity" in " ".join(misses):
-        if slot3 == "pass":
-            who.append("`handover-slot` clears the selectivity gate, which points at the labeller")
-        if tied3 == "pass":
-            who.append("`handover-tied` clears it, which points at the readout")
-        if not who:
-            who.append("neither reference clears it, which points at the table or the corpus")
-    return False, f"`handover` misses {', '.join(misses)}, so **the handover is not adopted** as it stands. " + (
-        "; ".join(who) + "." if who else ""
+    if "H2 retention" in joined:
+        who.append(
+            attribution(
+                "retention",
+                h2_status(res, "handover-slot")["retention"][0] == "pass",
+                h2_status(res, "handover-tied")["retention"][0] == "pass",
+            )
+        )
+    if "H3 removal" in joined:
+        who.append(
+            attribution(
+                "removal", not h3_removal_misses(res, "handover-slot"), not h3_removal_misses(res, "handover-tied")
+            )
+        )
+    if "H3 selectivity" in joined:
+        who.append(
+            attribution(
+                "selectivity",
+                h3_status_for(res, "handover-slot") == "pass",
+                h3_status_for(res, "handover-tied") == "pass",
+            )
+        )
+    return (
+        False,
+        f"`handover` misses {', '.join(misses)}, so **the handover is not adopted** as it stands. " + " ".join(who),
     )
+
+
+@app.function(hide_code=True)
+def attribution(gate: str, slot_clears: bool, tied_clears: bool) -> str:
+    """One sentence on what the two reference conditions say about a gate `handover` missed."""
+    if slot_clears and tied_clears:
+        return (
+            f"Both references clear {gate}, so neither the whole-line label nor the untied readout loses it on its own; "
+            "it is the two together."
+        )
+    if slot_clears:
+        return f"`handover-slot` clears {gate} and `handover-tied` does not, which points at the labeller."
+    if tied_clears:
+        return f"`handover-tied` clears {gate} and `handover-slot` does not, which points at the readout."
+    return f"Neither reference clears {gate}, which points at the table or the corpus."
+
+
+@app.function(hide_code=True)
+def h3_removal_misses(res: Results, cond: str) -> list[str]:
+    """The ops on which one condition keeps more than the removal gate under `projection`, seed mean."""
+    return [op for op in ex.OP_NAMES if float(res.kept(cond, op, "projection").mean()) > ex.RED_KEPT_GATE]
 
 
 @app.function(hide_code=True)
@@ -1915,12 +1990,30 @@ def _(res: Results | None):
 
     ## Discussion
 
-    /// admonition | TODO
-        type: warning
-    About 200 words, after the results: what the handover settled, what it moved, and what the anchored-op prereg inherits.
-    ///
+    {discussion_md(res)}
     """)
     return
+
+
+@app.function(hide_code=True)
+def discussion_md(res: Results | None) -> str:
+    if res is None:
+        return "*Written after the results.*"
+    st3 = h3_status(res)
+    n_below, n_q, low = retention_detail(res, "handover")
+    slot_kept = {
+        op: [float(res.score("handover", op, "projection", "kept", f"removal_{k}").mean()) for k in ("op1", "op2")]
+        for op in ex.ORDER_SENSITIVE
+    }
+    ret = {c: float(h2_status(res, c)["retention"][1]) for c in ("handover", "handover-slot", "handover-tied")}
+    eol = float(np.mean([abs(r["rows"]["\n"]) for r in res.runs("handover")]))
+    return textwrap.dedent(f"""
+    Most of what the handover was meant to settle, it settled. Eleven ops with drawn answers are learnable, and the anchored model learns them as well as the control does (H1). *Red* lands where the recipe put it at six ops, with the same margin, grading, and contrast (H2). The separate readout keeps the axis off the syntax embeddings on this grammar too (H4), and at twenty seeds against twenty the whole-line label costs no selectivity we can resolve (H5). The selectivity read itself is the cleanest we have had: a non-red `mix` deficit of {st3["deficit"]:.3f}, against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference.
+
+    Two gates missed, and both are narrower than a miss sounds. Retention missed on {n_below} seed of {n_q}, at {low:.2f} against the {ex.RETENTION_GATE:g} gate. The seed mean, {ret["handover"]:.2f}, is under the two references' {ret["handover-slot"]:.2f} and {ret["handover-tied"]:.2f}, and both of those clear every seed: the whole-line label and the untied readout each cost a little retention, and only together do they take a seed under the line. Removal missed on the three order-sensitive ops, and the slot split says where. On `sat-hsv` and `value-hsv` the lines with red at op1 lose almost everything ({slot_kept["sat-hsv"][0]:.0%} and {slot_kept["value-hsv"][0]:.0%} kept), and the lines with red at op2 keep most of it ({slot_kept["sat-hsv"][1]:.0%} and {slot_kept["value-hsv"][1]:.0%}). Red at op2 is the slot where the red operand supplies only its saturation, or only its value. So the axis carries the *redness* of a color, and a red color's saturation and value are read from somewhere else. That is what an anchored concept should look like. The removal lines were chosen by how far the true answer moves when the red operand loses its red, and on these two ops that counts lines where what moved was the value, which the model never needed *red* for. `hue-hsv` is the one to watch: red at op1 supplies the hue there, and still keeps {slot_kept["hue-hsv"][0]:.0%}.
+
+    What the anchored-op prereg inherits, then, is the grammar and the recipe as they stand, with two changes to how they are read. The removal lines for the channel-taking ops should be the lines whose answer takes the red operand's hue, so that the gate asks the model to have lost *red* rather than the value of a red color. And retention at twenty seeds needs either a seed-mean read or a look at why the whole-line label and the untied readout together let the margin drift after its peak, which the trajectories can show. One observation goes with the readout: the untied table cleaned every syntax word except `⏎`, whose embedding row still carries {eol:.2f} on `handover`. Where that comes from, and whether it matters, is a question for the next round.
+    """)
 
 
 @app.cell(hide_code=True)
