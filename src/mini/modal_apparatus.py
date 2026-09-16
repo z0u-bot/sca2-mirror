@@ -22,7 +22,7 @@ from contextlib import asynccontextmanager, nullcontext
 from functools import wraps
 from itertools import count
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, TypeVar, override
+from typing import TYPE_CHECKING, Any, AsyncIterator, Callable, Iterable, TypeVar, cast, override
 
 if TYPE_CHECKING:
     from mini.gc import GcIO
@@ -632,7 +632,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
         watchdog_s = self.modal_fn_kwargs.get("watchdog")
         watchdog_grace_s = self.modal_fn_kwargs.get("watchdog_grace")
         with self.app.run(detach=True, environment_name=modal_environment()):
-            app_id = getattr(self.app, "app_id", None)  # the ephemeral app instance, for cost attribution
+            # the ephemeral app instance, for cost attribution
+            app_id = cast(str | None, getattr(self.app, "app_id", None))
             for key, gen, fn, args, hooks in batch:
                 blob = cloudpickle.dumps((fn, args, hooks))
                 fc = workers[key].spawn(
@@ -770,7 +771,7 @@ class ModalApparatus(Apparatus[ModalVolume]):
         fn_kwargs: dict[str, Any] = {**self.modal_fn_kwargs}
         fn_kwargs.setdefault("max_containers", 1)  # interactive default; memo path stays unbounded
         fn_kwargs["image"] = self._ensure_image()
-        startup_timeout: float = fn_kwargs.pop("startup_timeout", STARTUP_TIMEOUT_SECONDS)
+        startup_timeout: float = cast(float, fn_kwargs.pop("startup_timeout", STARTUP_TIMEOUT_SECONDS))
         if isinstance(self._volume, ModalVolume):
             volumes = fn_kwargs.get("volumes", {})
             fn_kwargs["volumes"] = {

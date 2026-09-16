@@ -20,7 +20,7 @@ import time
 from dataclasses import fields, is_dataclass
 from pathlib import Path
 from statistics import median
-from typing import Any
+from typing import Any, cast
 
 from mini.apparatus import Apparatus
 from mini.experiment import Experiment, load_experiment
@@ -1212,7 +1212,7 @@ def cmd_explain(args: argparse.Namespace) -> None:
     suffix = "" if not requested or args.key in requested else "  (superseded)"
     print(f"{rec['key']}  {rec.get('fn', 'task')}  {_rec_state(rec)}{suffix}")
     print(f"  code {rec.get('code_fp', '?')} · inputs {rec.get('input_fp', '?')} · version {rec.get('version', '-')}")
-    deps: dict[str, str] = rec.get("deps") or {}
+    deps: dict[str, str] = cast(dict[str, str], rec.get("deps") or {})
     for name, h in sorted(deps.items()):
         print(f"    {name:40} {h}")
     if not deps:
