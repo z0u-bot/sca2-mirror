@@ -719,6 +719,8 @@ def h2_prose(res: Results) -> str:
             if tied["alpha_op1"][1] < min(st["alpha_op1"][1], slot["alpha_op1"][1])
             else "The tied condition does not sit below the untied ones, so untying is not on its own what moves ᾱ here."
         )
+        + f" One caveat on every ratio against the reference: those runs trained for {ex.ex223.EPOCHS_SHORT * ex.ex223.steps_per_epoch():,} steps and ours for "
+        f"{ex.HANDOVER.steps:,}, so a margin or an ᾱ that sits above the reference could be the longer training as much as the grammar."
     )
 
 
@@ -1590,7 +1592,7 @@ def _(res: Results | None):
 def _():
     mo.md(r"""
     /// admonition | How to read this draft
-    This is a preregistration. The conditions, the gates, and the decision rule below are written before any run, and will be frozen at a named commit. Each hypothesis section opens with the background, then gives the prediction we will be scored on. Results go into each section in place once they exist. Anything we think of after seeing the data goes under [Exploratory](#exploratory), marked as post hoc. Every count in the method is computed from `experiment.py` at render time.
+    This is a preregistration. The conditions, the gates, and the decision rule below were written before any run and frozen at commit `7aabc72`; everything after that commit is either the results filled into the frozen sections or exploratory. Each hypothesis section opens with the background, then gives the prediction we will be scored on. Results go into each section in place once they exist. Anything we think of after seeing the data goes under [Exploratory](#exploratory), marked as post hoc. Every count in the method is computed from `experiment.py` at render time.
     ///
 
     ## Why this experiment
