@@ -20,7 +20,20 @@ A chart (loss curve, score sweep, schedule) keeps its axes. Use the stylesheet d
 - For per-token series, draw plateaus joined by S-curve risers with `mini.vis.smooth_step` and its band/area/marks companions (`smooth_step_marks` puts the weight on the plateaus, for a handful of discrete sites). The docstrings cover `ramp`, `breaks`, `elide`, and `fillet` (straight risers with circular corners of a given radius in points, for when the slope carries rate information); `sca.vis_probes` is the reference implementation.
 - For all other ordinal series, use a regular line chart.
 - We never use heat maps for sequences. Where the series runs over the tokens of one specific piece of text, use a subline (below) rather than either.
+- For a measurement repeated over seeds, draw the seeds: one column per condition, a thin bar behind it spanning the seed range, the individual seeds jittered and faded, and the seed mean on top in the condition's marker. A bar chart of means hides the one seed that behaved differently, which is usually the interesting one. `dots` in `docs/m2/ex-2.2.9/report.py` is the reference.
 - Decide `sharex`/`sharey` from the units: panels measuring the same quantity share; panels measuring different quantities get their own scale, however close the numbers. Two panels with nearly-but-not-quite equal limits look like a bug.
+
+## Gates and thresholds
+
+Where a hypothesis is scored against a gate, draw the gate in the figure so the reader can see the verdict rather than compute it: a dashed rule at the gate level, a dotted rule for a secondary level under it (a partial-credit bar, a reference value), and the **failing side hatched** — `axhspan(..., facecolor="none", edgecolor=..., hatch="//", lw=0, alpha=0.1, zorder=0)`. Hatching rather than a tint, because a tint would compete with the marks' own color, and color is data. A miss then reads as a region a mark has strayed into, and the eye needs no arithmetic to tell which side is which.
+
+Two mechanics to get right. `axhspan` reads the current y-limits to size itself and then counts as data for autoscaling, so draw it after the marks and put the limits back (`lo, hi = ax.get_ylim()` … `ax.set_ylim(lo, hi)`); everything else the panel draws should come *before* it, or the frozen limits will clip it. And when the same gate appears in two sections, draw it the same way both times — a reader who has decoded one panel should not have to decode it again. `gate_line` in `docs/m2/ex-2.2.9/report.py` packages all of this.
+
+## Legends
+
+A legend belongs to the figure, not to one axes: `fig.legend(handles, labels, loc="outside upper center", ncols=len(labels), frameon=False)` under `layout="constrained"`, taking the handles from whichever axes carries the full set. Inside the axes it competes with the data for space and lands on top of a hatched gate region; above the panels it reads as a key to the whole figure, which is what it is. The `fig_legend` helper in `docs/m2/ex-2.2.9/report.py` is two lines and worth copying.
+
+Better still is no legend: where the marks carry the encoding themselves (see *Color is data*), a legend is a second copy of the information.
 
 ## Color is data
 

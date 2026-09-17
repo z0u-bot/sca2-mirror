@@ -13,6 +13,9 @@ import matplotlib.transforms as mtransforms
 import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
+from matplotlib.legend import Legend
+from matplotlib.legend_handler import HandlerBase
+from matplotlib.lines import Line2D
 from matplotlib.patches import PathPatch
 from matplotlib.path import Path as MplPath
 
@@ -161,6 +164,29 @@ def _fillet_path(
     return MplPath(np.array(verts), codes)
 
 
+class _StepLine:
+    """Marker for a step patch that draws a line rather than fills a region.
+
+    A step line is a :class:`~matplotlib.patches.PathPatch` because the risers are cubics, and matplotlib draws a patch in a legend as a filled swatch — a box, whatever the patch actually looks like on the axes. Tagging the line patches lets :class:`_HandlerStepLine` give them a line sample instead. Matplotlib resolves a handler along the handle's MRO, so registering the mixin covers the plain and filleted patches both.
+    """
+
+
+class _HandlerStepLine(HandlerBase):
+    """Draw a step line's legend entry as a stroke in the line's own color, weight, and dash."""
+
+    def create_artists(self, legend, orig_handle, xdescent, ydescent, width, height, fontsize, trans):
+        line = Line2D([-xdescent, -xdescent + width], [(height - ydescent) / 2] * 2)
+        line.set_color(orig_handle.get_edgecolor())
+        line.set_linewidth(orig_handle.get_linewidth())
+        line.set_linestyle(orig_handle.get_linestyle())
+        line.set_alpha(orig_handle.get_alpha())
+        line.set_transform(trans)
+        return [line]
+
+
+Legend.update_default_handler_map({_StepLine: _HandlerStepLine()})
+
+
 class _FilletStepPatch(PathPatch):
     """A filleted step line or band, laid out in display space each time it is drawn.
 
@@ -186,18 +212,32 @@ class _FilletStepPatch(PathPatch):
         return paths[0] if len(paths) == 1 else _band_path(*paths)
 
 
+class _PlainStepLinePatch(_StepLine, PathPatch):
+    """One S-curved step line."""
+
+
+class _FilletStepLinePatch(_StepLine, _FilletStepPatch):
+    """One filleted step line."""
+
+
 def _add_step_patch(ax: "Axes", x, ys, hs, breaks, fillet, style: dict) -> PathPatch:
     """Add a step line (one series) or band (upper, lower) to *ax*, filleted or S-curved."""
+    line = len(ys) == 1
     if fillet is None:
         paths = [_step_path(x, y, hs, breaks) for y in ys]
-        patch = PathPatch(paths[0] if len(paths) == 1 else _band_path(*paths), **style)
+        cls = _PlainStepLinePatch if line else PathPatch
+        patch = cls(paths[0] if line else _band_path(*paths), **style)
     else:
         transform = style.pop("transform", ax.transData)
-        patch = _FilletStepPatch(ax, x, ys, hs, breaks, fillet, transform, **style)
+        cls = _FilletStepLinePatch if line else _FilletStepPatch
+        patch = cls(ax, x, ys, hs, breaks, fillet, transform, **style)
         # The identity transform hides the patch from autoscaling; report the data extent ourselves.
         dx = (x[-1] - x[0]) / (len(x) - 1)
         ax.update_datalim([(x[0] - dx / 2, min(map(np.min, ys))), (x[-1] + dx / 2, max(map(np.max, ys)))])
     ax.add_patch(patch)
+    # `add_patch` records the extent but never asks for a rescale, so an axes drawn only from these would keep
+    # matplotlib's placeholder 0..1 limits and clip the first and last plateaus. Ask for it here.
+    ax.autoscale_view()
     return patch
 
 
