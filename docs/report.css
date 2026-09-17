@@ -123,15 +123,20 @@ body.dark-theme .sw-themed {
 }
 
 /* A status badge on the title page — `<mark class="draft">DRAFT</mark>` written before
- * the h1 — floats to the top right, beside the title rather than under it. */
-.markdown mark.draft {
+ * the h1 — floats to the top right. */
+.paragraph:has(+ h1) > mark:only-child {
   float: right;
-  margin: 0.4em 0 0.5em 1em;
-  padding: 0.1em 0.5em;
-  border-radius: 3px;
-  font-size: 0.8em;
-  font-weight: 600;
-  letter-spacing: 0.05em;
+  background: none;
+  color: var(--tw-prose-headings);
+  padding-inline: 0.25em;
+  font-family: var(--heading-font);
+  font-size: 2.25em;
+  font-weight: inherit;
+  line-height: 1.25;
+
+  &.draft {
+    opacity: 0.5;
+  }
 }
 
 /* Authored report tables. Headings left-align with their columns by default; annotate
