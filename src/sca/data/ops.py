@@ -381,14 +381,16 @@ def holdout(seed: int, frac: float = 0.2, ops: tuple[Op, ...] = OPS) -> set[tupl
     """The held-out (op, pair) keys: for each op, a fraction *frac* of the distinct unordered pairs.
 
     Drawn per op, so a pair held out under `add` may still be trained under `mix`; the draw for an op depends
-    only on the seed and the op's position in the table, so narrowing the op set of a corpus keeps every
-    remaining op's holdout.
+    only on the seed and the op's position in *ops*, so two corpora on the same table at the same seed share
+    every holdout, and a table that keeps another's order as a prefix keeps those ops' holdouts. (Ex-2.2.3's
+    narrowed arms were drawn when the key was the position in `OPS`; those runs are stored and are not
+    re-drawn.)
     """
     pairs = unordered_pairs()
     n_held = round(len(pairs) * frac)
     held = set()
     for op in ops:
-        rng = np.random.default_rng([seed, OPS.index(op)])
+        rng = np.random.default_rng([seed, ops.index(op)])
         held |= {(op.name, pairs[i]) for i in rng.choice(len(pairs), n_held, replace=False)}
     return held
 
@@ -461,10 +463,19 @@ def probe_partners(n_probe: int, seed: int) -> list[list[list[Rgb]]]:
     return [mix_partners, drawn]
 
 
-def probe_lines(op: Op, n_probe: int, seed: int) -> list[Line]:
-    """The probe set of one op: every color as op1, in palette order, against its `probe_partners`."""
+def probe_lines(op: Op, n_probe: int, seed: int, both_slots: bool = False) -> list[Line]:
+    """The probe set of one op: every color as op1, in palette order, against its `probe_partners`.
+
+    With *both_slots*, the same walk again with the color as op2 and its partners as op1, appended after the
+    first, so an op that reads operand order can be read by which slot the walked color sits in. The answers
+    are the nearest rounding; a stochastic read draws its own from `answer_dist`.
+    """
     partners = probe_partners(n_probe, seed)[int(op is not MIX)]
-    return [make_line(op, c, b) for c, ps in zip(colors(), partners, strict=True) for b in ps]
+    walk = list(zip(colors(), partners, strict=True))
+    out = [make_line(op, c, b) for c, ps in walk for b in ps]
+    if both_slots:
+        out += [make_line(op, b, c) for c, ps in walk for b in ps]
+    return out
 
 
 def encode_corpus(corpus: Iterable[Line], stoi: dict[str, int]) -> np.ndarray:

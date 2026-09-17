@@ -1,0 +1,16 @@
+---
+status: open
+tags: [D2.2, intervention, selectivity, ex-2.2.9, grammar]
+opened: 2026-09-17
+---
+# Removal on the order-sensitive ops: what to expect, and what the model answers
+
+[Ex-2.2.9](/docs/m2/ex-2.2.9/report.py) missed its removal gate on `hue-hsv`, `sat-hsv` and `value-hsv` alone, and the slot split showed the miss is one-sided: on `sat-hsv` and `value-hsv` the lines with red at op1 lose almost everything under `projection` (11% and 6% kept) and the lines with red at op2 keep most of it (65% and 71%); `hue-hsv` keeps 31% with red at op1 and 17% at op2. The report's after-the-fact reading is that the axis carries the *redness* of a colour and a red colour's saturation and value are read from elsewhere, which would make the op2 lines on those two ops lines the model never needed *red* for. That reading does not cover `hue-hsv`, and it was written after seeing the data. The review asked for the analysis this item owes, deferred from the report so the review round could close.
+
+**An analytic expectation per slot.** For each op and slot, derive what the true answer does when the red operand loses its red, and what a model that has lost *red* but kept saturation and value would answer. Under `sat-hsv` with red at op2, the answer takes op2's saturation only, and a pure red's saturation is 1 whether or not the model knows it is red; under `value-hsv` likewise for value. Under `hue-hsv` with red at op2 the answer takes red's hue, so losing *red* should cost, and it does (17% kept). With red at op1 the answer takes op1's hue and saturation (`value-hsv`), or hue and value (`sat-hsv`), or saturation and value (`hue-hsv`); the last is the case the report's reading does not cover, and the 31% kept there is the number to explain. The derivation is a few lines of the ops' own code on the probe lines, and it turns the exploratory table into a prediction. The per-slot removal counts in the method are the starting point.
+
+**The decoded answers in the RGB cube.** Sandy sketched the figure: for one op and one slot, the true answer and the model's argmax answer under `projection` for every removal line, as a scatter or a density cloud in the cube, so we can see where the answers go when the axis is taken out (toward the un-redded answer, toward the operand, or somewhere else). The per-line `guess` arrays are in the stored score results (`Readout` in `experiment.py`), so this is a notebook read that needs only the token-to-colour map.
+
+**The removal-line rule.** The report's discussion proposes that on these ops the removal lines should be the lines whose answer takes the red operand's hue, so the gate asks the model to have lost *red* rather than the value of a red colour. Whether that rule is right falls out of the derivation above, and it is the change the next handover prereg would carry. It is the same question as [which red lines survive the projection](which-red-lines-survive-projection-on-the-new-ops.md), on the new ops.
+
+**The `hue-hsv` reading.** The discussion's sentence on `hue-hsv` drew a "Mmm." in review: the reading is thin. The derivation should either explain the 31% or say plainly that it is unexplained.
