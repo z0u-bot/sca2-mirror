@@ -319,6 +319,7 @@ class FigureStrip:
     key: str
     base_href: str | None
     figures: tuple[ReportFigure, ...]
+    pdf: str | None = None  # the printed rendition, relative to the bundle (``report.pdf``), when the export made one
 
 
 def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, FigureStrip]:
@@ -346,7 +347,8 @@ def build_reports(links: LinkResolver, store, externalizing: bool) -> dict[str, 
             print(note)
         if bundle.html is None:
             continue
-        strips[key] = FigureStrip(key, bundle.base_href, tuple(report_figures(bundle.html, link=ASSET_LINK)))
+        figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
+        strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=bundle.pdf_url)
         from_dir = nb.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
         nb_rel = nb.relative_to(WORKSPACE_ROOT).as_posix()
@@ -495,13 +497,13 @@ def _marker_key(token: str, links: LinkResolver, *, from_dir: str) -> str | None
 
 
 def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool) -> str:
-    """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``.
+    """A report's thumbnail strip: each figure a lazy image, themed via ``<picture>``, opening with its PDF.
 
-    Empty for a report with no asset-served figures (nothing to show, so no box). Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
+    Empty for a report with no asset-served figures and no PDF (nothing to show, so no box). The PDF, when the export printed one (the ``<link rel="alternate">`` in the bundle's head), is a page-shaped chip at the head of the strip, where it is never scrolled out of view: the strip and the report's nav chip link the same file, at the same base as the figures. Externalizing, URLs use the strip's revision-pinned CDN base — the same assets the report page serves, so the index can never show figures its report doesn't. Localizing they're relative into the copied ``_site/<key>/_assets/``. Each thumbnail is the small copy the export wrote (:func:`mini.reports.write_thumbnails`, a few KB against ~100 KB for the full figure), falling back to the full-size image for a bundle published before thumbnails existed. It reuses the figure's own alt text and the ``width``/``height`` the export stamped: the CSS (``scripts/md.css``) fixes the height, so those only set the aspect ratio, and the row lays out before the images arrive, one theme's file per figure and only as it scrolls into view. Clicking one opens the full-size figure in the lightbox (:func:`~mini.reports.lightbox_chrome`) rather than linking to the PNG: a link navigates away, and the browser paints the figure's transparent background on its white canvas — wrong in dark mode — where the overlay can carry a themed one.
     """
     import html
 
-    if not strip.figures:
+    if not strip.figures and not strip.pdf:
         return ""
     base = (
         strip.base_href
@@ -509,6 +511,8 @@ def _figure_strip_html(strip: FigureStrip, *, from_dir: str, externalizing: bool
         else f"{PurePosixPath(os.path.relpath(strip.key, from_dir or '.')).as_posix()}/"
     )
     parts = []
+    if strip.pdf:
+        parts.append(f'<a class="fig-strip-pdf" href="{base}{strip.pdf}" title="Read the report as a PDF">PDF</a>')
     for fig in strip.figures:
         alt, title = html.escape(fig.alt), html.escape(fig.stem)
         size = f' width="{fig.width}" height="{fig.height}"' if fig.width and fig.height else ""

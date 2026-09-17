@@ -106,9 +106,9 @@ def export_one(nb: Path) -> Path:
         out_dir=export_key(nb),
         externalizing=True,
     )
+    print(f"  print  {out.relative_to(ROOT)} -> {pdf.relative_to(ROOT)} (headless Chromium; a few seconds)")
     if print_bundle(out.parent, pdf, html=printable) is not None:
         out.write_text(set_alternate(html, type=PDF_TYPE, href=PDF_LEAF), "utf-8")
-        print(f"  pdf    {pdf.relative_to(ROOT)}")
     return out.parent
 
 
