@@ -15,14 +15,15 @@ with app.setup(hide_code=True):
     from dataclasses import dataclass
     from pathlib import Path
 
-    import marimo as mo
-    import matplotlib.pyplot as plt
-    import numpy as np
-
     # The design constants come from `experiment.py` beside this notebook (Marimo puts the
     # notebook directory on sys.path). The prose quotes the frozen gates, and that module
     # carries the same numbers with each gate's wording in its docstring.
     import experiment as ex
+    import marimo as mo
+    import matplotlib.pyplot as plt
+    import numpy as np
+    from matplotlib.axes import Axes
+
     from mini.reports import report_bundle, use_publisher
     from mini.store import project_store
     from mini.vis import figure_html, light_dark, smooth_step_band, smooth_step_marks, themed
@@ -352,7 +353,7 @@ def table_html(head: list[str], rows: list[list[str]], caption: str, *, ref_rows
         + "</tr>"
         for r, row in enumerate(rows)
     )
-    table = f'<div class="report-table-scroll"><table class="report-table"><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table></div>'
+    table = f'<table class="report-table"><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table>'
     return figure_html(table, caption=mo.md(caption).text, class_="report-figure")
 
 
@@ -547,7 +548,7 @@ def dots(ax, x: float, v: np.ndarray, cond: str, *, rng, ms: float = 5.0, width:
 
 
 @app.function(hide_code=True)
-def gate_line(ax, y: float, *, partial: float | None = None, fail: str | None = None) -> None:
+def gate_line(ax: Axes, y: float, *, partial: float | None = None, fail: str | None = None) -> None:
     """A dashed gate line, with a dotted partial level under it when there is one.
 
     *fail* names the side that misses the gate (`below` or `above`); that side is hatched so a miss reads as a
@@ -560,7 +561,13 @@ def gate_line(ax, y: float, *, partial: float | None = None, fail: str | None = 
         lo, hi = ax.get_ylim()
         span = (lo, y) if fail == "below" else (y, hi)
         ax.axhspan(
-            *span, facecolor="none", edgecolor=light_dark("#00000022", "#ffffff2a"), hatch="////", lw=0, zorder=0
+            *span,
+            facecolor="none",
+            edgecolor=light_dark("#000", "#fff"),
+            hatch="//",
+            lw=0,
+            zorder=0,
+            alpha=0.1,
         )
         ax.set_ylim(lo, hi)
 

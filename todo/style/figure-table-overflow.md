@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [figures, reports]
 opened: 2026-09-10
 ---
@@ -74,31 +74,23 @@ Also, our current util function that produces figure tags expects HTML for the c
 
 For nested figures, I looked at changing the outer figure to use a flex-wrap layout. Maybe we can get that to work but the main caption needs to be on its own row. And one nice thing about the current text-wrap hack is that it balances the wrapping so the last row doesn't have fewer sub-figures than the earlier ones.
 
-A partial implementation is in `report.css`:
+A partial implementation is in `report.css`: Markdown tables (and the authored `report-table`s inside a `figure`) break out of the column, centre on the viewport, and scroll horizontally when wider than the page. Marimo makes the table itself the scroll box (`display: block; overflow: auto`), so the centering transform sits on the table rather than on its rows; a transformed row shifts the scrollable overflow and clips the leading columns of a wide table.
 
 ```css
-/* Allow tables to be full-width, overflowing the containing column. */
 .output .markdown table {
-  width: auto;
-  max-width: 100vw;
-  /* +42px is to avoid the nav bars in Marimo when it's not in fullscreen mode. Could be smaller in exported reports. */
-  margin-left: calc(50% - 50vw + 42px);
-  margin-right: calc(50% - 50vw + 84px);
-
-  > thead,
-  > tbody {
-    transform: translateX(calc(50vw - 50% - 63px));
-  }
-  /* Fake border because the transform leaves the border behind. */
-  > thead {
-    border-bottom: none;
-    > tr:last-child > :is(th, td) {
-      box-shadow: inset 0px -1px 0 color-mix(in srgb, var(--input), transparent 0%);
-    }
-  }
+  width: max-content;
+  max-width: calc(100vw - 126px); /* Marimo's nav bars: 42px left, 84px right. */
+  margin-left: calc(50% - 21px);
+  transform: translateX(-50%);
 }
 ```
+
+This is a screen-only fix. On PDF export the same tables stay column-bound: the print block in `report.css` resets the breakout (`width: auto; max-width: 100%; margin-inline: 0; transform: none`) and lets cells wrap instead, which is the wrong trade for a wide numeric table. The print side still needs its own centering and page-width rule (see the note below).
 
 ## Notes
 
 **2026-09-17, Claude** — Sandy's review of ex-2.2.9 (on the reMarkable) added three asks to this item, all on the print/PDF side: centre each table in the column; let a wide table fill the page width with a margin of about 2 mm each side; and a caption on a themed figure was clipped at the right edge too—just half of an italic character—so captions should have their overflow visible. Done in that report instead of here, and worth making conventions: a no-break space between a value and its range (`span2`) and between `λ_a`, `=` and its value, so a cell never wraps mid-expression; and authored-table cells now render backticks as `<code>` (`cell_html` in that report), which several tables had shown as literal backticks. Both helpers belong in `mini.vis` beside `table_html`.
+
+**2026-09-17, Claude** — The screen-side centering and scrolling landed today (rule above). Sandy confirms it works on screen and not in the PDF export, so the two print asks in the note above (centre in the column; a wide table fills the page width with about 2 mm each side) are the open part of this item, along with the figure/caption normalisation.
+
+**2026-09-17, Sandy** — It looks like we don't need the `report-table-scroll` wrapper anymore: tables in Marimo Markdown cell outputs are scrollable. Also I think we should get rid of our own table class and just use plain `.markdown table` and `.markdown figure table`.
