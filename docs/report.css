@@ -253,8 +253,9 @@ body.dark-theme .sw-themed {
  * screen with no letterboxing and 1pt on the page is 1pt on the device; it is far
  * taller, so a section (which starts a fresh page, below) is one long page to scroll
  * within, and the swipe between pages is the swipe between sections. Not meant for
- * paper. Print from the browser with headers/footers off; the `report-render` skill
- * prints the same way headless (`-o report.pdf`) for checking. */
+ * paper. The height below is for the browser's print dialog (headers/footers off): the
+ * export (`mini.report_print`) prints taller than this, until no section breaks across
+ * pages, and then clips each page to its content, so a short section is a short page. */
 @media print {
   @page {
     size: 158mm 1010mm;

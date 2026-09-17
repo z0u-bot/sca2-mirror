@@ -52,6 +52,7 @@ dev = [
     "pandas-stubs",
     "pikepdf>=10.13.0.post1",
     "playwright>=1.62.0",
+    "pypdfium2>=5.13.0",
     "pytest-asyncio>=0.25.3",
     "pytest-timeout>=2.3",
     "pytest-xdist>=3.6",
