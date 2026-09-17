@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import jax.random as jr
 import numpy as np
+import pytest
 
 from sca.config import ModelConfig
 from sca.model import build_model
@@ -33,6 +34,20 @@ def test_forward_shape_and_finite():
     logits = model(idx)
     assert logits.shape == (2, 16, config.vocab_size)
     assert jnp.isfinite(logits).all()
+
+
+@pytest.mark.parametrize("n_head", [1, 3, 8])
+def test_head_count_is_free_of_embedding_width(n_head: int):
+    """Heads may number anything positive: the output projection maps n_head*n_head_dim back to n_embd, so nothing requires n_head to divide n_embd (or to align to 8)."""
+    config = make_config(n_head=n_head, n_layer=2)
+    model = build_model(config, key=jr.key(0))
+    idx = jr.randint(jr.key(1), (2, 16), 0, config.vocab_size)
+    assert model(idx).shape == (2, 16, 64)
+
+    stream = model.residual_stream(idx)
+    assert stream.shape == (3, 2, 16, 64)
+    norms = jnp.linalg.norm(stream, axis=-1)
+    np.testing.assert_allclose(norms, jnp.ones_like(norms), rtol=0, atol=1e-5)
 
 
 def test_residual_step_size_is_inverse_depth():

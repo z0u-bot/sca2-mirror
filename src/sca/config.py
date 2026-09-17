@@ -14,8 +14,12 @@ class ModelConfig(BaseModel, validate_assignment=True):
     n_embd: IntX8
     """Embedding dimension"""
 
-    n_head: IntX8
-    """Number of attention heads per layer"""
+    n_head: PositiveInt
+    """Number of attention heads per layer.
+
+    Positivity is the only constraint. Attention batches over this axis, so it
+    stays clear of the matmul shapes that accelerator tiling cares about;
+    `n_head_dim` is where the multiple-of-8 alignment earns its keep."""
 
     n_head_dim: IntX8
     """QKV dimension per-head, usually n_embd // n_head"""
