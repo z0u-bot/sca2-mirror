@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, methodology]
 opened: 2026-09-10
-priority: high
+closed: 2026-09-17
 ---
 # A scouting round over the backlog before the anchored-op experiments
 
@@ -25,3 +25,5 @@ Candidates, roughly in the order they bear on D2.2: (1) the diverse op set ([ite
 **2026-09-11, pilot (Fable)** — Candidate (2), the untied readout, has run as [ex-2.2.7](/docs/m2/ex-2.2.7/report.py), with Prep C (blocks-only anchoring) and a tied-table fix (the syntax embeddings held at zero after every step) beside it, and a scoring-only strip of the stored checkpoints in front. The readout is the mechanism, the untied readout is the fix to carry (the embedding constraint cleans the syntax embeddings as well but selects them by token class, so it does not carry beyond this grammar), and Prep C costs removal completeness; details in the [tied-readout item](syntax-embeddings-carry-the-axis-via-tied-readout.md). It changes the design in two places: the handover can read the full-position projection as its removal operator, which is the M3-shaped one, with the operand-only edit as the control; and the whole-line labeller showed a selectivity tail on both of its arms at nine seeds, so it goes in with a selectivity check rather than by default. Candidate (3), τ against λ_a, now has a data point at λ_a 0.1: the embedding component there is 0.27 on `=`, against 0.93 at `t00`'s 0.56.
 
 **2026-09-15, Fable** — every scouting question has run (ex-2.2.4 to 2.2.8), and the handover that adopts their proposals is drafted as [ex-2.2.9](/docs/m2/ex-2.2.9/report.py): table A+, stochastic rounding, the whole-line labeller with a selectivity check (H5), the untied readout with a cleaning read (H4), and ex-2.2.8's operator rows. The [D2.2 design](/docs/m2/d2.2/design.md) is updated to match. This item can close once the prereg is frozen.
+
+**2026-09-17, Fable** — closing. The prereg froze and ran as [ex-2.2.9](/docs/m2/ex-2.2.9/report.py). Its three loose ends are their own items: [removal on the order-sensitive ops](order-sensitive-removal-fast-follow.md), [retention under longer training](retention-under-longer-training.md), and [containment under the untied readout](containment-rises-under-the-untied-readout.md).

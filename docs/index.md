@@ -242,10 +242,18 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [2.2.9. The grammar handover](./m2/ex-2.2.9/report.py)
 
-    Preregistration draft, before any run. The four proposals from the scouting round and the pilots go in together at fresh seeds: table A+ (eleven ops, three of which read operand order), stochastic rounding, the whole-line labeller, and the untied readout, on ex-2.2.3's adopted recipe. Twenty seeds of the full handover and twenty with ex-2.2.3's labeller, nine with the tied readout, five un-anchored, and an exploratory arm that holds lines per op at the six-op count. Five hypotheses with ex-2.2.3's gates, a removal read scored on the lines where the answer needs *red*, and a decision rule that names the grammar of record.
+    The four proposals from the scouting round and the pilots go in together at fresh seeds: table A+ (eleven ops, three of which read operand order), stochastic rounding, the whole-line labeller, and the untied readout, on ex-2.2.3's adopted recipe. Twenty seeds of the full handover and twenty with ex-2.2.3's labeller, nine with the tied readout, five un-anchored, and an exploratory arm that holds lines per op at the six-op count. *Red* lands, the task is unhurt, and the whole-line label and the separate readout cost nothing the gates resolve. Removal is clean on eight of the eleven ops and misses the gate on the three HSV ops, one-sided by slot, so the handover is not adopted as it stands; one seed in twenty holds the anchor a little less well by the end of training.
 
     <span class="tags">`prereg` `multi-op` `anchoring` `selectivity`</span>
 
     <!-- mini:figures ./m2/ex-2.2.9/report.py -->
+
+- [2.2.10. Three reads before the handover re-run](./m2/ex-2.2.10/report.py)
+
+    A scouting notebook on ex-2.2.9's stored runs, with one scoring-only pass over the twenty `handover` checkpoints and no training. The removal miss on the HSV ops is the rule's: the projection acts on the red operand like a change of hue, and the lines that missed are the ones whose answer takes only red's saturation or value, which the to-zero rule counts because zeroing R on pure red gives black. Cube figures show where the surviving and the lost answers go and what the residual stream decodes to under the projection. The retention drop happens under the constant anchor weight, before the anneal, and belongs to the whole-line labeller on the untied readout. The op1 alignment rises under either half of the handover. Proposes the re-run: removal lines chosen by hue, retention read against the anneal's start, and the op1 alignment as a report line.
+
+    <span class="tags">`scouting` `multi-op` `intervention` `anchoring`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.10/report.py -->
 
 </details>

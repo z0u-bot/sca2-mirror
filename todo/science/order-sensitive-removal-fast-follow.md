@@ -1,6 +1,7 @@
 ---
-status: open
+status: partial
 tags: [D2.2, intervention, selectivity, ex-2.2.9, grammar]
+priority: high
 opened: 2026-09-17
 ---
 # Removal on the order-sensitive ops: what to expect, and what the model answers
@@ -14,3 +15,7 @@ opened: 2026-09-17
 **The removal-line rule.** The report's discussion proposes that on these ops the removal lines should be the lines whose answer takes the red operand's hue, so the gate asks the model to have lost *red* rather than the value of a red colour. Whether that rule is right falls out of the derivation above, and it is the change the next handover prereg would carry. It is the same question as [which red lines survive the projection](which-red-lines-survive-projection-on-the-new-ops.md), on the new ops.
 
 **The `hue-hsv` reading.** The discussion's sentence on `hue-hsv` drew a "Mmm." in review: the reading is thin. The derivation should either explain the 31% or say plainly that it is unexplained.
+
+## Notes
+
+**2026-09-17, Fable** — the derivation and the cube figures ran as [ex-2.2.10](/docs/m2/ex-2.2.10/report.py). The kept share tracks a change-of-hue counterfactual on the red operand (channel permutations) and neither to-zero nor to-gray: where a hue change leaves the answer alone (`sat-hsv` and `value-hsv`, red at op2) the seeds keep about two thirds, elsewhere a quarter or less. The 31% on `hue-hsv` red-at-op1 is a partial loss of the red operand's saturation and value under the projection: a linear RGB probe on the stream reads the projected operand as a hue rotated away from red, at full saturation, with its value down from 0.88 to about 0.72, and the answer at `=` about two tenths less saturated than clean. The rule the re-run carries: a removal line is one whose answer moves by at least 0.4 under some channel permutation of the red operand, and the S- and V-taking slots become a gateless read of the operator's cost. Open here: whether that partial loss is the operator's or this checkpoint's, which the same scoring pass on `handover-tied` and `handover-slot` would say; ex-2.2.11's scoring should include it.
