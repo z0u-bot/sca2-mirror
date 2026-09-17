@@ -25,7 +25,7 @@ with app.setup(hide_code=True):
     import experiment as ex
     from mini.reports import report_bundle, use_publisher
     from mini.store import project_store
-    from mini.vis import figure_html, light_dark, themed
+    from mini.vis import figure_html, light_dark, smooth_step_band, smooth_step_marks, themed
     from sca.data.colors import redness
     from sca.data.ops import (
         TOP,
@@ -304,6 +304,7 @@ def span2(v: np.ndarray, digits: int = 3) -> str:
     v = np.asarray(v, float)
     if v.size == 0 or np.all(np.isnan(v)):
         return "—"
+    # The no-break space keeps the value and its range on one line when the cell wraps.
     return f"{np.nanmean(v):.{digits}f} ({np.nanmin(v):.{digits - 1}f}–{np.nanmax(v):.{digits - 1}f})"
 
 
@@ -322,12 +323,32 @@ def ink(cond: str) -> str:
 
 
 @app.function(hide_code=True)
+def marker(cond: str) -> str:
+    """One marker shape per condition, so the conditions read apart in greyscale as well as by ink."""
+    return {
+        "control": "s",
+        "handover": "o",
+        "handover-slot": "^",
+        "handover-tied": "D",
+        "handover-narrow": "v",
+        "reference": "P",
+    }[cond]
+
+
+@app.function(hide_code=True)
+def cell_html(text: str) -> str:
+    """A table cell's text with `` `code` `` spans rendered, since the cell never passes through Markdown."""
+    parts = text.split("`")
+    return "".join(f"<code>{p}</code>" if i % 2 else p for i, p in enumerate(parts))
+
+
+@app.function(hide_code=True)
 def table_html(head: list[str], rows: list[list[str]], caption: str, *, ref_rows: frozenset[int] = frozenset()) -> str:
     """An authored result table in the shared report style; the first column is text, the rest numeric."""
-    ths = "".join(f"<th{' class=num' if i else ''}>{h}</th>" for i, h in enumerate(head))
+    ths = "".join(f"<th{' class=num' if i else ''}>{cell_html(h)}</th>" for i, h in enumerate(head))
     body = "".join(
         f"<tr{' class=ref' if r in ref_rows else ''}>"
-        + "".join(f"<td{' class=num' if i else ''}>{c}</td>" for i, c in enumerate(row))
+        + "".join(f"<td{' class=num' if i else ''}>{cell_html(c)}</td>" for i, c in enumerate(row))
         + "</tr>"
         for r, row in enumerate(rows)
     )
@@ -407,10 +428,10 @@ def h1_figure(res: Results) -> str:
     @themed(
         name="h1-eem-per-op",
         alt_text="""
-            A dot chart with the eleven ops along the bottom and expected exact match up the side. At each op, five columns of small dots, one per condition, sit close together at the same height, with a grey strip just below the control's mean marking the gate and a short dash above marking the ceiling the drawn answers allow. The handover dots sit inside the strip on every op.
+            A dot chart with the eleven ops along the bottom and expected exact match up the side. At each op, five columns of small dots, one per condition, sit close together at the same height, with a grey strip just below the control's mean marking the gate and a bar above marking the ceiling the drawn answers allow. The handover dots sit inside the strip on every op.
         """,
         caption=f"""
-            **Expected exact match on held-out lines, per op and condition.** Each small dot is one seed and the larger mark the seed mean, in the condition's ink (`control` grey, `handover` red, `handover-slot` blue, `handover-tied` purple, `handover-narrow` green). The grey strip under each op runs from the control's mean down to {ex.TASK_GATE:g} below it: a `handover` mean inside the strip passes H1 on that op. The short dash above each op is the ceiling the drawn answers allow (Σq²), which is 1 on the ops that never round.
+            **Expected exact match on held-out lines, per op and condition.** Each small dot is one seed, the larger mark the seed mean, and the thin bar behind them the seed range. The grey strip under each op runs from the control's mean down to {ex.TASK_GATE:g} below it: a `handover` mean inside the strip passes H1 on that op. The bar above each op is the ceiling the drawn answers allow (Σq²), which is 1 on the ops that never round.
         """,
     )
     def _plot() -> plt.Figure:
@@ -423,14 +444,12 @@ def h1_figure(res: Results) -> str:
             ax.fill_between([x - 0.45, x + 0.45], ctrl[op] - ex.TASK_GATE, ctrl[op], color=strip, lw=0, zorder=1)
             ax.plot([x - 0.45, x + 0.45], [ceil[op]] * 2, color=light_dark("#333", "#ddd"), lw=0.9, zorder=2)
             for o, c in zip(off, conds, strict=True):
-                v = eem[c, op]
-                jit = rng.uniform(-0.04, 0.04, len(v))
-                ax.plot(x + o + jit, v, "o", ms=2.2, color=ink(c), alpha=0.45, zorder=3, mew=0)
-                ax.plot(x + o, v.mean(), "o", ms=5, color=ink(c), zorder=4, mec=light_dark("white", "#111"), mew=0.6)
+                dots(ax, x + o, eem[c, op], c, rng=rng, width=0.04, label=c if x == 0 else None)
         ax.set_xticks(xs, ex.OP_NAMES, rotation=30, ha="right", fontsize=8)
         ax.set_ylabel("expected exact match")
         ax.set_ylim(0.2, 1.02)
         ax.grid(axis="y", alpha=0.2)
+        ax.legend(fontsize=7, loc="lower right", frameon=False, ncols=len(conds))
         return fig
 
     return _plot()
@@ -492,12 +511,18 @@ def h1_prose(res: Results) -> str:
     order = [st[op][1] for op in ex.ORDER_SENSITIVE]
     narrow = {op: float(res.eem("handover-narrow", op).mean() - res.eem("control", op).mean()) for op in ex.OP_NAMES}
     narrow_worst = min(narrow, key=lambda op: narrow[op])
+    gap = {op: float(res.read("control", op, "ceiling").mean() - res.eem("control", op).mean()) for op in ex.OP_NAMES}
+    widest = max(gap, key=lambda op: gap[op])
     return (
         f"The anchored model learns the task about as well as the un-anchored one. Across the {ex.N_OPS} ops the `handover` "
         f"seed mean sits between {st[worst][1]:+.3f} (`{worst}`) and {st[best][1]:+.3f} (`{best}`) of the control's. "
         f"On the order-sensitive subset the differences are {', '.join(f'{d:+.3f}' for d in order)}, so reading operand "
         f"order costs the anchored model nothing extra. `handover-narrow`, with lines per op held at the six-op count, sits "
-        f"between {min(narrow.values()):+.3f} (`{narrow_worst}`) and {max(narrow.values()):+.3f} of the control."
+        f"between {min(narrow.values()):+.3f} (`{narrow_worst}`) and {max(narrow.values()):+.3f} of the control. "
+        f"One op sits well under its ceiling on every condition: `{widest}`, at {gap[widest]:.2f} below on the control. "
+        f"That is the gap the calibration look found before the freeze ([Before the freeze](#before-the-freeze)): more passes "
+        f"over the corpus widened it rather than closing it, and it is the same on the anchored conditions, so it is a property "
+        f"of the op and the corpus rather than of the anchor."
     )
 
 
@@ -508,23 +533,36 @@ def pooled_sd(a: np.ndarray, b: np.ndarray) -> float:
 
 
 @app.function(hide_code=True)
-def dots(ax, x: float, v: np.ndarray, color: str, *, rng, ms: float = 5.0, width: float = 0.06) -> None:
-    """One column of per-seed dots with the seed mean drawn on top, in one ink."""
+def dots(ax, x: float, v: np.ndarray, cond: str, *, rng, ms: float = 5.0, width: float = 0.06, label=None) -> None:
+    """One column of per-seed dots with the seed mean drawn on top, in the condition's ink and marker shape.
+
+    A thin bar behind the dots spans the seed range, so the spread reads at a glance even where the dots overlap.
+    """
     v = np.asarray(v, float)
+    color, m = ink(cond), marker(cond)
     jit = rng.uniform(-width, width, len(v))
+    ax.plot([x, x], [np.nanmin(v), np.nanmax(v)], "-", color=color, lw=1.0, alpha=0.5, zorder=2, solid_capstyle="butt")
     ax.plot(x + jit, v, "o", ms=2.2, color=color, alpha=0.45, zorder=3, mew=0)
-    ax.plot(x, np.nanmean(v), "o", ms=ms, color=color, zorder=4, mec=light_dark("white", "#111"), mew=0.6)
+    ax.plot(x, np.nanmean(v), m, ms=ms, color=color, zorder=4, mec=light_dark("white", "#111"), mew=0.6, label=label)
 
 
 @app.function(hide_code=True)
-def gate_line(ax, y: float, *, partial: float | None = None) -> None:
-    """A dashed gate line, with a dotted partial level under it when there is one."""
+def gate_line(ax, y: float, *, partial: float | None = None, fail: str | None = None) -> None:
+    """A dashed gate line, with a dotted partial level under it when there is one.
+
+    *fail* names the side that misses the gate (`below` or `above`); that side is hatched so a miss reads as a
+    region rather than a line to compare against.
+    """
     ax.axhline(y, color=light_dark("#333", "#ddd"), lw=0.9, ls="--", zorder=2)
     if partial is not None:
         ax.axhline(partial, color=light_dark("#333", "#ddd"), lw=0.7, ls=":", zorder=2)
-
-
-# --- H2 -------------------------------------------------------------------------------------------
+    if fail is not None:
+        lo, hi = ax.get_ylim()
+        span = (lo, y) if fail == "below" else (y, hi)
+        ax.axhspan(
+            *span, facecolor="none", edgecolor=light_dark("#00000022", "#ffffff2a"), hatch="////", lw=0, zorder=0
+        )
+        ax.set_ylim(lo, hi)
 
 
 @app.function(hide_code=True)
@@ -584,7 +622,8 @@ def h2_verdict(res: Results) -> tuple[str, str]:
     deficit = float(res.deficit("handover", ex.PRIMARY_OP, "projection").mean())
     alpha = (
         f"The paired ᾱ prediction holds: ᾱ at op1 is {st['alpha_op1'][1]:.2f}, {st['alpha_op1'][0]} the {ex.MEAN_ALIGN_REF:g} "
-        f"the earlier experiments gated, as expected with the readout untied, and the non-red deficit it was paired with is "
+        f"the earlier experiments gated, as expected with the readout untied (the output loss no longer holds the non-red "
+        f"embedding rows off the axis; see the H2 results), and the non-red deficit it was paired with is "
         f"{deficit:.3f}, inside H3's {ex.NONRED_DEFICIT_GATE:g} gate."
     )
     if misses:
@@ -624,7 +663,7 @@ def h2_figure(res: Results) -> str:
             Six small dot panels, one per placement statistic, each with the five conditions and the six-op reference along the bottom. On the margin, grading, lead, and contrast panels the anchored conditions sit close together and near the reference, above the dashed gate line, while the control sits at zero. On the retention panel the anchored conditions sit a little under the reference and one whole-line seed falls below the gate line. On the alignment panel every anchored condition sits above the dashed line, the two untied conditions well above the tied one; here above the line is the drift the prediction expected.
         """,
         caption=f"""
-            **Placement of *red* on the `mix` lines, per condition, beside the six-op reference.** One panel per statistic; each small dot is one seed and the larger mark the seed mean, in the condition's ink, with ex-2.2.3's twenty reference seeds in gold at the right. The dashed line is the gate (margin {ex.MARGIN_RATIO * ex.REF_M_LINE:.3f}, grading r² {ex.GRADE_R2_RATIO * ex.REF_R2_SIM:.3f}, lead {ex.LEAD_GATE:g}, contrast {ex.CONTRAST_GATE:g}, retention {ex.RETENTION_GATE:g}) and the dotted line the partial level where there is one. The retention column for `control` is empty because there is no anchor for it to hold. On the ᾱ panel the dashed line is the {ex.MEAN_ALIGN_REF:g} the earlier experiments gated, which here is a prediction: we expected the untied conditions above it.
+            **Placement of *red* on the `mix` lines, per condition, beside the six-op reference.** The read is on `mix` because the gates were set on `mix` at ex-2.2.3, so these numbers compare with the reference's. One panel per statistic; each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range, with ex-2.2.3's twenty reference seeds at the right. The dashed line is the gate (margin {ex.MARGIN_RATIO * ex.REF_M_LINE:.3f}, grading r² {ex.GRADE_R2_RATIO * ex.REF_R2_SIM:.3f}, lead {ex.LEAD_GATE:g}, contrast {ex.CONTRAST_GATE:g}, retention {ex.RETENTION_GATE:g}), the hatched region the side that misses it, and the dotted line the partial level where there is one. The retention column for `control` is empty because there is no anchor for it to hold. On the ᾱ panel the dashed line is the {ex.MEAN_ALIGN_REF:g} the earlier experiments gated, which here is a prediction: we expected the untied conditions above it.
         """,
     )
     def _plot() -> plt.Figure:
@@ -638,12 +677,14 @@ def h2_figure(res: Results) -> str:
                     peak = res.ref_stat("m_line_peak") if c == "reference" else res.stat(c, "m_line_peak")
                     v = v[peak >= ex.RETENTION_FLOOR]
                 if len(v):
-                    dots(ax, i, v, ink(c), rng=rng)
-            if k in gates:
-                gate_line(ax, gates[k][1], partial=gates[k][2])
+                    dots(ax, i, v, c, rng=rng)
+            if k == "alpha_op1":
+                gate_line(ax, gates[k][1])  # a prediction, not a gate: no side to hatch
+            elif k in gates:
+                gate_line(ax, gates[k][1], partial=gates[k][2], fail="below")
             else:
-                gate_line(ax, ex.RETENTION_GATE)
                 ax.set_ylim(min(ax.get_ylim()[0], ex.RETENTION_GATE - 0.05), None)
+                gate_line(ax, ex.RETENTION_GATE, fail="below")
             ax.set_title(titles[k], fontsize=9)
             ax.set_xticks(
                 range(len(names)), [n.replace("handover-", "h-") for n in names], rotation=40, ha="right", fontsize=7
@@ -664,10 +705,10 @@ def h2_profile_figure(res: Results) -> str:
     @themed(
         name="h2-softmin-profile",
         alt_text="""
-            A line chart with the six token roles along the bottom and softmin weight up the side, one line per anchored condition. Every line peaks at op1 and op2 and is near zero at the op word and the equals sign; the whole-line conditions put a little weight on the answer and the newline, the operand-only condition none.
+            A stepped chart with the six token roles along the bottom and softmin weight up the side, one series per anchored condition drawn as level marks joined by faint risers. Every series peaks at op1 and op2 and is near zero at the op word and the equals sign; the whole-line conditions put a little weight on the answer and the newline, the operand-only condition none.
         """,
         caption="""
-            **Where the label's weight lands, by token role.** The red group's softmin weight at each of the six positions, averaged over the four post-attention slices and the seeds, one line per anchored condition (`handover` red, `handover-slot` blue, `handover-tied` purple, `handover-narrow` green), with the seed range as a band. The whole-line labeller (every condition but `handover-slot`) may place weight on the answer and the newline; the either-slot labeller only on the operands.
+            **Where the label's weight lands, by token role.** The red group's softmin weight at each of the six positions, averaged over the four post-attention slices and the seeds, one series per anchored condition, with the seed range as a band. The whole-line labeller (every condition but `handover-slot`) may place weight on the answer and the newline; the either-slot labeller only on the operands.
         """,
     )
     def _plot() -> plt.Figure:
@@ -675,12 +716,13 @@ def h2_profile_figure(res: Results) -> str:
         x = np.arange(len(roles))
         for c in conds:
             p = prof[c]
-            ax.fill_between(x, p.min(0), p.max(0), color=ink(c), alpha=0.15, lw=0, zorder=1)
-            ax.plot(x, p.mean(0), "-o", ms=3.5, color=ink(c), zorder=3, label=c)
+            smooth_step_band(ax, x, p.min(0), p.max(0), ramp=0.5, color=ink(c), alpha=0.15, zorder=1)
+            smooth_step_marks(ax, x, p.mean(0), ramp=0.5, color=ink(c), lw=1.6, zorder=3, label=c)
         ax.set_xticks(x, roles)
         ax.set_ylabel("softmin weight")
         ax.set_ylim(0, None)
         ax.grid(axis="y", alpha=0.2)
+        ax.legend(fontsize=7, frameon=False)
         return fig
 
     return _plot()
@@ -736,27 +778,42 @@ def h2_prose(res: Results) -> str:
     ref_alpha = float(res.ref_stat("alpha_op1").mean())
     ref_m = float(res.ref_stat("m_line").mean())
     n_below, n_q, low = retention_detail(res, "handover")
+    ref_steps = ex.ex223.EPOCHS_SHORT * ex.ex223.steps_per_epoch()
+    tied_lower = tied["alpha_op1"][1] < min(st["alpha_op1"][1], slot["alpha_op1"][1])
     return (
-        f"The anchor lands where we put it, and holds the spot a little less well than the references do. On the `mix` lines `handover` reaches a margin of {st['m_line'][1]:.3f} "
+        f"The anchor does land where we put it, holding the spot only a little less well than the references do. On the `mix` lines `handover` reaches a margin of {st['m_line'][1]:.3f} "
         f"against the reference's {ref_m:.3f} (the gate is {ex.MARGIN_RATIO * ex.REF_M_LINE:.3f}), a grading r² of "
-        f"{st['r2_sim'][1]:.2f}, a lead at the embedding of {st['lead_emb'][1]:.2f}, and a contrast of {st['contrast'][1]:.2f}. "
+        f"{st['r2_sim'][1]:.2f}, a lead at the embedding of {st['lead_emb'][1]:.2f}, and a contrast of {st['contrast'][1]:.2f}.\n\n"
         f"ᾱ at op1 reads {st['alpha_op1'][1]:.2f} on `handover`, {slot['alpha_op1'][1]:.2f} on `handover-slot`, and "
         f"{tied['alpha_op1'][1]:.2f} on `handover-tied`, against {ref_alpha:.2f} at the reference. "
         + (
-            "So the untied readout is what raises ᾱ, as ex-2.2.7 saw, and the tied condition sits with the reference."
-            if tied["alpha_op1"][1] < min(st["alpha_op1"][1], slot["alpha_op1"][1])
-            else "The tied condition does not sit below the untied ones, so untying is not on its own what moves ᾱ here."
+            "So the untied readout is what raises ᾱ, as ex-2.2.7 saw, and the tied condition sits with the reference. "
+            "That runs against the first intuition, which is that a separate readout should leave the embedding cleaner, "
+            "and we have one mechanism to offer for it. ᾱ at op1 is read on the first token, whose state at every slice is a "
+            "function of that color's embedding row alone (nothing precedes it to attend to), so it is close to the mean axis "
+            "component of the 216 color embeddings. With a tied table those rows are also the "
+            "readout rows, so any axis component on a non-red color's row raises that color's logit whenever the state at "
+            "`=` carries *red*, and the task loss pushes it back off. Untying removes that pressure: the embedding rows are "
+            "then free to carry a small common component along e₁, which costs the task nothing because the readout no "
+            "longer reads it. The same release is what H4 sees on the syntax words, from the other side: there the tied "
+            "table had put axis onto `=` because it helped the output, and untying let it come off. Both are the output "
+            "loss letting go of the embedding. The check, for the next round, is the mean axis component of the non-red "
+            "embedding rows on `handover` against `handover-tied`, which the stored tables can give without a run."
+            if tied_lower
+            else "The tied condition does not sit below the untied ones, so untying is not on its own what moves ᾱ here. "
         )
-        + f" Retention is where the section misses: the seed mean is {st['retention'][1]:.2f} on `handover` against "
+        + f"\n\nRetention is where the hypothesis misses: the seed mean is {st['retention'][1]:.2f} on `handover` against "
         f"{slot['retention'][1]:.2f} on `handover-slot`, {tied['retention'][1]:.2f} on `handover-tied`, and "
         f"{float(res.ref_stat('retention').mean()):.2f} at ex-2.2.3, and {n_below} of {n_q} qualifying seeds end{'s' if n_below == 1 else ''} at "
         f"{low:.2f}, under the {ex.RETENTION_GATE:g} gate."
-        + f" One caveat on every ratio against the reference: those runs trained for {ex.ex223.EPOCHS_SHORT * ex.ex223.steps_per_epoch():,} steps and ours for "
-        f"{ex.HANDOVER.steps:,}, so a margin or an ᾱ that sits above the reference could be the longer training as much as the grammar."
+        + f" One caveat on every ratio against the reference: those runs trained for {ref_steps:,} steps and ours for "
+        f"{ex.HANDOVER.steps:,}, so a margin or an ᾱ that sits above the reference could be the longer training as much as the grammar. "
+        f"The same difference bears on retention. The anchor weight anneals over the last tenth of training, which here is "
+        f"{ex.HANDOVER.steps // 10:,} steps against {ref_steps // 10:,} at the reference, so the margin has three times as many "
+        f"steps to drift after the weight comes down, and the seed spread on ᾱ and retention looks like the spread we saw "
+        f"before the schedules were tuned in D2.1, which a later anneal settled. A schedule read on this grammar (a later or "
+        f"shorter anneal, or one set in steps rather than as a share of training) is the first thing to try on this miss."
     )
-
-
-# --- H3 -------------------------------------------------------------------------------------------
 
 
 @app.function(hide_code=True)
@@ -794,7 +851,7 @@ def h3_verdict(res: Results) -> tuple[str, str]:
     removal = (
         f"Removal: under `projection`, `handover` keeps at most {st['kept'][worst]:.0%} of its clean expected exact match on the removal lines (`{worst}`), inside the {ex.RED_KEPT_GATE:.0%} gate on every op."
         if st["removal"] == "pass"
-        else f"Removal: `handover` keeps more than {ex.RED_KEPT_GATE:.0%} on {', '.join(f'`{o}`' for o in st['removal_misses'])} (the largest is `{worst}` at {st['kept'][worst]:.0%})."
+        else f"Removal: on {', '.join(f'`{o}`' for o in st['removal_misses'])} `handover` still answers more than {ex.RED_KEPT_GATE:.0%} of its removal lines with the axis taken out (the most on `{worst}`, at {st['kept'][worst]:.0%} of its clean expected exact match), where the gate asks for {ex.RED_KEPT_GATE:.0%} or less."
     )
     sel = (
         f"Selectivity {'holds' if st['selectivity'] == 'pass' else 'is ' + st['selectivity']}: the non-red `mix` deficit is "
@@ -824,7 +881,7 @@ def h3_figure(res: Results) -> str:
             Two dot panels stacked, with the eleven ops along the bottom of each. The top panel, the share of clean accuracy kept on the removal lines, has every anchored condition's dots under the dashed gate line at one fifth on eight ops, and above it on the three ops that take one HSV attribute from their second operand, where the whole-line conditions sit highest. The bottom panel, the deficit on the non-red lines, has the dots near zero on every op, well under the dashed gate line; a few seeds of the tied condition sit higher on one or two ops.
         """,
         caption=f"""
-            **Removal and selectivity under `projection`, per op and anchored condition.** Top: the share of the clean expected exact match the model keeps on each op's removal lines (red lines whose answer moves by at least {ex.FAR_MOVE:g} when the red operand loses its red); the dashed line is the {ex.RED_KEPT_GATE:.0%} gate, and lower is better. Bottom: the deficit in expected exact match on each op's non-red lines; dashed at the {ex.NONRED_DEFICIT_GATE:g} gate and dotted at the {ex.NONRED_DEFICIT_PARTIAL:g} partial level, and lower is better. The gate on the deficit is read on `mix` only. Each small dot is one seed, the larger mark the seed mean, in the condition's ink (`handover` red, `handover-slot` blue, `handover-tied` purple, `handover-narrow` green).
+            **Removal and selectivity under `projection`, per op and anchored condition.** Top: the share of the clean expected exact match the model keeps on each op's removal lines (red lines whose answer moves by at least {ex.FAR_MOVE:g} when the red operand loses its red); the dashed line is the {ex.RED_KEPT_GATE:.0%} gate, and the hatched region above it is the miss. Bottom: the deficit in expected exact match on each op's non-red lines; dashed at the {ex.NONRED_DEFICIT_GATE:g} gate, hatched above it, and dotted at the {ex.NONRED_DEFICIT_PARTIAL:g} partial level. The gate on the deficit is read on `mix` only. Each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range.
         """,
     )
     def _plot() -> plt.Figure:
@@ -834,16 +891,17 @@ def h3_figure(res: Results) -> str:
         off = np.linspace(-0.3, 0.3, len(conds))
         for x, op in zip(xs, ex.OP_NAMES, strict=True):
             for o, c in zip(off, conds, strict=True):
-                dots(top, x + o, kept[c, op], ink(c), rng=rng, ms=4, width=0.04)
-                dots(bot, x + o, deficit[c, op], ink(c), rng=rng, ms=4, width=0.04)
-        gate_line(top, ex.RED_KEPT_GATE)
-        gate_line(bot, ex.NONRED_DEFICIT_GATE, partial=ex.NONRED_DEFICIT_PARTIAL)
+                dots(top, x + o, kept[c, op], c, rng=rng, ms=4, width=0.04, label=c if x == 0 else None)
+                dots(bot, x + o, deficit[c, op], c, rng=rng, ms=4, width=0.04)
+        top.set_ylim(-0.02, max(0.5, top.get_ylim()[1]))
+        gate_line(top, ex.RED_KEPT_GATE, fail="above")
+        gate_line(bot, ex.NONRED_DEFICIT_GATE, partial=ex.NONRED_DEFICIT_PARTIAL, fail="above")
         top.set_ylabel("kept on removal lines")
         bot.set_ylabel("non-red deficit")
-        top.set_ylim(-0.02, max(0.5, top.get_ylim()[1]))
         bot.set_xticks(xs, ex.OP_NAMES, rotation=30, ha="right", fontsize=8)
         for ax in (top, bot):
             ax.grid(axis="y", alpha=0.2)
+        top.legend(fontsize=7, loc="upper left", frameon=False, ncols=len(conds))
         return fig
 
     return _plot()
@@ -851,6 +909,12 @@ def h3_figure(res: Results) -> str:
 
 @app.function(hide_code=True)
 def h3_table(res: Results) -> str:
+    """Two tables, removal and selectivity, so that neither runs wider than the page."""
+    return h3_removal_table(res) + "\n\n" + h3_selectivity_table(res)
+
+
+@app.function(hide_code=True)
+def h3_removal_table(res: Results) -> str:
     conds = [c.name for c in ex.CONDS if c.name != "control"]
     rows = []
     for op in ex.OP_NAMES:
@@ -860,6 +924,23 @@ def h3_table(res: Results) -> str:
             cells.append(bold_if(f"{v:.2f}", v <= ex.RED_KEPT_GATE) if c == "handover" else f"{v:.2f}")
         for operator in ("operands", "shaped-a0.4-p0"):
             cells.append(f"{res.kept('handover', op, operator).mean():.2f}")
+        rows.append(cells)
+    head = ["op", *[f"`{c}` ↓" for c in conds], "`operands` ↓", "`shaped` ↓"]
+    return table_html(
+        head,
+        rows,
+        f"""
+        **Removal, per op: the share of clean expected exact match kept on the removal lines.** Seed means under `projection`, one column per anchored condition, then `handover` under the `operands` and `shaped-a0.4-p0` operators. Bold entries are inside the {ex.RED_KEPT_GATE:.0%} gate, which is read on `handover`.
+        """,
+    )
+
+
+@app.function(hide_code=True)
+def h3_selectivity_table(res: Results) -> str:
+    conds = [c.name for c in ex.CONDS if c.name != "control"]
+    rows = []
+    for op in ex.OP_NAMES:
+        cells = [f"`{op}`"]
         for c in conds:
             v = float(res.deficit(c, op, "projection").mean())
             cells.append(
@@ -870,20 +951,12 @@ def h3_table(res: Results) -> str:
         sd = res.ref_deficit_sd(op)
         cells.append("—" if math.isnan(sd) else f"{band(sd, res.n('handover'), len(res.ref_deficit(op))):.3f}")
         rows.append(cells)
-    short = lambda c: c.replace("handover", "h")  # noqa: E731
-    head = [
-        "op",
-        *[f"kept, `{short(c)}` ↓" for c in conds],
-        "kept, `operands` ↓",
-        "kept, `shaped` ↓",
-        *[f"deficit, `{short(c)}` ↓" for c in conds],
-        "band",
-    ]
+    head = ["op", *[f"`{c}` ↓" for c in conds], "band"]
     return table_html(
         head,
         rows,
         f"""
-        **Removal and selectivity, per op.** Seed means. *Kept* is the share of the clean expected exact match the model keeps on the removal lines, under `projection` for every anchored condition (`h` is `handover`) and under the other two operators for `handover`; a bold `handover` entry is inside the {ex.RED_KEPT_GATE:.0%} gate. *Deficit* is the drop in expected exact match on the non-red lines under `projection`; the gate is read on `mix` only, where a bold entry is inside {ex.NONRED_DEFICIT_GATE:g}. The band is the smallest difference from the reference the deficit read resolves, from the per-run σ ex-2.2.8 measured at the reference's twenty seeds ({ex.DEFICIT_NOISE}); the ops the six-op grammar did not have carry none.
+        **Selectivity, per op: the drop in expected exact match on the non-red lines.** Seed means under `projection`, one column per anchored condition. The gate ({ex.NONRED_DEFICIT_GATE:g}) is read on `mix` only, where the bold entry is inside it. The band is the smallest difference from the reference the read resolves, from the per-run σ ex-2.2.8 measured at the reference's twenty seeds ({ex.DEFICIT_NOISE}); the ops the six-op grammar did not have carry none.
         """,
     )
 
@@ -908,21 +981,47 @@ def h3_no_gate_reads(res: Results) -> dict:
 @app.function(hide_code=True)
 def h3_distance_table(res: Results) -> str:
     """How far the answer moves under `projection` on the removal lines, beside the to-zero move."""
+    floor = distance_floor()
     rows = []
     for op in ex.OP_NAMES:
         move = float(np.mean([r["ops"][op]["move"]["removal"] for r in res.scored("handover")]))
         clean = float(res.score("handover", op, None, "expected_dist", "removal").mean())
         proj = float(res.score("handover", op, "projection", "expected_dist", "removal").mean())
         opnd = float(res.score("handover", op, "operands", "expected_dist", "removal").mean())
-        rows.append([f"`{op}`", f"{move:.2f}", f"{clean:.2f}", f"{proj:.2f}", f"{opnd:.2f}"])
-    head = ["op", "true answer moves", "clean", "`projection`", "`operands`"]
+        rows.append([f"`{op}`", f"{move:.2f}", f"{floor[op]:.2f}", f"{clean:.2f}", f"{proj:.2f}", f"{opnd:.2f}"])
+    head = ["op", "true answer moves", "floor", "clean", "`projection`", "`operands`"]
     return table_html(
         head,
         rows,
         """
-        **How far the answer moves on the removal lines, per op.** Distances in the unit RGB cube, `handover` seed means. The first column is how far the true answer moves when the red operand loses its red (the to-zero move, from the corpus). The others are the expected distance from the model's answer distribution to the true answer: on the clean pass, and under the two projection operators.
+        **How far the answer moves on the removal lines, per op.** Distances in the unit RGB cube, `handover` seed means. *True answer moves* is how far the true answer moves when the red operand loses its red (the to-zero move, from the corpus): the distance a model that had lost *red* would be expected to miss by. The last three columns are the expected distance from the model's answer distribution to the line's answer: on the clean pass, and under the two projection operators. *Floor* is that same distance for the true answer distribution itself, which is above zero on the ops that round because the drawn answer can land on either neighbour; the clean column is read against it.
         """,
     )
+
+
+@app.function(hide_code=True)
+def distance_floor() -> dict[str, float]:
+    """Per op, on its removal lines: the expected distance from the true answer distribution to the line's rounded
+    answer, in the unit cube. The value a model with the true distribution would score on `expected_dist`.
+    """
+    out = {}
+    for op in ex.TABLE:
+        pl = probe_lines(op, ex.N_PROBE, ex.PROBE_SEED, both_slots=op.name in ex.ORDER_SENSITIVE)
+        removal = [
+            ln for ln in pl if dose(ln.lhs, ln.rhs) >= ex.RED_DOSE and to_zero_move(op, ln.lhs, ln.rhs) >= ex.FAR_MOVE
+        ]
+        out[op.name] = float(
+            np.mean(
+                [
+                    sum(
+                        p * np.linalg.norm(np.subtract(c, ln.result)) / TOP
+                        for c, p in answer_dist(op, ln.lhs, ln.rhs).items()
+                    )
+                    for ln in removal
+                ]
+            )
+        )
+    return out
 
 
 @app.function(hide_code=True)
@@ -943,7 +1042,7 @@ def h3_prose(res: Results) -> str:
             f"between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under "
             f"`projection`. On {', '.join(f'`{op}`' for op in above)} it keeps "
             f"{', '.join(f'{kept[op]:.0%}' for op in above)}, above the {ex.RED_KEPT_GATE:.0%} gate; the slot split under "
-            f"[Exploratory analyses](#exploratory-analyses) says which lines those are."
+            f"[The order-sensitive subset, by slot](#the-order-sensitive-subset-by-slot) says which lines those are."
         )
     else:
         removal = (
@@ -953,7 +1052,7 @@ def h3_prose(res: Results) -> str:
     return (
         f"{removal} On the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), "
         f"against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference; the `operands` edit, which leaves the "
-        f"syntax positions alone, reads {opnd:.3f}. No op's non-red deficit exceeds {others[hi]:.3f}. "
+        f"syntax positions alone, reads {opnd:.3f}. No op's non-red deficit exceeds {others[hi]:.3f}.\n\n"
         f"Of the two reads with a direction and no gate, neither went the predicted way. The rank correlation between "
         f"how far the true answer moves and how far the model's answer moves under `projection` is {ng['rho']:.2f}: the "
         f"largest true moves are on {', '.join(f'`{op}`' for op in ng['top_move'])} and the largest model moves on "
@@ -961,9 +1060,6 @@ def h3_prose(res: Results) -> str:
         f"(the widest gap is {ng['gap']:+.3f}, on `{ng['widest']}`), where the prediction had it removing less on the ops "
         f"computed at `=`."
     )
-
-
-# --- H4 -------------------------------------------------------------------------------------------
 
 
 @app.function(hide_code=True)
@@ -998,13 +1094,25 @@ def h4_status(res: Results) -> dict:
 def h4_verdict(res: Results) -> tuple[str, str]:
     st = h4_status(res)
     a, e, b = st["component_holds"], st["eq_holds"], st["deficit_holds"]
-    c1 = f"the syntax-embedding component is {st['component'][0]:.3f} on `handover` against {st['component'][1]:.3f} on `handover-tied` (band {st['component'][2]:.3f})"
-    ce = f"on `=` alone `handover` reads {st['eq'][0]:.3f}, {'within' if e else 'outside'} a band ({st['eq'][2]:.3f}) of ex-2.2.7's hard-zeroed {st['eq'][1]:.3f}, and its readout row for `=` carries {st['readout']:.3f}"
-    c2 = f"the non-red `mix` deficit is {st['deficit'][0]:.3f} against {st['deficit'][1]:.3f} (band {st['deficit'][2]:.3f})"
+    c1 = (
+        f"The syntax embeddings carry less of the axis on `handover` ({st['component'][0]:.3f}) than on `handover-tied` "
+        f"({st['component'][1]:.3f}), a gap well over the band ({st['component'][2]:.3f})"
+        if a
+        else f"The syntax embeddings do not carry less of the axis on `handover` ({st['component'][0]:.3f}) than on `handover-tied` ({st['component'][1]:.3f}; band {st['component'][2]:.3f})"
+    )
+    ce = (
+        f"On `=` `handover` reads {st['eq'][0]:.3f}, within a band ({st['eq'][2]:.3f}) of ex-2.2.7's hard-zeroed {st['eq'][1]:.3f}"
+        if e
+        else f"`=` is the one word that did not reach the ceiling: `handover` reads {st['eq'][0]:.3f} there, against ex-2.2.7's hard-zeroed {st['eq'][1]:.3f} (band {st['eq'][2]:.3f})"
+    ) + f", and its readout row for `=` carries {st['readout']:.3f}, so the component moved to the readout"
+    c2 = (
+        f"the non-red `mix` deficit is {'lower' if b else 'not lower'} on `handover`, {st['deficit'][0]:.3f} against "
+        f"{st['deficit'][1]:.3f} on `handover-tied` (band {st['deficit'][2]:.3f})"
+    )
     first = "holds" if a and e else "holds except on `=`" if a else "does not hold"
     second = "holds" if b else "does not hold"
     status = "pass" if a and e and b else "partial" if a or b else "miss"
-    return status, f"The first prediction {first}: {c1}; {ce}. The second {second}: {c2}."
+    return status, f"The first prediction {first}. {c1}. {ce}. The second {second}: {c2}."
 
 
 @app.function(hide_code=True)
@@ -1027,38 +1135,43 @@ def h4_figure(res: Results) -> str:
             Two panels. Left, a dot chart of the axis component on each syntax word's row, with the tied condition's embedding rows sitting higher than the untied condition's on the equals sign and the newline, and the untied condition's readout rows sitting where the tied embedding rows do. Right, the non-red deficit under projection for the two conditions, as columns of seed dots.
         """,
         caption="""
-            **The *red* axis on the syntax tokens, and what it costs.** Left: the absolute axis component of each syntax word's row (the op words, `=`, and `⏎`), seed mean with the seed range as a bar: `handover`'s embedding rows in red, `handover-tied`'s in purple, and `handover`'s readout rows as open red marks. The gold marks are ex-2.2.7's hard-zeroed ceiling, where the embedding component is zero by construction. Right: the deficit in expected exact match on the non-red `mix` lines under `projection`, one small dot per seed and the seed mean as the larger mark.
+            **The *red* axis on the syntax tokens, and what it costs.** Left: the absolute axis component of each syntax word's row (the op words, `=`, and `⏎`), seed mean with the seed range as a bar, for `handover-tied`'s embedding rows, `handover`'s embedding rows, and `handover`'s readout rows (the open marks). The short bars are ex-2.2.7's hard-zeroed ceiling, where the embedding component is zero by construction. Right: the deficit in expected exact match on the non-red `mix` lines under `projection`, one small dot per seed and the seed mean as the larger mark.
         """,
     )
     def _plot() -> plt.Figure:
         fig, (left, right) = plt.subplots(1, 2, figsize=(8.4, 3.4), layout="constrained", width_ratios=[3, 1])
         x = np.arange(len(words))
-        for (c, _table), v, o, mfc in (
-            (("handover-tied", "rows"), series["handover-tied", "rows"], -0.3, None),
-            (("handover", "rows"), series["handover", "rows"], 0.0, None),
-            (("handover", "rows_readout"), series["handover", "rows_readout"], 0.3, "none"),
+        for c, table, o, mfc, label in (
+            ("handover-tied", "rows", -0.3, None, "handover-tied, embedding"),
+            ("handover", "rows", 0.0, None, "handover, embedding"),
+            ("handover", "rows_readout", 0.3, "none", "handover, readout"),
         ):
+            v = series[c, table]
             m, lo, hi = v.mean(0), v.min(0), v.max(0)
             left.errorbar(
                 x + o,
                 m,
                 yerr=[m - lo, hi - m],
-                fmt="o",
+                fmt=marker(c),
                 ms=4.5,
                 color=ink(c),
                 mfc=mfc or ink(c),
                 lw=0.8,
                 capsize=0,
                 zorder=3,
+                label=label,
             )
-        left.plot(x - 0.15, ceiling.mean(0), "_", ms=9, color=ink("reference"), mew=1.5, zorder=4)
+        left.plot(
+            x - 0.15, ceiling.mean(0), "_", ms=9, color=ink("reference"), mew=1.5, zorder=4, label="ex-2.2.7 ceiling"
+        )
         left.set_xticks(x, labels, rotation=30, ha="right", fontsize=8)
         left.set_ylabel("|axis component|")
         left.set_ylim(0, None)
         left.grid(axis="y", alpha=0.2)
+        left.legend(fontsize=7, frameon=False)
         rng = np.random.default_rng(3)
         for i, c in enumerate(d):
-            dots(right, i, d[c], ink(c), rng=rng)
+            dots(right, i, d[c], c, rng=rng)
         right.set_xticks([0, 1], ["handover", "h-tied"], fontsize=8)
         right.set_ylabel("non-red mix deficit")
         right.grid(axis="y", alpha=0.2)
@@ -1105,7 +1218,7 @@ def h4_prose(res: Results) -> str:
     where = "within" if st["eq_holds"] else "outside"
     return (
         f"The separate readout keeps the axis off the syntax embeddings on this grammar too. Averaged over the op words, `=`, "
-        f"and `⏎`, the embedding component is {st['component'][0]:.3f} on `handover` and {st['component'][1]:.3f} on `handover-tied`. "
+        f"and `⏎`, the e₁ component of the embedding rows is {st['component'][0]:.3f} on `handover` and {st['component'][1]:.3f} on `handover-tied`. "
         f"On `=` alone, `handover` reads {st['eq'][0]:.3f}, {where} a band ({st['eq'][2]:.3f}) of ex-2.2.7's hard-zeroed {st['eq'][1]:.3f}, "
         f"while its readout row for `=` carries {st['readout']:.3f}: the component moved to the readout, as it did in the pilot. "
         f"Under `projection` the non-red `mix` deficit is {st['deficit'][0]:.3f} on `handover` against {st['deficit'][1]:.3f} on "
@@ -1114,9 +1227,6 @@ def h4_prose(res: Results) -> str:
         f"either table. One word the untied table did not clean: `⏎`, whose embedding row reads {eol:.3f} on `handover` "
         f"where every other syntax word is under {rest:.2f}."
     )
-
-
-# --- H5 -------------------------------------------------------------------------------------------
 
 
 @app.function(hide_code=True)
@@ -1168,7 +1278,7 @@ def h5_figure(res: Results) -> str:
         rng = np.random.default_rng(4)
         xs = [0, 1, 2.5, 3.5]
         for x, (c, o) in zip(xs, [(c, o) for o in ("projection", "operands") for c in conds], strict=True):
-            dots(ax, x, d[c, o], ink(c), rng=rng, width=0.1)
+            dots(ax, x, d[c, o], c, rng=rng, width=0.1)
         ax.axhline(ex.TAIL, color=light_dark("#333", "#ddd"), lw=0.9, ls="--", zorder=2)
         ax.axhline(ex.NONRED_DEFICIT_GATE, color=light_dark("#333", "#ddd"), lw=0.7, ls=":", zorder=2)
         ax.set_xticks(
@@ -1225,9 +1335,6 @@ def h5_prose(res: Results) -> str:
         f"`handover-slot` (worst seed {s.max():.3f}); {st['tail'][0]} and {st['tail'][1]} seeds sit above {ex.TAIL:g}. Under the "
         f"`operands` edit the two read {st['operands'][0]:.3f} and {st['operands'][1]:.3f}."
     )
-
-
-# --- Decision and findings ------------------------------------------------------------------------
 
 
 @app.function(hide_code=True)
@@ -1372,22 +1479,25 @@ def findings_md(res: Results | None) -> str:
         ),
         ("What does the whole-line label cost? (H5)", "what-does-the-whole-line-label-cost-h5", h5_verdict),
     ]
+    # The verdict word is written so it cannot read as an answer to the question in the
+    # link: "pass" after "What does the label cost?" looked like one. H1–H3 are gated,
+    # so their word names the gate; H4–H5 are predictions, so theirs says whether it held.
+    gated = {"pass": "gate cleared", "miss": "gate missed", "partial": "partial", "unresolved": "unresolved"}
+    predicted = {"pass": "held", "miss": "did not hold", "partial": "held in part", "unresolved": "unresolved"}
     lines = []
     for title, anchor, fn in items:
         if res is None:
             lines.append(f"- [{title}](#{anchor}) — _to come_")
         else:
             status, line = fn(res)
-            lines.append(f"- [{title}](#{anchor}) — **{status}.** {line}")
+            word = (gated if fn in (h1_verdict, h2_verdict, h3_verdict) else predicted)[status]
+            lines.append(f"- [{title}](#{anchor}) — **{word}.** {line}")
     if res is None:
         lines.append("- [Whether the handover is adopted](#decision) — _to come_")
     else:
         adopted, _ = decision(res)
         lines.append(f"- [Whether the handover is adopted](#decision) — **{'adopted' if adopted else 'not adopted'}.**")
     return "\n".join(lines)
-
-
-# --- Exploratory ----------------------------------------------------------------------------------
 
 
 @app.function(hide_code=True)
@@ -1402,23 +1512,26 @@ def lines_per_op_table(res: Results) -> str:
     """The operand-cube probe scan: how decodable the operands and the answer are, by condition, beside
     ex-2.2.3's six-op control.
     """
-    targets = {"op1": 0, "op2": 2, "answer": ex.DECODE_POS}
+    targets = {"op1 at op1": 0, "op2 at op2": 2, "answer at `=`": ex.DECODE_POS}
     conds = [(c, res.geometry) for c in ex.CUBE_PROBED] + [("control", res.ex223_geometry)]
     names = [f"`{c}`" for c in ex.CUBE_PROBED] + ["ex-2.2.3 `control` (six ops)"]
     rows = []
+    clipped = 0
     for ti, (t, p) in enumerate(targets.items()):
-        cells = [f"{t} at position {p}"]
+        cells = [t]
         for c, geo in conds:
-            r2 = cube_r2(geo, c)
-            cells.append(span2(np.clip(r2[:, 1:, p, ti, :], 0, 1).mean(axis=(1, 2)), 2))
+            r2 = cube_r2(geo, c)[:, 1:, p, ti, :]
+            clipped += int((r2 < 0).sum())
+            cells.append(span2(np.clip(r2, 0, 1).mean(axis=(1, 2)), 2))
         rows.append(cells)
     head = ["target, site", *[f"{n} ↑" for n in names]]
     lpo = {c.name: c.lines_per_op for c in ex.CONDS}
+    clip_note = "" if clipped == 0 else f" ({clipped} negative scores clipped to zero)"
     return table_html(
         head,
         rows,
         f"""
-        **How decodable each color is from the residual stream, by condition.** Strict held-out R² for the RGB of op1 and op2 at their own slot and of the answer at `=`, mean over the channels and the four post-attention slices with negative scores clipped to zero, as a seed mean with the seed range. `control` and `handover` have {lpo["handover"]:,} lines per op; `handover-narrow` has {lpo["handover-narrow"]:,}, the six-op count, at the same step budget. The last column is ex-2.2.3's un-anchored six-op model on the same read.
+        **How decodable each color is from the residual stream, by condition.** Strict held-out R² for the RGB of op1 and op2 at their own slot and of the answer at `=`, mean over the channels and the four post-attention slices{clip_note}, as a seed mean with the seed range. `control` and `handover` have {lpo["handover"]:,} lines per op; `handover-narrow` has {lpo["handover-narrow"]:,}, the six-op count, at the same step budget. The last column is ex-2.2.3's un-anchored six-op model on the same read.
         """,
     )
 
@@ -1442,7 +1555,7 @@ def slot_table(res: Results) -> str:
         head,
         rows,
         """
-        **The order-sensitive ops by slot, on `handover`.** The margin read on the walk that puts every palette color at op1 and on the walk that puts it at op2, and the share of clean expected exact match kept under `projection` on the removal lines whose red operand is op1 or op2 (line counts in brackets, pooled over both walks, so about twice the method's per-walk counts). Seed means with the seed range.
+        **The order-sensitive ops by slot, on `handover`.** These ops are probed on two sets of lines: one with every palette color at op1 (the *op1 walk*) and one with every palette color at op2 (the *op2 walk*). The margin is read on each walk, and the share of clean expected exact match kept under `projection` is read on the removal lines whose red operand is op1 or op2 (line counts in brackets, pooled over both walks, so about twice the method's per-walk counts). Seed means with the seed range.
         """,
     )
 
@@ -1499,20 +1612,29 @@ def red_answer_table(res: Results) -> str:
 
 
 @app.function(hide_code=True)
-def exploratory_prose(res: Results) -> str:
+def lines_per_op_prose(res: Results) -> str:
     r2 = {c: float(np.clip(cube_r2(res.geometry, c)[:, 1:, 0, 0, :], 0, 1).mean()) for c in ex.CUBE_PROBED}
     six = float(np.clip(cube_r2(res.ex223_geometry, "control")[:, 1:, 0, 0, :], 0, 1).mean())
-    shaped = {op: float(res.kept("handover", op, "shaped-a0.4-p0").mean()) for op in ex.OP_NAMES}
-    shaped_misses = [op for op in ex.OP_NAMES if shaped[op] > ex.RED_KEPT_GATE]
-    lines = (
-        f"**Lines per op.** Op1 decodes at its own slot with R² {r2['control']:.2f} on the control and {r2['handover']:.2f} on `handover`, "
-        f"against {r2['handover-narrow']:.2f} on `handover-narrow` and {six:.2f} on ex-2.2.3's six-op control. "
-        + (
-            "So fewer lines per op makes the operands less decodable: lines per op, more than the op count, is what E4 saw."
-            if r2["handover"] - r2["handover-narrow"] > 0.05
-            else "The narrow condition is at least as decodable as `handover`, so lines per op does not explain E4; the op count itself is the better reading."
+    ref_steps = ex.ex223.EPOCHS_SHORT * ex.ex223.steps_per_epoch()
+    if r2["handover"] - r2["handover-narrow"] > 0.05:
+        reading = "So fewer lines per op does make the operands less decodable, at a matched step count."
+    else:
+        reading = (
+            "So at a matched step count, fewer lines per op does not make the operands less decodable: the narrow condition "
+            "is at least as decodable as `handover`."
         )
+    return (
+        f"Op1 decodes at its own slot with R² {r2['control']:.2f} on the control and {r2['handover']:.2f} on `handover`, "
+        f"against {r2['handover-narrow']:.2f} on `handover-narrow` and {six:.2f} on ex-2.2.3's six-op control. {reading} "
+        f"That does not settle E4's question, though. The six-op control is far below all three, and it also trained for "
+        f"{ref_steps:,} steps against {ex.HANDOVER.steps:,} here, so on this read the op count is confounded with the "
+        f"training length, and the three eleven-op conditions are not ordered by lines per op. The clean comparison would "
+        f"hold the step count and vary the op count."
     )
+
+
+@app.function(hide_code=True)
+def slot_prose(res: Results) -> str:
     slot_kept = {
         op: [float(res.score("handover", op, "projection", "kept", f"removal_{k}").mean()) for k in ("op1", "op2")]
         for op in ex.ORDER_SENSITIVE
@@ -1524,24 +1646,87 @@ def exploratory_prose(res: Results) -> str:
         )
         for op in ex.ORDER_SENSITIVE
     }
-    slot_line = (
-        "**The order-sensitive subset, by slot.** We expected removal in both slots at about the rates of the method's per-slot "
-        "table, and the data went the other way: on `sat-hsv` and `value-hsv` the lines with red at op1 keep "
+    return (
+        "We expected removal in both slots at about the rates of the method's per-slot table, and the data went the "
+        "other way: on `sat-hsv` and `value-hsv` the lines with red at op1 keep "
         f"{slot_kept['sat-hsv'][0]:.0%} and {slot_kept['value-hsv'][0]:.0%}, and the lines with red at op2 keep "
         f"{slot_kept['sat-hsv'][1]:.0%} and {slot_kept['value-hsv'][1]:.0%}; `hue-hsv` keeps {slot_kept['hue-hsv'][0]:.0%} with red at "
-        f"op1 and {slot_kept['hue-hsv'][1]:.0%} at op2. Placement is not the same in both slots either: the margin on the op1 walk "
+        f"op1 and {slot_kept['hue-hsv'][1]:.0%} at op2. Placement differs by slot too: the margin on the op1 walk "
         f"is {', '.join(f'{walk[op][0]:.3f}' for op in ex.ORDER_SENSITIVE)} against {', '.join(f'{walk[op][1]:.3f}' for op in ex.ORDER_SENSITIVE)} "
-        f"on the op2 walk ({', '.join(f'`{op}`' for op in ex.ORDER_SENSITIVE)}), where the labeller was expected to place both the same."
+        f"on the op2 walk ({', '.join(f'`{op}`' for op in ex.ORDER_SENSITIVE)}). The prediction had the labeller placing both slots "
+        "the same, and in hindsight there was no reason to expect symmetry: the labeller pools both operands the same way, but "
+        "the op's computation is not symmetric, so what the model needs from each slot is not either. What removal rate each "
+        "slot should show, derived from the op rather than assumed, is the analysis the fast-follow owes; the discussion "
+        "sketches the reading."
     )
-    shaped_line = (
-        f"**The `shaped-a0.4-p0` operator** keeps between {min(shaped.values()):.0%} and {max(shaped.values()):.0%} on the removal lines, "
+
+
+@app.function(hide_code=True)
+def calibration_prose(res: Results) -> str:
+    ops = [op for op in ex.OP_NAMES if float(res.read("control", op, "n_rounded").mean()) > 0]
+    kl = {c.name: float(np.mean([res.read(c.name, op, "kl_rounded").mean() for op in ops])) for c in ex.CONDS}
+    pm = {c.name: float(np.mean([res.read(c.name, op, "p_mode_rounded").mean() for op in ops])) for c in ex.CONDS}
+    anchored = [c.name for c in ex.CONDS if c.lam > 0]
+    far = max(anchored, key=lambda c: kl[c])
+    far_op = max(
+        ops, key=lambda op: res.read(far, op, "kl_rounded").mean() - res.read("control", op, "kl_rounded").mean()
+    )
+    far_d = float(res.read(far, far_op, "kl_rounded").mean() - res.read("control", far_op, "kl_rounded").mean())
+    same = "about where the control has it" if abs(kl["handover"] - kl["control"]) < 0.02 else "away from the control's"
+    return (
+        f"On the {len(ops)} ops that round, `handover` sits at a KL of {kl['handover']:.3f} nats against {kl['control']:.3f} on the "
+        f"control, with P(mode) {pm['handover']:.3f} against {pm['control']:.3f}: the anchor itself leaves the calibration {same}. "
+        + (
+            f"`{far}` is the one condition that stands out, at {kl[far]:.3f}, with `{far_op}` the op that moved most "
+            f"({far_d:+.3f}): fewer lines per op costs calibration, which is the lines-per-op question again from the output side."
+            if far == "handover-narrow"
+            else f"`{far}` is the furthest from the control, at {kl[far]:.3f}, with `{far_op}` the op that moved most ({far_d:+.3f})."
+        )
+    )
+
+
+@app.function(hide_code=True)
+def red_answer_prose(res: Results) -> str:
+    ops = [op for op in ex.OP_NAMES if res.scored("handover")[0]["ops"][op]["n"]["red_answer"] > 0]
+    if not ops:
+        return "No op has red-answer lines on its probe set."
+    drop = {
+        op: float(res.score("handover", op, None, "eem", "red_answer").mean())
+        - float(res.score("handover", op, "projection", "eem", "red_answer").mean())
+        for op in ops
+    }
+    worst = max(ops, key=lambda op: drop[op])
+    n = sum(res.scored("handover")[0]["ops"][op]["n"]["red_answer"] for op in ops)
+    if drop[worst] > 0.3:
+        reading = (
+            f"On the red-answer lines the model largely stops producing red once the axis is projected out at `=` (the largest "
+            f"drop is {drop[worst]:.2f} on `{worst}`): removal on the output side, which says the readout row for red carries "
+            "the axis as the embedding row does."
+        )
+    else:
+        reading = (
+            f"On the {n} red-answer lines, expected exact match under `projection` is within {drop[worst]:.2f} of the clean pass "
+            f"on every op that has them (the largest drop is on `{worst}`). The model still produces red with the axis "
+            "projected out of the state at `=`, so producing red at the output does not depend on that state's axis component."
+        )
+    return (
+        f"{reading} The last column is the non-red deficit with these lines set aside; it differs from the gated deficit by "
+        "what they contribute, which is little."
+    )
+
+
+@app.function(hide_code=True)
+def shaped_prose(res: Results) -> str:
+    shaped = {op: float(res.kept("handover", op, "shaped-a0.4-p0").mean()) for op in ex.OP_NAMES}
+    shaped_misses = [op for op in ex.OP_NAMES if shaped[op] > ex.RED_KEPT_GATE]
+    return (
+        f"`shaped-a0.4-p0` keeps between {min(shaped.values()):.0%} and {max(shaped.values()):.0%} on the removal lines, "
         + (
             "inside the removal gate on every op."
             if not shaped_misses
-            else f"outside the removal gate on {', '.join(f'`{o}`' for o in shaped_misses)}."
+            else f"outside the removal gate on {', '.join(f'`{o}`' for o in shaped_misses)}: its smaller removal does not clear the gate on the ops the projection misses either."
         )
     )
-    return f"{lines}\n\n{slot_line}\n\n{shaped_line}"
 
 
 @app.function(hide_code=True)
@@ -1727,18 +1912,16 @@ def _():
 
     /// tip |
     <!-- tl;dr -->
-    The last four experiments each revealed something we should change about the setup in which we anchor *red*: more operations, answers that are drawn stochastically rather than rounded, labels according to the whole line, and a readout table kept separate from the embedding table. Each was tried on its own and looked fine.
+    The last four experiments each changed one thing about the setup we anchor *red* in: more operations, answers drawn stochastically rather than rounded, a label that covers the whole line, and a readout table separate from the embeddings. Each looked fine on its own. This experiment turns all four on at once and asks whether *red* still lands where we put it and still comes out cleanly, with two reference conditions that each switch one change back.
 
-    This experiment enables all four at once. Does *red* still land where we put it? Can it still be removed cleanly? And do the label and the readout, which were inconclusive, earn their place? Two reference conditions switch one of those back each, so we can tell which one did what.
-
-    It lands, and it comes out cleanly on eight of the eleven ops. On the three ops that take one HSV attribute from their second operand the removal gate is missed, so the handover is not adopted as it stands. The label and the readout cost nothing the gates can resolve, and one seed in twenty holds the anchor a little less well.
+    *Red* lands. Removal is clean on eight of the eleven ops and misses the gate on the three that take one HSV attribute from their second operand, so the handover is not adopted as it stands. The whole-line label and the separate readout cost nothing the gates can resolve. One seed in twenty holds the anchor a little less well by the end of training, which the anneal schedule may explain.
     ///
     """)
     return
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     # REVIEW: the Findings line quoted the whole decision rule, which the Decision section states
     # again a few screens later; it is now a link, so the rule has one home. Verify: the rule is
     # rendered from `ex.DECISION` under "Decision".
@@ -1794,7 +1977,9 @@ def _():
 
     **`control`** has no anchor at all. It sets the task bar for H1 and the calibration bar for the drawn answers.
 
-    **`handover-narrow`** is exploratory. E4 in ex-2.2.3 found the operand cube less decodable at six ops than at three, and could not tell whether the op count or the lines per op was responsible. The main corpus gives each of the eleven ops about {ex.HANDOVER.lines_per_op:,} lines, more than the {ex.NARROW.lines_per_op:,} each op had at six. This condition holds lines per op at that six-op count, using a smaller corpus for more epochs so that the step count matches. (The prereg draft called it `handover-wide`: at the draft's 100k lines, holding lines per op at the six-op count meant a larger corpus. The calibration look below made the main corpus the larger one.)
+    **`handover-narrow`** is exploratory. E4 in ex-2.2.3 found the operand cube less decodable at six ops than at three, and could not tell whether the op count or the lines per op was responsible. The main corpus gives each of the eleven ops about {ex.HANDOVER.lines_per_op:,} lines, more than the {ex.NARROW.lines_per_op:,} each op had at six. This condition holds lines per op at that six-op count, using a smaller corpus for more epochs so that the step count matches.[^wide]
+
+    [^wide]: The prereg draft called it `handover-wide`: at the draft's 100k lines, holding lines per op at the six-op count meant a larger corpus. The calibration look below made the main corpus the larger one.
 
     The reference is not retrained. It is `{ex.EX223_REFERENCE}` from ex-2.2.3, at twenty seeds on the six-op grammar, and its stored statistics are printed beside every placement read.
 
@@ -1825,7 +2010,7 @@ def _():
     <dt>Red-answer lines</dt>
     <dd>Non-red lines whose true answer is red (white minus cyan, under <code>difference</code>). Projecting the axis out at <code>=</code> takes <em>red</em> from the state that has to produce the answer, so a miss there is removal on the output side. They stay in the non-red deficit and are also counted on their own, and the deficit is reported with and without them. <code>mix</code> has none, so the gated read is the same either way.</dd>
     <dt>Expected exact match</dt>
-    <dd>With drawn answers, the correct answer to a line is spread over two or more colors. Expected exact match is the chance that an answer drawn from the model agrees with one drawn from the true distribution. On the ops that round it cannot reach 1.</dd>
+    <dd>The task score we measure. With drawn answers, the correct answer to a line is spread over two or more colors, so a single exact-match check would penalise a model for a right answer. Instead we take the chance that an answer drawn from the model agrees with one drawn from the true distribution. Its ceiling is that same chance for the true distribution against itself (Σq²), which is below 1 on the ops that round.</dd>
     <dt>m_line</dt>
     <dd>How far <em>red</em> is pushed onto the axis: at the reddest position in the span, the label-weighted mean alignment minus the unweighted mean, averaged over slices. Ex-2.1.10's margin, read on the <code>mix</code> lines.</dd>
     <dt>ᾱ (containment)</dt>
@@ -1839,9 +2024,9 @@ def _():
     <dt>Retention</dt>
     <dd>Whether the placement holds to the end of training, after the anchor weight's anneal: the final m_line as a share of the run's peak.</dd>
     <dt>Latch</dt>
-    <dd>A run in which the non-red group puts more than half of its softmin weight on op1: the pull has found a position rather than a concept.</dd>
+    <dd>A run in which the non-red group puts more than half of its softmin weight on one position: the pull has found a position rather than a concept. The position read is op1, the slot the earlier experiments saw it latch to.</dd>
     <dt>Deficit</dt>
-    <dd>How much expected exact match a model loses on the non-red lines when the axis is projected out. This is a measure of the selectivity; a clean removal costs nothing here.</dd>
+    <dd>How much expected exact match a model loses on the non-red lines when the axis is projected out. This is a measure of the selectivity; a clean removal would cost nothing.</dd>
     <dt>Band</dt>
     <dd>Our measurement precision. Two seed means are told apart only when they differ by more than 2σ√(1/n_a + 1/n_b), with σ the per-run spread and n the seed counts. Smaller differences are reported as unresolved.</dd>
     </dl>
@@ -1856,7 +2041,7 @@ def _():
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -1887,7 +2072,7 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -1924,7 +2109,7 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -1962,7 +2147,7 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -1996,7 +2181,7 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -2028,7 +2213,7 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
         _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
     else:
@@ -2047,33 +2232,52 @@ def _(res: Results | None):
 
 
 @app.cell(hide_code=True)
-def _(res: Results | None):
+def _(res):
     if res is None:
-        _results = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
+        _todo = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
+        _r = dict.fromkeys(("lines", "slot", "cal", "red", "shaped"), _todo)
     else:
-        _results = f"""
-    {exploratory_prose(res)}
-
-    {lines_per_op_table(res)}
-
-    {slot_table(res)}
-
-    {anchor_calibration_table(res)}
-
-    {red_answer_table(res)}
-    """
+        _r = {
+            "lines": f"{lines_per_op_prose(res)}\n\n    {lines_per_op_table(res)}",
+            "slot": f"{slot_prose(res)}\n\n    {slot_table(res)}",
+            "cal": f"{calibration_prose(res)}\n\n    {anchor_calibration_table(res)}",
+            "red": f"{red_answer_prose(res)}\n\n    {red_answer_table(res)}",
+            "shaped": shaped_prose(res),
+        }
     mo.md(rf"""
     ## Exploratory analyses
 
-    Read without gates, and not part of the decision.
+    Read without gates, and not part of the decision. Each analysis below states what it was for, then what it found.
 
-    - **Lines per op (`handover-narrow`).** Ex-2.2.3's E4 probed how well the two operand colors can be decoded from the residual stream, and found them less decodable at six ops than at three. Was that because there were more ops, or because each op had fewer lines? `handover-narrow` gives each op as many lines as it had at six ops, where `handover` gives each about half as many again. If the operands decode better on `handover` than on `handover-narrow`, lines per op matters. If the two conditions sit together, it was the op count.
-    - **The order-sensitive subset, by slot.** For `hue-hsv`, `sat-hsv`, and `value-hsv` the probe set walks every color in both slots, so every read in H2 and H3 can be split by whether the red operand is op1 or op2. The labeller pools both operands the same way, so we expect the same placement in both slots. Removal should show in both slots too, at the rates in the method's per-slot table: a red op1 under `value-hsv` supplies the hue and the saturation, and losing those moves the answer as far as losing the value does.
-    - **Calibration under the anchor.** P(mode) and KL from the true distribution on the rounded held-out lines, for every anchored condition against the control, as ex-2.2.5 read them. The anchor should not change them.
-    - **Red-answer lines.** On the ops that have them, the model's answer under `projection` on the non-red lines whose true answer is red. If the model can no longer produce red there, that is removal on the output side, and it says the readout row for red carries the axis as the embedding does.
-    - **The `shaped-a0.4-p0` operator.** Reported on every op beside the two gated operators: does its smaller removal still clear the removal gate on the new table?
+    ### Lines per op
 
-    {_results}
+    Ex-2.2.3's E4 probed how well the two operand colors can be decoded from the residual stream, and found them less decodable at six ops than at three. Was that because there were more ops, or because each op had fewer lines? `handover-narrow` gives each op as many lines as it had at six ops, where `handover` gives each about half as many again. If the operands decode better on `handover` than on `handover-narrow`, lines per op matters. If the two conditions sit together, it was the op count.
+
+    {_r["lines"]}
+
+    ### The order-sensitive subset, by slot
+
+    For `hue-hsv`, `sat-hsv`, and `value-hsv` the probe set walks every color in both slots, so every read in H2 and H3 can be split by whether the red operand is op1 or op2. The labeller pools both operands the same way, so we expected the same placement in both slots. Removal should show in both slots too, at the rates in the method's per-slot table: a red op1 under `value-hsv` supplies the hue and the saturation, and losing those moves the answer as far as losing the value does.
+
+    {_r["slot"]}
+
+    ### Calibration under the anchor
+
+    P(mode) and KL from the true distribution on the rounded held-out lines, for every anchored condition against the control, as ex-2.2.5 read them. The anchor should not change them.
+
+    {_r["cal"]}
+
+    ### Red-answer lines
+
+    On the ops that have them, the model's answer under `projection` on the non-red lines whose true answer is red. If the model can no longer produce red there, that is removal on the output side, and it says the readout row for red carries the axis as the embedding does.
+
+    {_r["red"]}
+
+    ### The shaped operator
+
+    `shaped-a0.4-p0` is reported on every op beside the two gated operators: does its smaller removal still clear the removal gate on the new table?
+
+    {_r["shaped"]}
 
     ## Discussion
 
@@ -2098,9 +2302,9 @@ def discussion_md(res: Results | None) -> str:
     return textwrap.dedent(f"""
     Most of what the handover was meant to settle, it settled, and the decision rule still says no. Eleven ops with drawn answers are learnable, and the anchored model learns them as well as the control does (H1). *Red* lands where the recipe put it at six ops, with the same margin, grading, and contrast (H2). The separate readout keeps the axis off the syntax embeddings on this grammar too (H4), and at twenty seeds against twenty the whole-line label costs no selectivity we can resolve (H5). The selectivity read itself is the cleanest we have had: a non-red `mix` deficit of {st3["deficit"]:.3f}, against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference.
 
-    Two reads missed, and both are narrower than a miss sounds. Retention, which the decision rule reports and does not count, missed on {n_below} seed of {n_q}, at {low:.2f} against the {ex.RETENTION_GATE:g} gate. The seed mean, {ret["handover"]:.2f}, is under `handover-slot`'s {ret["handover-slot"]:.2f} and `handover-tied`'s {ret["handover-tied"]:.2f} (and ex-2.2.3's {ref_ret:.2f}), and neither reference has a seed under the line. That is consistent with the label and the readout costing a little retention each, but one seed in twenty against twenty and nine reference seeds, with no band on retention, does not separate that from a one-arm effect. Removal, which the rule does count, missed on the three order-sensitive ops, and the slot split says where. On `sat-hsv` and `value-hsv` the lines with red at op1 lose almost everything ({slot_kept["sat-hsv"][0]:.0%} and {slot_kept["value-hsv"][0]:.0%} kept), and the lines with red at op2 keep most of it ({slot_kept["sat-hsv"][1]:.0%} and {slot_kept["value-hsv"][1]:.0%}). Red at op2 is the slot where the red operand supplies only its saturation, or only its value. We had expected removal in both slots, so this is a reading made after the fact: the axis carries the *redness* of a color, and a red color's saturation and value are read from somewhere else. If that is right, it is what an anchored concept should look like, and the removal lines are the thing to fix: they were chosen by how far the true answer moves when the red operand loses its red, and on these two ops that counts lines where what moved was the value, which the model never needed *red* for. `hue-hsv` is the case that reading does not cover: red at op1 supplies the hue there, and still keeps {slot_kept["hue-hsv"][0]:.0%}.
+    Two reads missed, but both are narrower than "a miss" sounds. Retention, which the decision rule reports and does not count, missed on {n_below} seed of {n_q}, at {low:.2f} against the {ex.RETENTION_GATE:g} gate. The seed mean, {ret["handover"]:.2f}, is under `handover-slot`'s {ret["handover-slot"]:.2f} and `handover-tied`'s {ret["handover-tied"]:.2f} (and ex-2.2.3's {ref_ret:.2f}), and neither reference has a seed under the line. That is consistent with the label and the readout costing a little retention each. But the evidence is one seed in twenty, with no band on retention, and that does not separate a real cost from one seed's luck. The schedule is the other suspect: the anneal here runs over three times as many steps as at the reference, so the margin has longer to drift after its peak, and a later or shorter anneal is the first thing to try. Removal, which the rule does count, missed on the three order-sensitive ops. On `sat-hsv` and `value-hsv` the lines with red at op1 lose almost everything ({slot_kept["sat-hsv"][0]:.0%} and {slot_kept["value-hsv"][0]:.0%} kept), and the lines with red at op2 keep most of it ({slot_kept["sat-hsv"][1]:.0%} and {slot_kept["value-hsv"][1]:.0%}). Red at op2 is the slot where the red operand supplies only its saturation, or only its value. We had expected removal in both slots, so this is a reading made after the fact: the axis carries the *redness* of a color, and a red color's saturation and value are read from somewhere else. If that is right, it is what an anchored concept should look like, and the removal lines are the thing to fix: they were chosen by how far the true answer moves when the red operand loses its red, and on these two ops that counts lines where what moved was the value, which the model never needed *red* for. `hue-hsv` is the case that reading does not cover: red at op1 supplies the hue there, and still keeps {slot_kept["hue-hsv"][0]:.0%}.
 
-    So the grammar and the recipe are not adopted as they stand, and what the misses point at is narrow. Before this handover could be adopted, the removal lines for the channel-taking ops would need to be the lines whose answer takes the red operand's hue, so that the gate asks the model to have lost *red* rather than the value of a red color; `hue-hsv` would have to clear that gate on its own terms; and retention would need a read that twenty seeds can resolve, or a look at why the margin drifts after its peak on this arm, which the trajectories can show. Whether those changes are made, and the handover re-run, is a question for the next round. One observation goes with the readout: the untied table cleaned every syntax word except `⏎`, whose embedding row still carries {eol:.2f} on `handover`. Where that comes from, and whether it matters, is for that round too.
+    So the grammar and the recipe are not adopted as they stand, but it's close. Before this handover could be adopted, the removal lines for the three order-sensitive ops would need to be the lines whose answer takes the red operand's hue, so that the gate asks the model to have lost *red* rather than the value of a red color; `hue-hsv` would have to clear that gate on its own terms; and retention would need a read that twenty seeds can resolve, or a look at why the margin drifts after its peak on this arm, which the trajectories can show. Whether those changes are made, and the handover re-run, is a question for the next round. One observation goes with the readout: the untied table cleaned every syntax word except `⏎`, whose embedding row still carries {eol:.2f} on `handover`. Where that comes from, and whether it matters, is for that round too.
     """)
 
 

@@ -98,3 +98,7 @@ A partial implementation is in `report.css`:
   }
 }
 ```
+
+## Notes
+
+**2026-09-17, Claude** — Sandy's review of ex-2.2.9 (on the reMarkable) added three asks to this item, all on the print/PDF side: centre each table in the column; let a wide table fill the page width with a margin of about 2 mm each side rather than overflow (one H3 table was clipped at the right edge, since split into two); and a caption on a themed figure was clipped at the right edge too, so captions need the same bound as tables. Done in that report instead of here, and worth making conventions: a no-break space between a value and its range (`span2`) and between `λ_a`, `=` and its value, so a cell never wraps mid-expression; and authored-table cells now render backticks as `<code>` (`cell_html` in that report), which several tables had shown as literal backticks. Both helpers belong in `mini.vis` beside `table_html`.
