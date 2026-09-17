@@ -646,3 +646,24 @@ def test_report_bundle_virtualizes_only_interactively(tmp_path, monkeypatch):
     assert report_bundle(nb).virtualize is True
     monkeypatch.setenv(EXPORTING_ENV, "1")
     assert report_bundle(nb).virtualize is False
+
+
+def test_body_injection_skips_a_body_tag_quoted_in_the_head():
+    """report.css once said "theme on <body>" in a comment; the chips and the flash guard landed inside that <style>, unrendered."""
+    from mini.reports import set_provenance
+
+    html = (
+        "<html><head><style>/* an explicit theme on <body> wins, where <body> states none */</style></head>"
+        f'<body class="x">{_MOUNT_CONFIG}<div id="root"></div></body></html>'
+    )
+    for out in (
+        set_banner(html, index_url="i/"),
+        set_provenance(html, {"a": {"experiment": "x", "run": "r"}}),
+        set_theme(html),
+    ):
+        body = out[out.index('<body class="x">') :]
+        assert out.index("</style>") < out.index("</head>") < out.index("<body class=")
+        head = out[: out.index("</head>")]
+        injected = ("<nav data-mini-banner", "<details data-mini-provenance", "<script>")
+        assert any(tag in body for tag in injected), out
+        assert not any(tag in head for tag in injected), out

@@ -824,6 +824,24 @@ _FLASH_GUARD = (
 )
 
 
+# The document's real ``<body>`` open tag. A bare search for ``<body`` is not enough: the
+# text also occurs in prose, and a CSS comment in the baked ``report.css`` once said
+# "an explicit theme on <body> wins", which put the nav chip, the provenance chip and the
+# flash guard inside a ``<style>`` element in the head, where the browser never renders
+# them. The tag that follows ``</head>`` is the one; the bare match is the fallback for a
+# fragment with no head at all.
+_BODY_OPEN = re.compile(r"</head>\s*(<body\b[^>]*>)", re.IGNORECASE)
+_BODY_OPEN_BARE = re.compile(r"(<body\b[^>]*>)", re.IGNORECASE)
+
+
+def _after_body_open(html: str, snippet: str) -> str:
+    """*html* with *snippet* inserted as the first thing in the document body."""
+    m = _BODY_OPEN.search(html) or _BODY_OPEN_BARE.search(html)
+    if m is None:
+        return html
+    return f"{html[: m.end(1)]}\n    {snippet}{html[m.end(1) :]}"
+
+
 def set_theme(html: str, theme: str = "system") -> str:
     """Rewrite a Marimo export's theme so a published report follows the device, flicker-free.
 
@@ -842,7 +860,7 @@ def set_theme(html: str, theme: str = "system") -> str:
         count=1,
     )
     if theme == "system":
-        html = re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {_FLASH_GUARD}", html, count=1)
+        html = _after_body_open(html, _FLASH_GUARD)
     return html
 
 
@@ -1122,7 +1140,7 @@ def set_banner(
         html,
         count=1,
     )
-    return re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {bar}", html, count=1)
+    return _after_body_open(html, bar)
 
 
 # The provenance chip mirrors the nav's mechanics (absolute, above Marimo's opaque app
@@ -1187,4 +1205,4 @@ def set_provenance(html: str, refs: dict[str, dict[str, Any] | None]) -> str:
         html,
         count=1,
     )
-    return re.sub(r"(<body[^>]*>)", lambda m: f"{m.group(1)}\n    {chip}", html, count=1)
+    return _after_body_open(html, chip)
