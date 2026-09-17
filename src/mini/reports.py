@@ -77,6 +77,10 @@ __all__ = [
     "set_report_styles",
     "set_banner",
     "set_provenance",
+    "set_alternate",
+    "alternates",
+    "PDF_LEAF",
+    "PDF_TYPE",
 ]
 
 # Markers that identify the project root (mirrors mini.runs._ROOT_MARKERS).
@@ -508,12 +512,13 @@ def relative_urls(html: str) -> list[str]:
 
 
 def stray_links(html: str, *, link: str = "_assets") -> list[str]:
-    """Relative URLs that are *not* store assets — the ones a ``<base>`` would break.
+    """Relative URLs that are *not* bundle-local — the ones a ``<base>`` would break.
 
-    These are author-written nav/source links (``./experiment.py``) that should be absolute. Returned sorted and de-duplicated so a build can resolve or warn on them.
+    Bundle-local is a store asset (under *link*) or a rendition the page declares beside itself (:func:`alternates`, ``report.pdf``): both ride the bundle sync and resolve wherever the ``<base>`` points. What remains are author-written nav/source links (``./experiment.py``) that should be absolute. Returned sorted and de-duplicated so a build can resolve or warn on them.
     """
     prefix = f"{link}/"
-    return sorted({u for u in relative_urls(html) if not u.startswith(prefix)})
+    local = set(alternates(html).values())
+    return sorted({u for u in relative_urls(html) if not u.startswith(prefix) and u not in local})
 
 
 # One <img> tag, whole. Safe against the tag's own text: attribute values are
@@ -1066,18 +1071,47 @@ _BANNER_LINK = "color:inherit;text-decoration:underline"
 _BANNER_CLEARANCE = '[class~="min-w-[400px]"]{padding-top:3rem}'
 
 
-def set_banner(html: str, *, index_url: str | None = None, source_url: str | None = None) -> str:
-    """Give a published report a floating nav — back to the index, out to the source.
+# The same document in another format, declared in the ``<head>`` so a reader (a crawler, an
+# agent fetching the page, a browser extension) can find it without parsing the body:
+# ``<link rel="alternate" type="<media type>" href="…">`` is the HTML mechanism for exactly
+# this (RFC 8288 ``alternate``, with ``type`` to say which format). The export stamps one
+# per rendition it wrote beside ``index.html``; the build reads them to link each in the
+# nav chip. Relative hrefs, so the page's ``<base>`` sends them wherever the bundle is.
+PDF_LEAF = "report.pdf"  # printed at export by mini.report_print, beside index.html
+PDF_TYPE = "application/pdf"
+_ALTERNATE_TAG = re.compile(r'\s*<link rel="alternate" type="([^"]*)" href="([^"]*)"\s*/?>', re.IGNORECASE)
 
-    Marimo's static export shows a "Run or Edit" banner whose only action is a download popup; on a published site a back-link to the index and a link to the source notebook are more useful. So we hide Marimo's banner (a CSS rule keyed on its ``data-testid``) and inject our own — a small chip (``← Index`` · ``Source``) pinned top-left. It's absolutely positioned (above Marimo's opaque app layer) and scrolls away with the page; the content column is padded down so the title clears it. Either link is omitted when its URL is ``None``; a no-op if neither is given.
+
+def set_alternate(html: str, *, type: str, href: str) -> str:
+    """Declare that this page is also available as *type* at *href* (a ``<link rel="alternate">`` in the head).
+
+    One tag per media type: re-stamping the same type replaces the earlier tag rather than stacking. Run at export, on the bundle's HTML, since that is the half that knows what it wrote.
     """
-    if index_url is None and source_url is None:
+    html = _ALTERNATE_TAG.sub(lambda m: "" if m.group(1) == type else m.group(0), html)
+    tag = f'<link rel="alternate" type="{html_escape(type)}" href="{html_escape(href)}" />'
+    return re.sub(r"(<head[^>]*>)", lambda m: f"{m.group(1)}\n    {tag}", html, count=1)
+
+
+def alternates(html: str) -> dict[str, str]:
+    """The alternate renditions a page declares, media type → href (see :func:`set_alternate`)."""
+    return {m.group(1): m.group(2) for m in _ALTERNATE_TAG.finditer(html)}
+
+
+def set_banner(
+    html: str, *, index_url: str | None = None, source_url: str | None = None, pdf_url: str | None = None
+) -> str:
+    """Give a published report a floating nav — back to the index, out to the source, and the PDF.
+
+    Marimo's static export shows a "Run or Edit" banner whose only action is a download popup; on a published site a back-link to the index and a link to the source notebook are more useful. So we hide Marimo's banner (a CSS rule keyed on its ``data-testid``) and inject our own — a small chip (``← Index`` · ``Source`` · ``PDF``) pinned top-left. It's absolutely positioned (above Marimo's opaque app layer) and scrolls away with the page; the content column is padded down so the title clears it. A link is omitted when its URL is ``None``; a no-op if none is given. The chip is hidden in print, so the PDF never links to itself.
+    """
+    if index_url is None and source_url is None and pdf_url is None:
         return html
 
     def link(href: str, label: str) -> str:
         return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
 
-    links = [link(url, label) for url, label in ((index_url, "&larr; Index"), (source_url, "Source")) if url]
+    entries = ((index_url, "&larr; Index"), (source_url, "Source"), (pdf_url, "PDF"))
+    links = [link(url, label) for url, label in entries if url]
     bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{"".join(links)}</nav>'
 
     html = re.sub(

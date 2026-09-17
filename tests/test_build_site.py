@@ -1,6 +1,7 @@
 """Tests for the static-site builder's author-link resolver (pure policy)."""
 
 import pytest
+from pathlib import Path
 
 from mini.reports import github_slug
 
@@ -392,3 +393,37 @@ def test_missing_bases_degrade_to_unresolved():
     assert r.resolve("../acts/report.py", externalizing=True, **kw) is None
     # …but localize still keeps rendered links relative (no base needed).
     assert r.resolve("../acts/report.py", externalizing=False, **kw) == "../../acts/report/index.html"
+
+
+@pytest.mark.parametrize(
+    ("html", "base_href", "pdf", "expected"),
+    [
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            "https://hf.co/d/r/resolve/abc/exports/k/",
+            None,
+            "report.pdf",
+        ),
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            None,
+            Path("report.pdf"),
+            "report.pdf",
+        ),
+        (
+            '<html><head><link rel="alternate" type="application/pdf" href="report.pdf" /></head></html>',
+            None,
+            None,
+            None,
+        ),
+        ("<html><head></head></html>", "https://hf.co/d/r/resolve/abc/exports/k/", None, None),
+    ],
+    ids=[
+        "externalize: the base serves it",
+        "localize: copied beside the page",
+        "localize: declared but not on disk",
+        "a bundle exported before PDFs",
+    ],
+)
+def test_the_pdf_link_follows_the_declared_alternate_and_the_asset_mode(html, base_href, pdf, expected):
+    assert build_site._Bundle(html, base_href=base_href, pdf=pdf).pdf_url == expected
