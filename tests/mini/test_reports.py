@@ -4,6 +4,8 @@ import re
 import pytest
 
 from mini.reports import (
+    alternates,
+    set_alternate,
     MANUAL_PUBLISH_MARKER,
     PROVENANCE_ASSET,
     PUBLISH_LOCK,
@@ -403,7 +405,36 @@ def test_set_banner_omits_missing_links():
     out = set_banner(_EXPORT_HTML, index_url="../index.html", source_url=None)
     assert "&larr; Index" in out
     assert ">Source<" not in out
-    assert set_banner(_EXPORT_HTML) == _EXPORT_HTML  # neither link: no bar at all
+    assert ">PDF<" not in out
+    assert set_banner(_EXPORT_HTML) == _EXPORT_HTML  # no link at all: no bar at all
+
+
+def test_set_banner_links_the_pdf_after_the_source():
+    out = set_banner(_EXPORT_HTML, source_url="https://github.com/o/r/x.py", pdf_url="report.pdf")
+    assert out.index(">Source</a>") < out.index('<a href="report.pdf" style=')
+    assert ">PDF</a>" in out
+
+
+def test_set_alternate_declares_a_rendition_in_the_head_and_restamps_by_type():
+    out = set_alternate(_EXPORT_HTML, type="application/pdf", href="report.pdf")
+    assert (
+        out.index("<head>")
+        < out.index('<link rel="alternate" type="application/pdf" href="report.pdf" />')
+        < out.index("</head>")
+    )
+    out = set_alternate(out, type="text/markdown", href="report.md")
+    out = set_alternate(out, type="application/pdf", href="print.pdf")  # a re-export replaces, never stacks
+    assert alternates(out) == {"application/pdf": "print.pdf", "text/markdown": "report.md"}
+    assert out.count('rel="alternate"') == 2
+
+
+def test_stray_links_treats_a_declared_alternate_as_bundle_local():
+    html = set_alternate(
+        '<html><head></head><body><a href="./experiment.py">src</a><img src="_assets/f.png"></body></html>',
+        type="application/pdf",
+        href="report.pdf",
+    )
+    assert stray_links(html) == ["./experiment.py"]
 
 
 _PRODUCER = {"experiment": "prep", "git_describe": "v1-3-gabc1234", "git_dirty": True, "run_at": "2026-07-12T01:02:03"}
@@ -615,3 +646,24 @@ def test_report_bundle_virtualizes_only_interactively(tmp_path, monkeypatch):
     assert report_bundle(nb).virtualize is True
     monkeypatch.setenv(EXPORTING_ENV, "1")
     assert report_bundle(nb).virtualize is False
+
+
+def test_body_injection_skips_a_body_tag_quoted_in_the_head():
+    """report.css once said "theme on <body>" in a comment; the chips and the flash guard landed inside that <style>, unrendered."""
+    from mini.reports import set_provenance
+
+    html = (
+        "<html><head><style>/* an explicit theme on <body> wins, where <body> states none */</style></head>"
+        f'<body class="x">{_MOUNT_CONFIG}<div id="root"></div></body></html>'
+    )
+    for out in (
+        set_banner(html, index_url="i/"),
+        set_provenance(html, {"a": {"experiment": "x", "run": "r"}}),
+        set_theme(html),
+    ):
+        body = out[out.index('<body class="x">') :]
+        assert out.index("</style>") < out.index("</head>") < out.index("<body class=")
+        head = out[: out.index("</head>")]
+        injected = ("<nav data-mini-banner", "<details data-mini-provenance", "<script>")
+        assert any(tag in body for tag in injected), out
+        assert not any(tag in head for tag in injected), out

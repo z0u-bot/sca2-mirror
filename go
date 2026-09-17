@@ -58,9 +58,11 @@ show_help() {
 		                       figures as ![alt](path) links — for reading a report as a document
 		                       (skips reports newer than their inputs; --force re-renders)
 		  preview [...nbs] [--no-serve] [--force] [--port N]:
-		                       export stale reports, assemble the site with local assets
-		                       (never touches the network), and serve it
-		  publish <nbs|--all>: export reports and sync their bundles to the publish tier
+		                       export stale reports (each with a report.pdf beside its
+		                       index.html, for review on paper or e-ink), assemble the site
+		                       with local assets (never touches the network), and serve it
+		  publish <nbs|--all>: export reports and sync their bundles (PDF included) to the
+		                       publish tier
 		  site:                assemble the public site from *published* bundles into _site/
 		                       (for CI; read-only, never runs a notebook)
 		  strays  [...paths]:  Marimo cells that end on a docstring, which publishes it as
