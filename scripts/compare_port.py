@@ -92,6 +92,9 @@ def reduce(text: str) -> list[str]:
                 if not line:
                     continue
             line = line.removeprefix("> ").removeprefix(">")  # the blockquote Marimo renders an admonition as
+            line = re.sub(
+                r"^[-*] ", "", line
+            )  # a list item, whichever marker the renderer chose (`+` is left: a caption can open with one)
             if re.fullmatch(r"\|(\s*:?-+:?\s*\|)+", line):
                 continue  # a pipe table's separator row
             if line.startswith("|") and line.endswith("|"):
