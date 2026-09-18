@@ -14,7 +14,7 @@ MIN_UV='0.11'
 if command -v uv >/dev/null 2>&1; then
     have_uv="$(uv --version 2>/dev/null | awk '{print $2}')"
     if [[ "$(printf '%s\n%s\n' "$MIN_UV" "$have_uv" | sort -V | head -n1)" != "$MIN_UV" ]]; then
-        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv self update" >&2
+        echo "$SELF: uv $have_uv is too old (need >= $MIN_UV); it would re-resolve uv.lock. Upgrade: uv tool install uv --force (from PyPI; uv self update needs the GitHub API, which the web sandbox blocks)" >&2
         exit 1
     fi
 fi
@@ -24,7 +24,7 @@ is_marimo_notebook() {
 }
 
 show_usage() {
-    echo "usage: $SELF [-h] {install,auth,check,deps,open,render,preview,publish,site,todo,worktrees} ..."
+    echo "usage: $SELF [-h] {install,auth,check,deps,open,lit,render,preview,publish,site,todo,worktrees} ..."
 }
 
 show_help() {
@@ -53,6 +53,10 @@ show_help() {
 		                       open a Marimo notebook for live editing — watches the file so
 		                       the IDE stays the editor, and prints a URL that lands in the
 		                       app view; anything else opens in \$EDITOR
+		  lit     render <doc.py> [--pdf] | serve <doc.py> [--port N]:
+		                       weave a literate script (mini.lit: a .py with string prose
+		                       between cells) to .mini/lit/<key>/,
+		                       or serve it with live reload while you edit
 		  render  [...nbs] [--force]:
 		                       render each report to readable Markdown at .mini/renders/<key>.md,
 		                       figures as ![alt](path) links — for reading a report as a document
@@ -85,6 +89,10 @@ case "${1:-}" in
     auth)
         shift
         "$SCRIPT_DIR/auth.sh" "$@"
+        ;;
+    lit)
+        shift
+        uv run python -m mini.lit "$@"
         ;;
     format|formatting)
         shift

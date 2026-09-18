@@ -103,6 +103,16 @@ def test_a_sibling_report_is_a_document_not_an_input(repo):
     assert changed(repo) == {"docs/ex-1/aside.py", "docs/ex-1/report.py"}
 
 
+def test_a_literate_script_beside_a_report_is_a_document_too(repo):
+    """A `# title:`-headed .py beside the notebook is a second document (a mini.lit report), not one of its inputs."""
+    (repo / "docs" / "ex-1" / "notes.py").write_text('# title: Notes\n\n"""prose"""\n')
+    commit(repo, "a literate script beside the report")
+    assert changed(repo) == set()
+    (repo / "docs" / "ex-1" / "helpers.py").write_text("def f(): ...\n")  # no header: an ordinary module, so an input
+    commit(repo, "a module beside the report")
+    assert changed(repo) == {"docs/ex-1/report.py"}
+
+
 def test_a_notebook_outside_docs_is_not_a_report(repo):
     """`marimo.App(` appears in plenty of files that aren't reports — this repo's own tests among them. Only `docs/` is the report tree."""
     (tests := repo / "tests").mkdir()

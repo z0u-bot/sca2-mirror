@@ -52,6 +52,8 @@ rg -no '.{0,55}anneal.{0,55}' docs/  # a {0,N} window around each match
 
 For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
+If `./go` refuses because `uv` is too old, the session-start hook did not run (a web session with more than one repository has no project settings at its root, so no hooks load). Run it by hand from the repository: `CLAUDE_CODE_REMOTE=true CLAUDE_PROJECT_DIR=$PWD .claude/hooks/session-start.sh`. It upgrades `uv` from PyPI (`uv self update` needs the GitHub API, which the sandbox blocks) and syncs the venv.
+
 ### Storage
 
 Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for work *on* the storage or publishing machinery. `./go auth --check` names the active pair, what the token can write, and the Modal Environment the profile runs in, so a dev run of a production experiment name has its own memo state as well as its own bucket. See the `mi-ni` skill's storage reference.
