@@ -17,7 +17,7 @@ import re
 import sys
 from pathlib import Path, PurePosixPath
 
-_FIGURE_HTML = re.compile(r"<figure\b.*?</figure>", re.DOTALL | re.IGNORECASE)
+_FIGURE_TAG = re.compile(r"<(/?)figure\b[^>]*>", re.IGNORECASE)
 _IMG_TAG = re.compile(r"<img\b[^>]*>", re.IGNORECASE)
 _ATTR = {k: re.compile(rf'\b{k}\s*=\s*"([^"]*)"', re.IGNORECASE) for k in ("src", "alt")}
 _MD_IMAGE = re.compile(r"!\[(?P<alt>(?:[^\[\]]|\[[^\]]*\])*)\]\((?P<src>[^)\s]+)[^)]*\)")
@@ -26,12 +26,14 @@ _STYLE = re.compile(r"<style\b.*?</style>", re.DOTALL | re.IGNORECASE)
 _TAG = re.compile(r"<[^>]+>")
 _EMPHASIS = re.compile(r"(\*{1,3}|_{1,3}|`+)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
-_SPACE = re.compile(r"[ \t]+")
+_SPACE = re.compile(r"[ \t\xa0]+")
 _FOOTNOTE_PREFIX = re.compile(r"\[\^\d+-")  # Marimo numbers a footnote label by its cell (``[^8-recompute]``)
 
 
 def _stem(src: str) -> str:
-    """The figure's asset stem: the file name without its theme suffix or extension."""
+    """The figure's asset stem: the file name without its theme suffix or extension (``*`` for an image inlined as a data URI)."""
+    if src.startswith("data:"):
+        return "inline"
     name = PurePosixPath(src.split("?")[0]).stem
     return re.sub(r"-(light|dark)$", "", name)
 
@@ -56,12 +58,37 @@ def _reduce_figure_html(m: re.Match) -> str:
             seen.add(stem)
             lines.append(_figure_line(m["src"], m["alt"]))
     caption = re.search(r"<figcaption\b[^>]*>(.*?)</figcaption>", block, re.DOTALL | re.IGNORECASE)
+    label = re.search(r'\baria-label\s*=\s*"([^"]*)"', block[: block.find(">")])
+    if not lines and label and "data-mini-asset" in block[: block.find(">")]:
+        return (
+            "\n\n" + _plain(label.group(1)) + "\n\n"
+        )  # an externalized figure: the Marimo render shows its label as a link
     if not lines:  # a table or other HTML body: its text, cell by cell
         body = block[: caption.start()] if caption else block
-        lines.append(_plain(re.sub(r"</(?:t[dhr]|br)>", " ", body, flags=re.IGNORECASE)))
+        lines.append(_plain(re.sub(r"</(?:t[dhr]|br)>|\s+", " ", body, flags=re.IGNORECASE)))
     if caption:
         lines.append(_plain(caption.group(1)))
     return "\n\n" + "\n\n".join(lines) + "\n\n"
+
+
+def _sub_figures(text: str, repl) -> str:
+    """Every outermost ``<figure>`` block replaced by *repl* (a nested figure, as an externalized one holds, stays inside its parent)."""
+    out, pos, depth, start = [], 0, 0, 0
+    for m in _FIGURE_TAG.finditer(text):
+        if m.group(1):  # a close
+            if depth == 0:
+                continue
+            depth -= 1
+            if depth == 0:
+                out.append(text[pos:start])
+                out.append(repl(re.match(r"(?s).*", text[start : m.end()])))
+                pos = m.end()
+        else:
+            if depth == 0:
+                start = m.start()
+            depth += 1
+    out.append(text[pos:])
+    return "".join(out)
 
 
 def _plain(text: str) -> str:
@@ -69,18 +96,29 @@ def _plain(text: str) -> str:
     text = _TAG.sub("", text)
     text = _LINK.sub(r"\1", text)
     text = _EMPHASIS.sub("", text)
+    text = re.sub(r"\\[()\[\]]|\$|\|\|[\[\]]", "", text)  # math delimiters, whichever the renderer wrote
     text = text.replace("\\", "")  # the escapes Marimo's render adds (``\*\*``)
+    text = re.sub(r"(?<!\S)-{3,}(?!\S)", "", text)  # a pipe table's separator row, when it rode inside a blockquote
     text = _FOOTNOTE_PREFIX.sub("[^", text)
-    return _SPACE.sub(" ", html.unescape(text)).strip()
+    return _SPACE.sub(" ", html.unescape(text)).strip()  # unescape first: an &nbsp; is a space too
 
 
 def reduce(text: str) -> list[str]:
     """The paragraphs of a report's Markdown face as plain text, whichever dialect wrote it."""
     text = _OUTPUT_MARKER.sub("", text)
     text = _STYLE.sub("", text)
-    text = _FIGURE_HTML.sub(_reduce_figure_html, text)
+    text = _sub_figures(text, _reduce_figure_html)
     text = _MD_IMAGE.sub(lambda m: "\n\n" + _figure_line(m["src"], m["alt"]) + "\n\n", text)
     out: list[str] = []
+    # The blockquote Marimo renders an admonition as: a bare > is its paragraph break. The woven script keeps the
+    # ``/// kind | title`` fence; its title is a paragraph of its own, as the Marimo render's bold title line is.
+    text = re.sub(r"^> ?", "", text, flags=re.MULTILINE)
+    text = re.sub(r"^/// *\w+ *\| *(.*)$", r"\1\n", text, flags=re.MULTILINE)
+    text = re.sub(r"^(#{1,6} .*)\n(?=\S)", r"\1\n\n", text, flags=re.MULTILINE)  # or to the paragraph below
+    text = re.sub(r"\n(?=(?:[-*]|\d+\.) )", "\n\n", text)  # a list item is a paragraph of its own, tight list or loose
+    text = re.sub(r"\s+(?=\[\^[^\]]+\]:)", "\n\n", text)  # so is a footnote's definition, wherever it was written
+    text = re.sub(r"<sup>\[\d+\]\(#fn:[^)]*\)</sup>|\[\^[^\]]+\](?!:)", "", text)  # a footnote's reference mark
+    text = re.sub(r"(?<=\S)\n(?=#{1,6} )", "\n\n", text)  # Marimo's render glues a heading to the paragraph above
     for para in re.split(r"\n\s*\n", text):
         lines = []
         for line in para.splitlines():
@@ -91,10 +129,9 @@ def reduce(text: str) -> list[str]:
                 line = line.partition("|")[2].strip()
                 if not line:
                     continue
-            line = line.removeprefix("> ").removeprefix(">")  # the blockquote Marimo renders an admonition as
             line = re.sub(
-                r"^[-*] ", "", line
-            )  # a list item, whichever marker the renderer chose (`+` is left: a caption can open with one)
+                r"^(?:[-*]|\d+\.) ", "", line
+            )  # a list item's marker (`+` is left: a caption can open with one)
             if re.fullmatch(r"\|(\s*:?-+:?\s*\|)+", line):
                 continue  # a pipe table's separator row
             if line.startswith("|") and line.endswith("|"):
@@ -105,18 +142,39 @@ def reduce(text: str) -> list[str]:
             lines.append(line)
         if reduced := _plain(" ".join(lines)):
             out.append(reduced)
-    return out
+    # A footnote's definition renders at the end wherever it was written, so its position is not part of the reading.
+    notes = [p for p in out if p.startswith("[^")]
+    return [p for p in out if not p.startswith("[^")] + notes
 
 
 def compare(before: Path, after: Path) -> int:
     a, b = reduce(before.read_text("utf-8")), reduce(after.read_text("utf-8"))
+    by_alt = {p.partition("] ")[2]: p for p in b if p.startswith("[figure ")}
+    a = [
+        by_alt.get(p.partition("] ")[2], p) if p.startswith("[figure inline]") else p for p in a
+    ]  # an inlined image: match by alt text
     figs_a = [p for p in a if p.startswith("[figure ")]
     figs_b = [p for p in b if p.startswith("[figure ")]
     print(f"{before}: {len(a)} paragraph(s), {len(figs_a)} figure(s)")
     print(f"{after}: {len(b)} paragraph(s), {len(figs_b)} figure(s)")
     if missing := {f.split("] ")[0] for f in figs_a} - {f.split("] ")[0] for f in figs_b}:
         print(f"figures missing from the port: {', '.join(sorted(missing))}")
-    diff = list(difflib.unified_diff(a, b, str(before), str(after), n=1, lineterm=""))
+    # Match on the text with its spacing removed (the two renderers space a table's cells differently), print the readable form.
+    key = {re.sub(r"\s+", "", p): p for p in a + b}
+    diff = list(
+        difflib.unified_diff(
+            [re.sub(r"\s+", "", p) for p in a],
+            [re.sub(r"\s+", "", p) for p in b],
+            str(before),
+            str(after),
+            n=1,
+            lineterm="",
+        )
+    )
+    diff = [
+        line[0] + key.get(line[1:], line[1:]) if line[:1] in "+- " and not line.startswith(("+++", "---")) else line
+        for line in diff
+    ]
     hunks = sum(1 for line in diff if line.startswith("@@"))
     if diff:
         print()
