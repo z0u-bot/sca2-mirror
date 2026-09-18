@@ -17,6 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(ROOT / "src"))
 
+from mini.lit import is_literate_document  # noqa: E402
 from mini.reports import (  # noqa: E402
     PUBLISH_LOCK,
     export_key,
@@ -30,7 +31,7 @@ from mini.reports import (  # noqa: E402
 def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
     """The reports this branch changed since *base* — through their notebook, or through a file beside it.
 
-    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the notebook's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling report*, which is a second document rather than an input to the first.
+    A report is dated by its inputs as much as by its own source: re-running an experiment writes new results and edits ``docs/<key>/experiment.py``, leaving ``report.py`` untouched, and the bundle then serves the previous run's figures. So the notebook's own directory counts as part of it (:func:`~mini.reports.input_dir`) — every changed file under it dates the report, except a *sibling document* (a second Marimo report, or a literate ``.py`` with a ``# title:`` header — :func:`mini.lit.is_literate_document`), which is a second document rather than an input to the first.
 
     The diff is three-dot (``base...HEAD``), i.e. against the merge base, so commits that landed on the base branch meanwhile aren't mistaken for ours. Deletions need no filtering: the candidates come from the reports that exist *now*, so a deleted report simply isn't among them (it has no bundle to publish, and the next publish prunes its pin — ``export_reports.update_pins``), while a deleted input still dates the report it belonged to.
 
@@ -46,7 +47,8 @@ def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
         sys.exit(f"git diff against '{base}' failed — is that ref fetched?\n{diff.stderr.strip()}")
     touched = {root / line for line in diff.stdout.splitlines() if line}
     reports = report_notebooks(root / "docs")
-    inputs = touched - set(reports)  # a sibling report is a second document, not an input to this one
+    documents = set(reports) | {p for p in touched if p.exists() and is_literate_document(p)}
+    inputs = touched - documents  # a sibling document is a second document, not an input to this one
 
     def dated(nb: Path) -> bool:
         return nb in touched or ((d := input_dir(nb)) is not None and any(d in p.parents for p in inputs))

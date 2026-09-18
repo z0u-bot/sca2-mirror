@@ -211,14 +211,14 @@ op1_lo = min(float(v[:, 0].min()) for v in pre_op2.values())
 op1_hi = max(float(v[:, 0].max()) for v in pre_op2.values())
 plus_emb_agree = "exactly" if max(plus_emb) == min(plus_emb) else f"to {max(plus_emb) - min(plus_emb):.1e}"
 
-r"""
+rf"""
 ## The off-key ceiling (H1)
 
-**H1 holds, and the gate is not approached.** Over every condition, slice, and channel, the largest pre-op2 reading for the op2 target is {{ "%+.2f"|format(h1_max) }}, against a gate of {{ ex.H1_GATE }}. The maps clip negatives to the floor, so the raw values are quoted here; the sign is what matters.
+**H1 holds, and the gate is not approached.** Over every condition, slice, and channel, the largest pre-op2 reading for the op2 target is {h1_max:+.2f}, against a gate of {ex.H1_GATE}. The maps clip negatives to the floor, so the raw values are quoted here; the sign is what matters.
 
 Under this holdout, a probe with no information cannot even reach R² = 0. Scoring a level removes every line carrying it from the fit, so such a probe predicts the training mean of each fold, and that mean sits away from the held-out level by construction. On this level structure it lands at −0.56. The fold combinatorics fix that number, not any model.
 
-A site whose state never varies pins the same number empirically. At the embedding, the `+` state is a single token embedding, and it is a different vector in every condition. Even so, all four conditions read {{ "%.4f"|format(plus_emb|min) }} there, agreeing {{ plus_emb_agree }}. The op1 sites read lower still, {{ "%.2f"|format(op1_lo) }} to {{ "%.2f"|format(op1_hi) }}. At those sites the probe can read the level of op1 itself and extrapolate op2 from the within-fold regression, and under this holdout that extrapolation points the wrong way. E1 traces the mechanism.
+A site whose state never varies pins the same number empirically. At the embedding, the `+` state is a single token embedding, and it is a different vector in every condition. Even so, all four conditions read {min(plus_emb):.4f} there, agreeing {plus_emb_agree}. The op1 sites read lower still, {op1_lo:.2f} to {op1_hi:.2f}. At those sites the probe can read the level of op1 itself and extrapolate op2 from the within-fold regression, and under this holdout that extrapolation points the wrong way. E1 traces the mechanism.
 
 So no condition, anchored or not, carries op2 information that a linear probe can use before op2. The off-key tilt in the α maps comes from the pairing of the probe set, as the figures page reads it.
 
@@ -317,10 +317,10 @@ figure_html(
     aria_label="H2 decodability comparison table",
 )
 
-r"""
-**H2 does not resolve.** The R channel misses the {{ ex.H2_GATE }} gate at all three sites, by {{ "%.2f"|format(h2_miss_lo) }} to {{ "%.2f"|format(h2_miss_hi) }}. Every miss sits far inside its resolution band, so under the frozen rule each reads as not resolved rather than as a failure — and never as a pass, so the per-channel claim as a whole is neither established nor refuted. No other channel misses. G and B run the other way: at every site the primary condition reads above the scoring seeds of the control, by up to {{ "%.2f"|format(gb_excess) }}.
+rf"""
+**H2 does not resolve.** The R channel misses the {ex.H2_GATE} gate at all three sites, by {h2_miss_lo:.2f} to {h2_miss_hi:.2f}. Every miss sits far inside its resolution band, so under the frozen rule each reads as not resolved rather than as a failure — and never as a pass, so the per-channel claim as a whole is neither established nor refuted. No other channel misses. G and B run the other way: at every site the primary condition reads above the scoring seeds of the control, by up to {gb_excess:.2f}.
 
-Seed variance is what limits the comparison, and the control carries slightly more than half of it. Its three seeds disagree about how linearly color reads, with channel-mean R² at the op1 site running {{ ctrl_spread }} across them, and its scored mean rests on two seeds; the nine primary seeds span {{ "%.2f"|format(prim_spread|min) }} to {{ "%.2f"|format(prim_spread|max) }} themselves. A deficit would have had to be about half an R² unit to resolve, so only a large cost could have been caught.
+Seed variance is what limits the comparison, and the control carries slightly more than half of it. Its three seeds disagree about how linearly color reads, with channel-mean R² at the op1 site running {ctrl_spread} across them, and its scored mean rests on two seeds; the nine primary seeds span {min(prim_spread):.2f} to {max(prim_spread):.2f} themselves. A deficit would have had to be about half an R² unit to resolve, so only a large cost could have been caught.
 
 The best control site for the ans target is the ans position itself, which the selection rule was allowed to pick. Teacher forcing puts the answer token in the input there, so both models read the embedding of the token as much as anything they computed. The comparison is still like for like.
 
@@ -404,14 +404,14 @@ def e1_plot(by_level: dict[str, np.ndarray]) -> plt.Figure:
 
 e1_plot(e1_by_level)
 
-r"""
-What the probes read instead is the level of op1, which is decodable, and they extrapolate op2 from the within-fold regression. The out-of-fold R-channel prediction of the control runs {{ e1_ctrl }} in level units across the R level of op1, a ramp, and the curves of the four conditions agree within {{ "%.2f"|format(e1_spread) }} level units. That extrapolation is what pushes the op1-site R² below even the constant-state floor. This estimator cannot say whether any embedding exposes parity linearly; it says only that the strict off-key reading holds no op2 information in any model.
+rf"""
+What the probes read instead is the level of op1, which is decodable, and they extrapolate op2 from the within-fold regression. The out-of-fold R-channel prediction of the control runs {e1_ctrl} in level units across the R level of op1, a ramp, and the curves of the four conditions agree within {e1_spread:.2f} level units. That extrapolation is what pushes the op1-site R² below even the constant-state floor. This estimator cannot say whether any embedding exposes parity linearly; it says only that the strict off-key reading holds no op2 information in any model.
 
-**E2 — the R channel tracks α loosely.** Correlations over colors at the op1 site, averaged over slices: across the three anchored conditions the R channel reads {{ e2_r }} against the α lookup, and G and B fall between {{ "%+.2f"|format(e2_gb|min) }} and {{ "%+.2f"|format(e2_gb|max) }}. α itself tracks the sim¹·⁵ statistic at {{ "%.2f"|format(e2_sim|min) }}–{{ "%.2f"|format(e2_sim|max) }}. As preregistered, no channel reproduces α, because α carries redness, which is a function of all three channels rather than of any one.
+**E2 — the R channel tracks α loosely.** Correlations over colors at the op1 site, averaged over slices: across the three anchored conditions the R channel reads {e2_r} against the α lookup, and G and B fall between {min(e2_gb):+.2f} and {max(e2_gb):+.2f}. α itself tracks the sim¹·⁵ statistic at {min(e2_sim):.2f}–{max(e2_sim):.2f}. As preregistered, no channel reproduces α, because α carries redness, which is a function of all three channels rather than of any one.
 
-**E3 — no drag signature in the readout of the model itself.** In every condition, the control included, the on-key prediction errors at the emb slice correlate with the partner-mean of the affinity at |r| ≤ {{ "%.2f"|format(e3_partner_max) }}. They correlate with the affinity itself only weakly, and to almost the same degree in each condition ({{ "%+.2f"|format(e3_sim|min) }} to {{ "%+.2f"|format(e3_sim|max) }} for the R channel). So the drag-versus-direct ordering that shows up along the anchor axis does not reappear in RGB decodability: whatever the op1-keyed labels dragged onto the axis, they did not measurably bend the color geometry of the embeddings.
+**E3 — no drag signature in the readout of the model itself.** In every condition, the control included, the on-key prediction errors at the emb slice correlate with the partner-mean of the affinity at |r| ≤ {e3_partner_max:.2f}. They correlate with the affinity itself only weakly, and to almost the same degree in each condition ({min(e3_sim):+.2f} to {max(e3_sim):+.2f} for the R channel). So the drag-versus-direct ordering that shows up along the anchor axis does not reappear in RGB decodability: whatever the op1-keyed labels dragged onto the axis, they did not measurably bend the color geometry of the embeddings.
 
-**E4 — the bare anchor gives up late-slice decodability, and the recipe restores it** (post hoc). Channel-mean op2 decodability at its own position, last slice: control {{ "%.2f"|format(e4_mean[ex.CONTROL]) }}, bare anchor {{ "%.2f"|format(e4_mean["ex-2.1.6/lam0.1"]) }} (seeds {{ e4_bare_seeds }}), anti-subspace {{ "%.2f"|format(e4_mean["ex-2.1.8/end90-hold30"]) }}, primary {{ "%.2f"|format(e4_mean[ex.PRIMARY]) }}. The indiscriminate lift of the bare anchor crowds linear color readout out of the top of the stack. The anti-subspace term restores about half of it, and the full recipe matches the control. The op2 panel of each condition's map shows the whole shape.
+**E4 — the bare anchor gives up late-slice decodability, and the recipe restores it** (post hoc). Channel-mean op2 decodability at its own position, last slice: control {e4_mean[ex.CONTROL]:.2f}, bare anchor {e4_mean["ex-2.1.6/lam0.1"]:.2f} (seeds {e4_bare_seeds}), anti-subspace {e4_mean["ex-2.1.8/end90-hold30"]:.2f}, primary {e4_mean[ex.PRIMARY]:.2f}. The indiscriminate lift of the bare anchor crowds linear color readout out of the top of the stack. The anti-subspace term restores about half of it, and the full recipe matches the control. The op2 panel of each condition's map shows the whole shape.
 
 ## Discussion
 
