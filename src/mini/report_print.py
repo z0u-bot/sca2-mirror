@@ -217,6 +217,8 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
     *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A blank page is left as it is.
+
+    In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
     import pikepdf
 
@@ -224,6 +226,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
         for key in ("/CreationDate", "/ModDate"):
             if key in pdf.docinfo:
                 del pdf.docinfo[key]
+        _inline_dests(pdf)
         for page, extent in zip(pdf.pages, extents or [], strict=extents is not None):
             if extent is None:
                 continue
@@ -231,6 +234,24 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
             x0, y0, x1, y1 = (float(v) for v in page.MediaBox)  # PDF y runs up: y1 is the top edge
             page.MediaBox = page.CropBox = [x0, max(y0, y1 - bottom - top), x1, y1]
         pdf.save(path, deterministic_id=True)
+
+
+def _inline_dests(pdf: Any) -> None:
+    """Replace each link annotation's named destination with the array the name resolves to (the ``/Dests`` dictionary is left for viewers that read it)."""
+    import pikepdf
+
+    dests = pdf.Root.get("/Dests")
+    if dests is None:
+        return
+    for page in pdf.pages:
+        for annot in page.get("/Annots") or []:
+            name = annot.get("/Dest")
+            if name is None or isinstance(name, pikepdf.Array):
+                continue  # no destination, or one given outright already
+            key = str(name)  # a Name (``/fn:a``) or a String (``fn:a``); the dictionary keys by Name
+            target = dests.get(key if key.startswith("/") else "/" + key)
+            if isinstance(target, pikepdf.Array):
+                annot.Dest = target
 
 
 def print_bundle(
