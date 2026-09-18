@@ -13,7 +13,7 @@ Which cells can leak was settled by exporting a probe notebook and grepping the 
 - `@app.cell` — the last statement before the generated `return`, which Marimo strips whether it is bare or carries values.
 - `@app.function` and `@app.class_definition` — never. Their body is an ordinary function or class scope, so a trailing string is dead code rather than an output.
 
-A literate script (`mini.lit`) has the same leak in a different place: *every* top-level string is prose there, so a variable docstring hung under an assignment weaves as a paragraph. It is told from prose proper by where it sits: a docstring starts on the line after its assignment, and prose stands apart from the cell before it with a blank line. The fix there is a comment.
+A literate script (`mini.lit`) has the same leak in a different place: *every* top-level string is prose there, so a variable docstring hung under an assignment weaves as a paragraph. It is told from prose proper by where it sits: a docstring starts on the line after its assignment, and prose stands apart from the cell before it with a blank line. That is a convention rather than a guarantee (a docstring set off by a blank line is well-formed prose to every tool, and only shows as a stray paragraph in the render), so the port check's paragraph diff is the second line. The fix there is a comment.
 """
 
 import argparse

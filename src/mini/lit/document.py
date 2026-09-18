@@ -81,7 +81,7 @@ class Document:
 def parse(path: Path | str, text: str | None = None) -> Document:
     """Split a script into prose and cells, with its metadata.
 
-    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one). A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
+    Metadata is the run of ``# key: value`` comment lines before the first code. A top-level expression statement that is a string literal is prose, dedented, and the code between prose statements is a cell (comments alone are not one); a ``# %%`` line splits a cell in two where prose would not fit. A string anywhere else (a docstring in a function, a value) is code, so a *variable* docstring hung under a constant reads as prose here — write it as a comment.
 
     An f-string at the top level is prose too, evaluated field by field when woven (see :meth:`Runner._prose`): its text here carries each field as a ``{expr}`` placeholder, which is also how a field renders past a :func:`stop`.
     """
@@ -111,9 +111,27 @@ def _prose_node(node: ast.expr, line: int) -> Prose | None:
     return None
 
 
+CELL_MARK_RE = re.compile(r"^# %%")
+
+
 def _cell_lines(lines: list[str], start: int, end: int) -> list[Cell]:
-    """The code on lines *start*..*end* as a cell, if there is any (comments alone are not one)."""
-    body = lines[start - 1 : end]
+    """The code on lines *start*..*end* as cells: one, or more where a ``# %%`` line splits it (comments alone are not one).
+
+    Prose is the usual cell boundary; the marker is for the two things prose cannot do: show two values back to back with nothing between, and re-run (or cache) a slow loader apart from the fast plot beneath it. The marker line itself is dropped, as a comment would be.
+    """
+    cells: list[Cell] = []
+    body: list[str] = []
+    for i in range(start, end + 1):
+        if CELL_MARK_RE.match(lines[i - 1]):
+            cells.extend(_one_cell(body, i - len(body)))
+            body = []
+        else:
+            body.append(lines[i - 1])
+    cells.extend(_one_cell(body, end - len(body) + 1))
+    return cells
+
+
+def _one_cell(body: list[str], start: int) -> list[Cell]:
     while body and not body[0].strip():
         body, start = body[1:], start + 1
     while body and not body[-1].strip():

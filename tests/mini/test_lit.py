@@ -416,6 +416,23 @@ class TestChromium:
         assert r._chromium() == str(exe)
 
 
+class TestCellMark:
+    def test_a_marker_splits_a_cell_and_both_halves_display(self, tmp_path):
+        """Two values back to back, with no paragraph between: the marker is the boundary prose would have been."""
+        p = write(tmp_path, '"""A."""\nx = "<b>one</b>"\nx\n# %%\ny = "<b>two</b>"\ny\n"""B."""\n')
+        doc = parse(p)
+        cells = [s for s in doc.segments if isinstance(s, Cell)]
+        assert [c.line for c in cells] == [2, 5]
+        assert "# %%" not in cells[0].source + cells[1].source
+        r = render(p, out_dir=tmp_path / "out")
+        assert r.woven.errors == [] and r.woven.markdown.count("<b>") == 2
+
+    def test_a_marker_at_the_edges_or_alone_makes_no_empty_cell(self, tmp_path):
+        p = write(tmp_path, '# %%\n"""A."""\n# %%\n\n# %%\nx = 1\n# %%\n')
+        cells = [s for s in parse(p).segments if isinstance(s, Cell)]
+        assert [(c.line, c.source) for c in cells] == [(6, "x = 1\n")]
+
+
 class TestRender:
     def test_writes_html_and_markdown(self, tmp_path):
         p = write(tmp_path, '"""\n# Hi\n"""\nv = 2\nrf"""v is {v} and \\(x^2\\)."""\n')

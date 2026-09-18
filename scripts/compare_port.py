@@ -27,6 +27,7 @@ _TAG = re.compile(r"<[^>]+>")
 _EMPHASIS = re.compile(r"(\*{1,3}|_{1,3}|`+)")
 _LINK = re.compile(r"\[([^\]]*)\]\([^)]*\)")
 _SPACE = re.compile(r"[ \t]+")
+_FOOTNOTE_PREFIX = re.compile(r"\[\^\d+-")  # Marimo numbers a footnote label by its cell (``[^8-recompute]``)
 
 
 def _stem(src: str) -> str:
@@ -69,6 +70,7 @@ def _plain(text: str) -> str:
     text = _LINK.sub(r"\1", text)
     text = _EMPHASIS.sub("", text)
     text = text.replace("\\", "")  # the escapes Marimo's render adds (``\*\*``)
+    text = _FOOTNOTE_PREFIX.sub("[^", text)
     return _SPACE.sub(" ", html.unescape(text)).strip()
 
 
@@ -90,6 +92,9 @@ def reduce(text: str) -> list[str]:
                 if not line:
                     continue
             line = line.removeprefix("> ").removeprefix(">")  # the blockquote Marimo renders an admonition as
+            line = re.sub(
+                r"^[-*] ", "", line
+            )  # a list item, whichever marker the renderer chose (`+` is left: a caption can open with one)
             if re.fullmatch(r"\|(\s*:?-+:?\s*\|)+", line):
                 continue  # a pipe table's separator row
             if line.startswith("|") and line.endswith("|"):
