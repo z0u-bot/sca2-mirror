@@ -233,6 +233,19 @@ class TestWeave:
         assert "ZeroDivisionError" in w.markdown
         assert "after 1" in w.markdown  # x was bound before the error, prose still renders
 
+    def test_a_displayable_value_mid_cell_is_an_error(self, tmp_path):
+        """Only a cell's last expression is shown, so a figure or HTML string produced above the end would vanish; the runner says so instead. A side-effecting call that returns nothing is fine."""
+        p = write(tmp_path, '"""intro"""\n\nprint("side effect")\n"".join(["<b>lost</b>"])\nx = 1\nf"""after {x}"""\n')
+        w = Runner(p).weave()
+        assert len(w.errors) == 1
+        assert f'File "{p}", line 4' in (w.errors[0].error or "")
+        assert "last statement of its cell" in w.markdown
+        assert "<b>lost</b>" not in w.markdown
+
+        p = write(tmp_path, '"""intro"""\n\nx = [1]\nx.append(2)\nx\n')
+        w = Runner(p).weave()
+        assert w.errors == [] and "[1, 2]" in w.markdown
+
     def test_a_failing_field_is_an_error_at_the_script_line(self, tmp_path):
         p = write(tmp_path, 'x = "s"\n\nf"""bad {x:.2f} {nope}"""\n')
         w = Runner(p).weave()
