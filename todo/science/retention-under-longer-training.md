@@ -1,8 +1,9 @@
 ---
-status: open
+status: done
 tags: [D2.2, anchoring, schedules, ex-2.2.9]
 priority: high
 opened: 2026-09-17
+closed: 2026-09-18
 ---
 # Retention under longer training: is the anneal window the reason the margin drifts?
 
@@ -21,3 +22,5 @@ Related: [containment rises under the untied readout](containment-rises-under-th
 ## Notes
 
 **2026-09-17, Fable** — the first of the three ran as [ex-2.2.10](/docs/m2/ex-2.2.10/report.py), from the stored trajectories: the anneal is not the cause. Through the anneal window every handover condition ends at 0.99 or better of where it started it. The drop the gate measured happens before: `handover` reaches a noisy plateau by epoch 10, its peak (0.75 at epoch 19 on average) is the high point of that noise, and by the anneal's start at epoch 45 the seeds sit at 0.66 with a few drifting. `handover-slot` and `handover-tied` peak later and drift less, so the drift belongs to the whole-line labeller on the untied readout together. Proposal for ex-2.2.11: keep the retention read with the alignment at the anneal's start as its denominator, and report the end-of-training level beside the references (0.66 against 0.72 and 0.70). The second bullet (a later, shorter, or stepped anneal) would act on a window where nothing is lost, so it is off the list; the third (a band) still applies.
+
+**2026-09-18, Fable** — closed on Sandy's review of ex-2.2.10: "The traces look ~fine. We probably don't need to investigate further." The question the item asked (is the anneal window the reason) is answered no. What carries forward is in the ex-2.2.11 proposal: retention against the alignment at the anneal's start, and the end-of-training level beside the references. Sandy floated a high percentile of the plateau in place of the peak; that would soften the ratio and keep the drift in it, so the report notes it beside the anneal-start denominator. Not stored, and open if it ever matters: whether the plateau's high epochs are ones where the seeded corpus drew more red lines.

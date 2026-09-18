@@ -39,6 +39,8 @@ with app.setup(hide_code=True):
     OPS = ex.OPS_READ
     SLOTS = ((0, "op1"), (2, "op2"))
     """The red operand's position and the group name ex-2.2.9 scores it under."""
+    PASSES = ("clean", "projection")
+    """The two forward passes the scoring stored: as trained, and with the axis removed everywhere."""
     CONDS = ("control", "handover", "handover-slot", "handover-tied", "handover-narrow")
     ALL_OPS = OP_BY_NAME | CANDIDATE_BY_NAME
     GRID = [ex.PALETTE[n] for n in ex.PALETTE]
@@ -172,23 +174,29 @@ def _():
     <!-- tl;dr -->
     Ex-2.2.9 moved the anchor onto the larger grammar and left three loose ends. Removal was one-sided on the three HSV ops, one seed in twenty fell under the retention gate, and the non-red alignment at op1 sat above the old reference. This notebook reads each off the stored runs, with one small scoring pass for the cube figures and no new training.
 
-    The removal miss comes from the rule we used to pick the lines: the projection acts like a change of hue, and the lines that missed are the ones whose answer takes only the saturation or value of the red operand. The retention drop happens before the anneal, so the anneal is not the cause. The op1 alignment rises under either half of the handover, so it belongs to the new grammar rather than to the readout alone. We propose the re-run.
+    The removal miss comes from the rule we used to pick the lines. The projection acts like a change in the hue of red, and the lines that missed are the ones whose answer takes only the saturation or value of the red operand. Red is the one anchored concept, so these reads cannot say whether another concept would come apart the same way.
+
+    The retention drop happens before the anneal begins. The op1 alignment rises under either half of the handover, so it belongs to the new grammar rather than to the readout alone. We propose the re-run.
     ///
 
     ## Observations
 
-    Each line below is a read on the stored runs, with the number it rests on. None of them is a result; ex-2.2.11 will adopt what it needs from here and score it at fresh seeds.
+    None of the lines below is a result; ex-2.2.11 will adopt what it needs from here and score it at fresh seeds.
 
-    - [Removal](#removal-on-the-order-sensitive-ops): on the three HSV ops the kept share follows a hue-change counterfactual, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the red operand's saturation or value (`sat-hsv` and `value-hsv` with red at op2), two thirds of it survives the projection. Where the answer takes red's hue, or the whole color, it goes. The one slot no counterfactual predicts is `hue-hsv` with red at op1: the answer needs only red's saturation and value, and a third survives. A linear probe on the stream reads the projected red operand as a hue rotated away from red at lower value, and the rotation grows block by block.
-    - [Retention](#retention-and-the-anneal): on `handover` the alignment reaches a noisy plateau by epoch 10, and its peak is just the high point of that noise. By the time the anneal begins at epoch 45 the seeds sit at 0.66, a few of them drifting. Through the anneal itself every condition is flat. So the gate is reading the noise in the plateau and the drift. `handover-slot` and `handover-tied` hold their plateaus, which puts the drift down to the whole-line labeller on the untied readout.
-    - [Containment](#containment-under-the-untied-readout): ᾱ at op1 on the non-red lines is 0.28 on `handover`, 0.18 on `handover-slot`, and 0.16 on `handover-tied`, against 0.02 on the control. Each half of the handover raises it, so the untied readout is not the whole story. The axis component of the `⏎` embedding row is a whole-line effect: 0.17 on `handover` and zero on `handover-slot`.
+    - [Removal](#removal-on-the-order-sensitive-ops): on the three HSV ops the kept share follows a change of hue on the red operand, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the saturation or value of the red operand (`sat-hsv` and `value-hsv` with red at op2), two thirds of the clean exact match survives the projection. Where the answer takes the hue of red, or the whole color, it goes. One case no counterfactual predicts: `hue-hsv` with red at op1, whose answer needs only the saturation and value of red, and where a third of the clean exact match survives. A linear probe on the stream reads the projected red operand as a hue rotated away from red, at a lower value, and the rotation grows block by block.
+    - [Retention](#retention-and-the-anneal): on `handover` the alignment reaches a noisy plateau by epoch 10, and its peak is just the high point of that noise. By the time the anneal begins at epoch 45 the seeds sit at 0.66, a few of them drifting downward. Through the anneal itself every condition is flat, so the gate is reading the noise in the plateau plus the drift. `handover-slot` and `handover-tied` hold their plateaus, so the drift needs the whole-line labeller and the untied readout together.
+    - [Containment](#containment-under-the-untied-readout): ᾱ at op1 on the non-red lines is 0.28 on `handover`, 0.18 on `handover-slot`, and 0.16 on `handover-tied`, against 0.02 on the control. Each half of the handover raises it, so the untied readout is not the whole story. The `⏎` embedding row picks up the axis only under the whole-line labeller: 0.17 on `handover` and zero on `handover-slot`.
     - [What we make of it](#what-we-make-of-it): score removal on the lines whose answer takes the hue of the red operand, judge retention against the alignment at the start of the anneal (or drop the ratio and report a level), and carry the op1 alignment as a report line rather than a gate.
 
     ## How to read this
 
-    This is a scouting notebook in the shape of [ex-2.2.4](../ex-2.2.4/report.py): no hypotheses, no gates, no verdicts. Everything here comes from the checkpoints, probe set, metrics, and training trajectories that ex-2.2.9 stored. The cube figures also needed the answer distributions and residual states of the red lines, which ex-2.2.9 did not keep, so a scoring-only experiment ([`experiment.py`](experiment.py)) re-ran its projection read on the twenty `handover` checkpoints and stored those. No model was trained.
+    This is a scouting notebook in the shape of [ex-2.2.4](../ex-2.2.4/report.py): no hypotheses, no gates, no verdicts. Everything here comes from the checkpoints, probe set, metrics, and training trajectories that ex-2.2.9 stored. The cube figures also needed the answer distributions and residual states of the red lines, which ex-2.2.9 did not keep, so a scoring-only experiment ([`experiment.py`](experiment.py)) re-ran its projection read on the twenty `handover` checkpoints and stored those.
 
-    The reads use the vocabulary of ex-2.2.9. A *red line* has a red operand, meaning redness at or above 0.8; that operand sits in slot op1 or op2. The *projection* removes the anchored axis from the residual stream at every slice and position.[^stream] *Kept* is the share of the clean expected exact match that survives the projection, over a group of lines. A *removal line* is a red line where setting the R channel of the red operand to zero moves the true answer by at least 0.4 in the unit cube; the removal gate of ex-2.2.9 wanted kept to fall under 0.2 on those. The report for ex-2.2.9 has the [full glossary](../ex-2.2.9/report.py).
+    The reads use the vocabulary of ex-2.2.9, and the report for ex-2.2.9 has the [full glossary](../ex-2.2.9/report.py). A *red line* has a red operand, meaning redness at or above 0.8; that operand sits in slot op1 or op2. The *projection* removes the anchored axis from the residual stream at every slice and position.[^stream] *Kept* is the share of the clean expected exact match that survives the projection, over a group of lines. A *removal line* is a red line where setting the R channel of the red operand to zero moves the true answer by at least 0.4 in the unit cube; the removal gate of ex-2.2.9 wanted kept to fall under 0.2 on those.
+
+    Neither set matches what the training labeller used.[^labeller]
+
+    [^labeller]: Under the whole-line labeller, each of the three colors in a line draws a label at a small rate that rises steeply with its redness (4% per visit at pure red), and the line is labeled if any of them draws. So a red line is labeled on some of its visits, and a line with a red answer can earn the label too.
 
     [^stream]: The *residual stream* is the running vector the transformer carries from block to block; each block reads it and adds to it. A *slice* is that vector at one depth, and a *position* is one token in the line.
     """)
@@ -236,6 +244,12 @@ class Results:
     def stacked(self, key: str) -> np.ndarray:
         """One per-line array of every scored run, stacked on a leading seed axis."""
         return np.stack([self.arr(lb, key) for lb in self.labels])
+
+
+@app.function(hide_code=True)
+def cap(md: str) -> str:
+    """A caption's Markdown rendered to the HTML fragment `figure_html` takes."""
+    return mo.md(md).text
 
 
 @app.function(hide_code=True)
@@ -298,7 +312,7 @@ def _():
 
     Each is a different reading of what "losing red" should do to the red operand.
     *To zero* sets its R channel to zero; this is the rule that picked the lines.
-    A *change of hue* replaces the operand by a permutation of its channels, which keeps its saturation and value and moves its hue; a line survives when every permutation leaves the true answer within 0.4.
+    A *change of hue* replaces the operand by a permutation of its channels, keeping its saturation and value while moving its hue; a line survives when every permutation leaves the true answer within 0.4. A permutation reaches only six hues, a sixth of a turn apart, so this is a coarse hue rotation, and a finer one could behave differently between the hues it samples.
     *To gray* replaces it by the gray of the same value, which keeps value and removes hue and saturation together.
     """)
     return
@@ -405,7 +419,9 @@ def _(cf, res):
 
     fig_cf = figure_html(
         _plot(),
-        caption="**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Dots are the kept share of the twenty `handover` seeds on the red lines under the projection, with the seed mean in the larger marker. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (plus), or its replacement by gray of the same value (cross). To zero is the rule that picked the removal lines, and it predicts near zero everywhere.",
+        caption=cap(
+            "**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Dots are the kept share of the twenty `handover` seeds on the red lines under the projection, with the seed mean in the larger marker. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (plus), or its replacement by gray of the same value (cross). To zero is the rule that picked the removal lines, and it predicts near zero everywhere."
+        ),
         aria_label="Chart of kept share by op and red slot. Observed kept shares track the change-of-hue prediction in six of eight columns; hue-hsv with red at op1 sits at a third where the hue prediction is one, and mix and value-hsv with red at op1 sit near zero under every prediction.",
     )
     return (fig_cf,)
@@ -426,7 +442,7 @@ def _(cf, cf_table, fig_cf, res):
 
         So when the red operand supplies saturation and value and something else supplies the hue, the projection costs the model most of that saturation and value read as well. The same loss shows up more mildly in the two slots that survive: `sat-hsv` and `value-hsv` red-at-op2 keep two thirds where the hue reading says all of it.
 
-        That tells us what the removal gate should have counted. A removal line is one whose answer needs the *hue* of the red operand, and the to-zero rule is a proxy that fails on pure red. Under the change-of-hue rule, `sat-hsv` and `value-hsv` red-at-op2 drop out of the gate, and `hue-hsv` red-at-op1 drops out with them. The slots that remain are the ones the projection already clears.
+        One reading is that the removal gate should count the lines whose answer needs the *hue* of the red operand, which is what the to-zero rule was meant to proxy. Under a change-of-hue rule, `sat-hsv` and `value-hsv` red-at-op2 drop out of the gate, and `hue-hsv` red-at-op1 drops out with them. What remains are the cases the projection already clears, and the rule rests on the six hues a permutation can reach.
 
         What stays open is whether the partial loss of saturation and value comes from the projection itself or from this checkpoint.
         """)
@@ -440,7 +456,7 @@ def _():
     mo.md(r"""
     ### Where the answers go
 
-    The counterfactual table says which answers are lost. The next three figures say what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. All three use the same view of the color cube, the one the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top and lightness collapses onto the center.
+    The counterfactual table says which answers are lost. The next three figures show what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. All three use the same view of the RGB cube, the one the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top and lightness collapses onto the center.
     """)
     return
 
@@ -459,14 +475,14 @@ def _(res):
         t2c = tok2color()
         out = {}
         for op in OPS:
-            for slot, _g in SLOTS:
+            for (slot, _g), pas in itertools.product(SLOTS, PASSES):
                 pairs: Counter = Counter()
                 for lb in res.labels:
                     m = removal_mask(res, lb, op, slot)
                     truth = res.arr(lb, f"{op}/ans_idx")[m]
-                    guess = t2c[res.arr(lb, f"{op}/projection/guess")[m]]
+                    guess = t2c[res.arr(lb, f"{op}/{pas}/guess")[m]]
                     pairs.update(zip(truth.tolist(), guess.tolist(), strict=True))
-                out[op, slot] = pairs
+                out[op, slot, pas] = pairs
         return out
 
     guess_pairs = None if res.arrays is None else _panels()
@@ -476,12 +492,12 @@ def _(res):
 @app.cell(hide_code=True)
 def _(guess_pairs):
     def _plot(op: str):
-        fig, axes = plt.subplots(1, 2, figsize=(4.6, 2.4), layout="constrained")
-        for ax, (slot, g) in zip(axes, SLOTS, strict=True):
-            pairs = guess_pairs[op, slot]
+        fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.3), layout="constrained")
+        for ax, ((slot, g), pas) in zip(axes, itertools.product(SLOTS, PASSES), strict=True):
+            pairs = guess_pairs[op, slot, pas]
             if not pairs:
                 draw_cube_bound(ax, "wheel")
-                ax.set_title(f"red at {g}: no removal lines", fontsize=7)
+                ax.set_title(f"red at {g}, {pas}: no removal lines", fontsize=7)
                 continue
             keys = np.array(list(pairs))
             n = np.array([pairs[tuple(k)] for k in keys], float)
@@ -491,16 +507,18 @@ def _(guess_pairs):
             truth, guess = GRID_UNIT[keys[:, 0]], GRID_UNIT[keys[:, 1]]
             plot_rgb_cube(ax, guess, truth, truth=truth, diameter=0.04 + 0.16 * np.sqrt(n / n.max()), view="wheel")
             note = f", {off} off-vocab" if off else ""
-            ax.set_title(f"red at {g} ({int(n.sum())} answers{note})", fontsize=7)
+            ax.set_title(f"red at {g}, {pas} ({int(n.sum())}{note})", fontsize=7)
         return fig
 
     fig_guess = (
         RESULTS_TO_COME
         if guess_pairs is None
         else figure_html(
-            "".join(figure_html(themed(_plot, name=f"guess-{op}")(op), caption=f"`{op}`") for op in OPS),
-            caption="**Greedy answers under the projection, on the removal lines.** One row per op, one panel per red slot; wheel view of the cube (hue around the hexagon, red at the top, lightness collapsed). Each mark is a greedy answer placed at its own color in the cube and colored by the true answer, with an open ring at the true answer and a stub between them; marks are sized by the number of (line, seed) pairs that made that move. Marks on their rings are answers the projection left alone.",
-            aria_label="Cube panels of greedy answers under the projection, per op and red slot. On mix the marks sit below their rings, toward the gray center. Where red supplies the hue (hue-hsv with red at op2, sat-hsv and value-hsv with red at op1) the marks spread over every hue of the wheel. On hue-hsv with red at op1 the rings sit on the rim and many marks have moved inward from them. On sat-hsv and value-hsv with red at op2 most marks sit on their rings.",
+            "".join(figure_html(themed(_plot, name=f"guess-{op}")(op), caption=cap(f"`{op}`")) for op in OPS),
+            caption=cap(
+                "**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer and a stub between them. Marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth."
+            ),
+            aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
         )
     )
     mo.md(fig_guess)
@@ -510,6 +528,8 @@ def _(guess_pairs):
 @app.cell(hide_code=True)
 def _():
     mo.md(r"""
+    Clean, the greedy answer is the true one on almost every removal line, so the clean panels are where the truth lies. On `mix` the projected answers move toward the center of the cube, and their mean is a gray with a little red left in it. Their hues stay near red: nine in ten sit within a third of a turn of it, which is why the green and blue half of the wheel stays empty. A `mix` answer is the midpoint of its two operands, and a red operand that reads as orange or pink after the projection cannot pull a midpoint to the far side of the wheel.
+
     The greedy answer is only one token. The whole answer distribution says how confidently the model moved, and whether the mass that left the true answer went to one color or spread out. The next figure draws that distribution as a dithered cloud in the cube.
     """)
     return
@@ -577,12 +597,81 @@ def _(cloud_mass):
         RESULTS_TO_COME
         if cloud_mass is None
         else figure_html(
-            "".join(figure_html(themed(_plot, name=f"cloud-{op}")(op), caption=f"`{op}`") for op in OPS),
-            caption="**The answer distribution on the removal lines, clean and under the projection.** One row per op; each pair of panels is one red slot, clean on the left and projected on the right. Wheel view of the cube. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be; the clean panels are where the true answers of those lines lie.",
-            aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are: the red wedge at the top where red supplies the hue, the rim on hue-hsv with red at op1, and the whole wheel on sat-hsv and value-hsv with red at op2. Where red supplies the hue the projected cloud spreads over the whole wheel; on hue-hsv with red at op1 it fills the interior from the rim; on sat-hsv and value-hsv with red at op2 it stays close to the clean one.",
+            "".join(figure_html(themed(_plot, name=f"cloud-{op}")(op), caption=cap(f"`{op}`")) for op in OPS),
+            caption=cap(
+                "**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right. Wheel view of the RGB cube. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie."
+            ),
+            aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
         )
     )
     mo.md(fig_cloud)
+    return
+
+
+@app.cell(hide_code=True)
+def _(res):
+    def _peak():
+        """How peaked the answer distribution of a removal line is under each pass.
+
+        Returns the mean mass on the top color, and the effective number of colors (the exponential of the
+        mean entropy over lines and seeds).
+        """
+        out = {}
+        for op in OPS:
+            for (slot, _g), pas in itertools.product(SLOTS, PASSES):
+                top, eff, k = 0.0, 0.0, 0
+                for lb in res.labels:
+                    m = removal_mask(res, lb, op, slot)
+                    if not m.any():
+                        continue
+                    p = res.arr(lb, f"{op}/{pas}/mass")[m].astype(float)
+                    p /= p.sum(1, keepdims=True)
+                    top += p.max(1).sum()
+                    eff += -(p * np.log(np.maximum(p, 1e-12))).sum()
+                    k += int(m.sum())
+                out[op, slot, pas] = (top / k, float(np.exp(eff / k))) if k else (np.nan, np.nan)
+        return out
+
+    peak = None if res.arrays is None else _peak()
+    return (peak,)
+
+
+@app.cell(hide_code=True)
+def _(peak):
+    def _table():
+        rows = []
+        for op in OPS:
+            for slot, g in SLOTS:
+                c, p = peak[op, slot, "clean"], peak[op, slot, "projection"]
+                rows.append([f"`{op}`, red at {g}", f"{c[0]:.2f}", f"{p[0]:.2f}", f"{c[1]:.1f}", f"{p[1]:.1f}"])
+        return table_html(
+            ["Op and slot", "Top mass, clean", "Top mass, proj.", "Colors, clean", "Colors, proj."],
+            rows,
+            "**How peaked the answer distribution of each line is, clean and under the projection.** Mean over the removal lines and the twenty seeds. *Top mass* is the probability on the most likely grid color. *Colors* is the effective number of colors, the exponential of the mean entropy: 1 for a certain answer, 216 for a uniform one.",
+        )
+
+    def _text():
+        if peak is None:
+            return RESULTS_TO_COME
+
+        def both(*cases):
+            return [(peak[op, slot, "clean"], peak[op, slot, "projection"]) for op, slot in cases]
+
+        broken = both(("mix", 0), ("mix", 2), ("hue-hsv", 2), ("sat-hsv", 0), ("value-hsv", 0))
+        kept = both(("sat-hsv", 2), ("value-hsv", 2))
+        return (
+            _table()
+            + "\n\n"
+            + inspect.cleandoc(f"""
+        Per line, the projected answer is unsure among a handful of colors rather than spread over the wheel. On the cases the projection breaks, the mass on the top color falls from about {np.mean([b[0][0] for b in broken]):.1f} clean to about {np.mean([b[1][0] for b in broken]):.1f}, and the effective number of colors rises from one or two to about {np.mean([b[1][1] for b in broken]):.0f}. On the two cases it leaves alone, the top mass stays at {min(k[1][0] for k in kept):.1f} or above.
+
+        So the wheel-wide spread of the projected clouds is a spread across lines, each moved to its own neighbourhood. That is what we would expect if the operand reads as a hue rotated one way or the other, which is what the probe finds.
+
+        The structure inside each cloud is the set of answers the op can produce on the grid, carried around the wheel by the rotation. Take `sat-hsv` with red at op1: the clean answers are reds of every saturation, a ray from white at the center out to red at the top, and projected that ray appears at every hue. With red at op2 the answers are fully saturated colors at the hue and value of op1, which in the wheel view are the rim and the spokes running in toward the center, and the projected panel keeps that skeleton.
+        """)
+        )
+
+    mo.md(_text())
     return
 
 
@@ -591,9 +680,11 @@ def _():
     mo.md(r"""
     ### What the stream says
 
-    The answers show what the model concluded. The residual stream shows what it was working from. For each op we fit a linear probe from the stream at each slice and position to the three colors a line carries: op1, op2, and the answer the rule gives. The probes were fit on the clean stream of the non-red lines, and we then decoded the red lines through them, clean and under the projection. The probe-cube figures of ex-2.1.3 are the precedent.
+    The answers show what the model concluded. The residual stream shows what it was working from. For each op we fit a linear probe from the stream at each slice and position to the three colors a line carries: op1, op2, and the answer the rule gives. The probes were fit on the clean stream of the non-red lines, and we then decoded the red lines through them, clean and under the projection.[^probes]
 
-    The probes read RGB, so their output lands in the cube with no rotation needed to fit it. A hue probe would be ill-posed, since hue is circular, and saturation and value are piecewise-linear in RGB, so we convert the decoded RGB whenever an HSV number is wanted.
+    Fitting on the non-red lines keeps the axis out of the probes. A probe fit on lines with red in them would learn the axis as the direction of red, and would then read its removal as a loss of red at the embedding as much as anywhere. A probe blind to the axis reads what the blocks make of its absence, which is the question here. The red lines are outside the fit set, so they are held out without a leave-one-out scheme.
+
+    [^probes]: The probe-cube figures of ex-2.1.3 are the precedent. The probes read RGB, so their output lands in the cube with no rotation needed to fit it. A hue probe would be ill-posed, since hue is circular, and saturation and value are piecewise-linear in RGB, so we convert the decoded RGB whenever an HSV number is wanted.
     """)
     return
 
@@ -642,7 +733,8 @@ def _(decoded):
             for s in range(n_sl):
                 ax = axes[r, s]
                 d = np.clip(decoded[op, "projection", what][s], -0.2, 1.2)
-                plot_rgb_cube(ax, d, truth, truth=truth, s=5, view="wheel")
+                ring = np.clip(decoded[op, "clean", what][s], -0.2, 1.2)
+                plot_rgb_cube(ax, d, truth, truth=ring, s=5, view="wheel")
                 ax.set_title(f"{'red operand' if what == 'operand' else 'answer at ='}, slice {s}", fontsize=7)
         return fig
 
@@ -650,9 +742,11 @@ def _(decoded):
         RESULTS_TO_COME
         if decoded is None
         else figure_html(
-            "".join(figure_html(themed(_plot, name=f"decoded-{op}")(op), caption=f"`{op}`") for op in OPS),
-            caption="**Colors of the removal lines decoded from the residual stream under the projection.** One block per op. Top row: the red operand read at its own position by the probe fit at that slice, one mark per line at the decoded RGB, colored by the true color of the operand, with a ring at that true color and a stub between; mean over the twenty seeds. Bottom row: the answer from the rule read at `=`, colored by the true answer. Wheel view; slice 0 is the embedding and each later slice is the stream after one more block. At slice 0 the `=` position has seen nothing of the line yet, so every answer decodes to the probe's mean at the center.",
-            aria_label="Cube panels of probe-decoded colors under the projection, per op, across five slices. Top rows: at slice 0 the marks sit just off their rings at the red corner; from slice 1 they slide along the hexagon's upper edges away from red, toward orange on one side and pink on the other, further with each slice. Bottom rows: at slice 0 every answer decodes to the center; from slice 1 the answers spread toward their rings and stop short of them, inside the hexagon.",
+            "".join(figure_html(themed(_plot, name=f"decoded-{op}")(op), caption=cap(f"`{op}`")) for op in OPS),
+            caption=cap(
+                "**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with an open ring at the clean decode of the same line and a stub between them, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer. Wheel view of the RGB cube. Slice 0 is the embedding, and each later slice is the stream after one more block."
+            ),
+            aria_label="Cube panels of probe-decoded colors across five slices, projected marks with rings at the clean decode. The operand marks start on their rings at red and slide further from them with each slice, toward orange on one side and pink on the other; the answer marks stop short of rings that spread toward the rim.",
         )
     )
     mo.md(fig_dec)
@@ -715,7 +809,7 @@ def _(decoded):
         return table_html(
             head,
             rows,
-            "**Where the decoded colors land, clean and under the projection.** Mean over the removal lines and the twenty seeds, at the first block and the last. *Move* is the distance from the decoded color to the true one in the unit cube; *|ΔH|* is the hue offset from the true color in turns (0.5 is the opposite hue); *S* and *V* are the decoded saturation and value. The true operands have S and V near 1.",
+            "**Where the decoded colors land, clean and under the projection.** Mean over the removal lines and the twenty seeds, at the first block and the last. *Move* is the distance from the decoded color to the true one in the unit RGB cube. *|ΔH|* is the hue offset from the true color, in turns, so 0.5 is the opposite hue. *S* and *V* are the decoded saturation and value; the true operands have both near 1.",
         )
 
     def _text():
@@ -725,11 +819,15 @@ def _(decoded):
             _hsv_table()
             + "\n\n"
             + inspect.cleandoc("""
-    At the embedding, the projection changes nothing the probe can see. Clean and projected reads coincide at slice 0, on operand and answer alike, and the small offset both show is the shrinkage of the ridge fit. The probes were fit on the non-red lines, whose stream has little of the axis in it, so they are blind to its removal. Whatever the projection takes at slice 0 becomes visible only once the blocks have acted on it.
+    At the embedding, the projection changes nothing the probe can see. Clean and projected reads coincide at slice 0, on operand and answer alike, and the small offset both show is the shrinkage of the ridge fit. The probes are blind to the axis, so whatever the projection takes at slice 0 becomes visible only once the blocks have acted on it.[^slice0]
 
-    From the first block on, the projected red operand reads as a different color, and the difference grows with depth: the move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the figure that is the marks sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center.
+    [^slice0]: At slice 0 the stream at `=` is the same vector on every line, since nothing of the line has reached that position yet. A probe there can only return one color for every answer: the mean of its fit set, near the center of the wheel.
 
-    So this is the change-of-hue counterfactual that the kept shares followed, with a loss of value alongside it. The value the stream keeps of the red operand is what the saturation- and value-taking slots have to work with, so the part of it that goes is the partial loss the counterfactual table could not explain.
+    From the first block on, the projected red operand reads as a different color, and the difference grows with depth. The move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the figure that is the marks sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center.
+
+    So this is the change-of-hue counterfactual that the kept shares followed, with a loss of value alongside it. M1 saw a related asymmetry when it deleted the hue subspace of an autoencoder (ex-2.7 in [ex-preppy](https://github.com/z0u/ex-preppy), under its ablation figures): red, green, and blue darkened, and yellow, cyan, and magenta lightened. One reading of both is that the primaries sit nearer black on the gray diagonal than the secondaries do, so what remains of red once a hue direction is gone leans toward black.
+
+    The slots that take the saturation and value of the red operand have only what the stream keeps of it, so that lost value is the partial loss the counterfactual table could not explain.
 
     The answer at `=` follows the operand. Clean, it reaches its ring by the last slice. Projected, it stops short, with a smaller hue offset than the operand and a saturation about two tenths under the clean read. The answers that survive on `sat-hsv` and `value-hsv` with red at op2 are the ones whose true color the rotated, dimmer operand still snaps to.
     """)
@@ -827,7 +925,9 @@ def _(res, ret):
 
     fig_ret = figure_html(
         _plot(),
-        caption="**Line alignment over training, and two retention ratios.** Left: every seed's line alignment against epoch, one thin line per seed, for the three handover conditions; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
+        caption=cap(
+            "**Line alignment over training, and two retention ratios.** Left: every seed's line alignment against epoch, one thin line per seed, for the three handover conditions; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference."
+        ),
         aria_label="Three panels. Left, alignment trajectories: handover seeds rise to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
     )
     return (fig_ret,)
@@ -844,11 +944,13 @@ def _(fig_ret, ret):
         return inspect.cleandoc(f"""
         The anneal costs nothing. Over the anneal window the `handover` seeds end at {end_over_at["handover"]:.3f} of where they started it, and `handover-slot` and `handover-tied` at {end_over_at["handover-slot"]:.3f} and {end_over_at["handover-tied"]:.3f}. The whole of the drop the gate measured happens earlier.
 
-        `handover` climbs to a plateau by epoch 10, and its peak, at {h[:, 0].mean():.2f} and epoch {peak_ep["handover"]:.0f} on average, is just the high point of a noisy series. By the start of the anneal the seeds sit at {h[:, 2].mean():.2f}, a few of them drifting to the bottom of the band. The two references peak later (epoch {peak_ep["handover-slot"]:.0f} on `handover-slot`, {peak_ep["handover-tied"]:.0f} on `handover-tied`) because their plateaus are still rising, and they drift less, which is why their ratio comes out higher.
+        `handover` climbs to a plateau by epoch 10. Its peak, at {h[:, 0].mean():.2f} and epoch {peak_ep["handover"]:.0f} on average, is just the high point of a noisy series. We cannot tell whether the high epochs are the ones with more red lines in their batches, since the stored trajectories do not record what each epoch drew; the corpus sampler is seeded, so a replay could tell.
 
-        So the ratio of the end to the peak compares the height of a noisy plateau against its last sample, and adds in a slow drift on some seeds under a constant anchor weight. That drift needs both the whole-line labeller and the untied readout, since either one alone holds its plateau.
+        By the start of the anneal the seeds sit at {h[:, 2].mean():.2f}, a few of them drifting down to the bottom of the band. The two references peak later (epoch {peak_ep["handover-slot"]:.0f} on `handover-slot`, {peak_ep["handover-tied"]:.0f} on `handover-tied`) because their plateaus are still rising, and they drift less, which is why their ratio comes out higher.
 
-        Whether the drift matters is a different question from the one the gate asked. The end-of-training alignment is {h[:, 3].mean():.2f} on `handover` against {s[:, 3].mean():.2f} and {t[:, 3].mean():.2f} on the references. Every read downstream of it (grading, removal, containment) is taken at the end, so that level is what the later experiments inherit. A stepped anneal, which the backlog item floated, would act on the window where nothing is lost.
+        So the ratio of the end to the peak is comparing the last sample of a noisy plateau against the height of that plateau, with a slow drift under a constant anchor weight added on some seeds. That drift needs both the whole-line labeller and the untied readout: either one alone holds its plateau.
+
+        Whether the drift matters is a different question from the one the gate asked. The end-of-training alignment is {h[:, 3].mean():.2f} on `handover`, against {s[:, 3].mean():.2f} and {t[:, 3].mean():.2f} on the references. Every read downstream of it (grading, removal, containment) is taken at the end, so that level is what the later experiments inherit. A stepped anneal, which the [backlog item](/todo/science/retention-under-longer-training.md) floated, would act on the window where nothing is lost.
         """)
 
     mo.md(fig_ret + "\n\n" + _text())
@@ -927,7 +1029,9 @@ def _(cont, res):
 
     fig_cont = figure_html(
         _plot(),
-        caption="**Containment by condition.** Per seed, with the seed mean in the larger marker. Left: the mean alignment of the stream on the non-red lines with the anchor axis at op1, with the reference level from ex-2.2.3 dotted. Middle: the mean absolute axis component of the embedding rows for the 209 non-red color words. Right: the axis component of the `⏎` embedding row, with the same row of the untied readout as an open marker beside it where the condition has one.",
+        caption=cap(
+            "**Containment by condition.** Per seed, with the seed mean in the larger marker. Left: the mean alignment of the stream on the non-red lines with the anchor axis at op1, with the reference level from ex-2.2.3 dotted. Middle: the mean absolute axis component of the embedding rows for the 209 non-red color words. Right: the axis component of the `⏎` embedding row, with the same row of the untied readout as an open marker beside it where the condition has one."
+        ),
         aria_label="Three dot panels by condition. Alpha at op1: control near 0, handover-tied 0.16, handover-slot 0.18, handover 0.28, handover-narrow 0.30. Non-red rows: all conditions between 0.06 and 0.10. The newline row: near zero on control and handover-slot, 0.17 on handover, 0.27 on handover-tied.",
     )
     return (fig_cont,)
@@ -941,7 +1045,9 @@ def _(cont, fig_cont):
         er = {c: float(np.nanmean(cont[c]["eol_readout"])) for c in ("handover", "handover-slot")}
         nr = {c: float(cont[c]["nonred"].mean()) for c in CONDS}
         return inspect.cleandoc(f"""
-        ᾱ at op1 is {a["handover"]:.2f} on `handover`, {a["handover-slot"]:.2f} with the slot labeller back, and {a["handover-tied"]:.2f} with the readout tied again. Undoing either change takes back about half the rise, and undoing neither leaves it. So the rise belongs to the handover as a whole, and the untied readout is one of two contributors. `handover-narrow`, which has fewer lines per op, sits at {a["handover-narrow"]:.2f}.
+        ᾱ at op1 is {a["handover"]:.2f} on `handover`, {a["handover-slot"]:.2f} with the slot labeller back, and {a["handover-tied"]:.2f} with the readout tied again. Undoing either change takes back about half the rise. So the rise belongs to the handover as a whole, and the untied readout is one of two contributors. `handover-narrow`, which has fewer lines per op, sits at {a["handover-narrow"]:.2f}.
+
+        Why either half raises it is open. For the labeller half there is a candidate: under the whole-line labeller a line can earn its label from its answer, and the pull then lands on every position of that line, op1 included. So a non-red operand is pulled toward the axis whenever its answer draws. For the readout half we have no candidate yet. The [backlog item](/todo/science/containment-rises-under-the-untied-readout.md) carries both.
 
         Whatever the mechanism, none of it reaches the embedding table: the non-red color rows hold {nr["handover"]:.2f} of the axis on `handover` against {nr["control"]:.2f} on the control.
 
@@ -963,11 +1069,15 @@ def _():
 
     Three changes to the design of the re-run, and one read to carry.
 
-    **Removal lines by hue.** Define a removal line as a red line whose true answer moves by at least 0.4 under some channel permutation of the red operand, so the lines whose answer needs the *hue* of red. On `mix` and the eight other channel-wise ops this is the to-zero set, or close to it. On the three HSV ops it drops the slots that take only saturation or value (`sat-hsv` and `value-hsv` with red at op2), and `hue-hsv` with red at op1 goes with them. The gate stays at kept under 0.2, and on the lines that remain every `handover` seed already clears it.
+    **Removal lines by hue.** Define a removal line as a red line whose true answer moves by at least 0.4 under some channel permutation of the red operand. Those are the lines whose answer needs the *hue* of red. On `mix` and the eight other channel-wise ops this is the to-zero set, or close to it. On the three HSV ops it drops the slots that take only saturation or value (`sat-hsv` and `value-hsv` with red at op2), and `hue-hsv` with red at op1 goes with them.
 
-    The saturation- and value-taking slots become a second read with no gate: the kept share there says how much of the saturation and value of the red operand the projection takes with it, which is a cost of the operator worth reporting.
+    The gate stays at kept under 0.2, and on the lines that remain every `handover` seed already clears it. The permutation rule reaches six hues; if a finer rotation of the operand in HSV, snapped to the grid, ever disagrees with it, the finer one is the rule to keep.
 
-    **Retention against the start of the anneal.** The retention read keeps its name and changes its denominator: the final alignment over the alignment at the start of the anneal, gated at 0.8 as before. That is the question the read was written to ask. The early peak and the drift get a line of their own in the report, as the level at the end of training beside the references, since that level is what the later experiments inherit.
+    The saturation- and value-taking slots become a second read, with no gate. The kept share there says how much of the saturation and value of the red operand the projection takes with it, which is a cost of the operator worth reporting.
+
+    **Retention against the start of the anneal.** The retention read keeps its name and changes its denominator, to the final alignment over the alignment at the start of the anneal, gated at 0.8 as before. That is the question the read was written to ask.
+
+    A high percentile of the plateau, in place of the peak, would soften the ratio and keep the drift inside it; the anneal-start denominator takes the drift out and leaves it to the level line. The early peak and the drift get a line of their own in the report: the level at the end of training, beside the references.
 
     **The op1 alignment as a line rather than a gate.** ᾱ at op1 rises under either half of the handover, and the embedding rows do not move, so the old reference of 0.1 belonged to the old grammar. The re-run reports ᾱ at op1 with `handover-slot` and `handover-tied` as its references, and gates nothing on it. A gate can return once we can name a mechanism.
 

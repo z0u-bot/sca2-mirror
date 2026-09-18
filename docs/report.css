@@ -31,7 +31,7 @@ figure:has(> figure) {
 figure:has(> figure) > figure {
   display: inline-block;
   vertical-align: top;
-  margin: 0 0.5em;
+  margin: 0 0.5em 0.8em;
 }
 
 /* Captions on authored figures — a sub-figure group (above) or a table / other HTML-SVG
@@ -364,6 +364,10 @@ body.dark-theme .sw-themed {
   }
   .output :is(.markdown, .report-table-scroll) table.report-table {
     font-size: 0.75em;
+  }
+  /* A number with its seed range, `0.02 (0.00–0.12)`, is one value: let the text columns wrap instead. */
+  .output .report-table td.num {
+    white-space: nowrap;
   }
   /* Cell padding is the widest thing in a nine-column table once the words wrap. */
   .output :is(.markdown table, .report-table) :is(th, td) {
