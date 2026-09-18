@@ -17,7 +17,7 @@ from pathlib import Path
 ROOT = Path(__file__).parent.parent.resolve()
 sys.path.insert(0, str(ROOT / "src"))
 
-from mini.lit import is_literate_document  # noqa: E402
+from mini.lit import is_literate_script  # noqa: E402
 from mini.reports import (  # noqa: E402
     PUBLISH_LOCK,
     export_key,
@@ -47,8 +47,8 @@ def changed_reports(base: str, root: Path = ROOT) -> list[Path]:
         sys.exit(f"git diff against '{base}' failed — is that ref fetched?\n{diff.stderr.strip()}")
     touched = {root / line for line in diff.stdout.splitlines() if line}
     reports = report_notebooks(root / "docs")
-    documents = set(reports) | {p for p in touched if p.exists() and is_literate_document(p)}
-    inputs = touched - documents  # a sibling document is a second document, not an input to this one
+    documents = set(reports) | {p for p in touched if p.exists() and is_literate_script(p)}
+    inputs = touched - documents  # a literate script beside a report is a second document, not an input to it
 
     def dated(nb: Path) -> bool:
         return nb in touched or ((d := input_dir(nb)) is not None and any(d in p.parents for p in inputs))
