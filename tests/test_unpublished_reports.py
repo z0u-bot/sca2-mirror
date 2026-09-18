@@ -103,14 +103,29 @@ def test_a_sibling_report_is_a_document_not_an_input(repo):
     assert changed(repo) == {"docs/ex-1/aside.py", "docs/ex-1/report.py"}
 
 
-def test_a_literate_script_beside_a_report_is_a_document_too(repo):
-    """A `# title:`-headed .py beside the notebook is a second document (a mini.lit report), not one of its inputs."""
+def test_a_literate_script_beside_a_report_is_a_report_too(repo):
+    """A `# title:`-headed .py beside the notebook is a second report (a mini.lit script): dated by its own edit, and never an input to the first."""
     (repo / "docs" / "ex-1" / "notes.py").write_text('# title: Notes\n\n"""prose"""\n')
     commit(repo, "a literate script beside the report")
-    assert changed(repo) == set()
+    assert changed(repo) == {"docs/ex-1/notes.py"}
+    assert flagged(repo) == {"docs/ex-1/notes.py"}  # never published, so its pin is missing on both sides
+    pin(repo, "ex-1/notes", "b" * 40)
+    commit(repo, "publish the script")
+    assert flagged(repo) == set()
     (repo / "docs" / "ex-1" / "helpers.py").write_text("def f(): ...\n")  # no header: an ordinary module, so an input
     commit(repo, "a module beside the report")
-    assert changed(repo) == {"docs/ex-1/report.py"}
+    assert changed(repo) == {"docs/ex-1/notes.py", "docs/ex-1/report.py"}
+
+
+def test_a_literate_script_is_a_report_on_its_own(repo):
+    """An experiment whose only report is a literate script is checked like any other."""
+    (docs := repo / "docs" / "ex-3").mkdir()
+    (docs / "report.py").write_text('# title: Ex 3\n\n"""# Ex 3\n"""\nx = 1\n')
+    commit(repo, "a literate report")
+    assert flagged(repo) == {"docs/ex-3/report.py"}
+    pin(repo, "ex-3", "c" * 40)
+    commit(repo, "publish it")
+    assert flagged(repo) == set()
 
 
 def test_a_notebook_outside_docs_is_not_a_report(repo):

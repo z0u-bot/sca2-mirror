@@ -2,11 +2,15 @@
  *
  * Single source of truth for cross-report presentation polish. Applied two ways
  * (see eng/ and mini.reports.set_report_styles):
- *   - baked into each export via `marimo.App(css_file="…/report.css")`, so authors
- *     see it live in edit mode and it ships in the raw bundle;
+ *   - baked into each export: a notebook via `marimo.App(css_file="…/report.css")`,
+ *     so authors see it live in edit mode; a literate script by the exporter, before
+ *     it prints the PDF. Either way it ships in the raw bundle;
  *   - re-injected from *this* file at site-build time, so central edits here update
- *     every published report without re-exporting the notebooks.
- * Keep it small and selector-scoped; it layers on top of Marimo's own CSS. */
+ *     every published report without re-exporting anything.
+ * Keep it small and selector-scoped; it layers on top of Marimo's own CSS, or on top
+ * of mini.lit's (`main.lit` is a literate script's content column; its own sheet
+ * already covers figures, tables, and admonitions on screen, so the rules here that
+ * name it are mostly the print ones). */
 
 /* Centre figures that don't fill the content column. `themed` (mini.vis.nb) emits a
  * <figure class="mini-themed-figure-<hash>"> wrapping the light/dark <img> pair; the
@@ -174,6 +178,7 @@ body.dark-theme .sw-themed {
   scrollbar-width: thin;
 }
 .markdown table.report-table,
+main.lit table.report-table,
 .report-table-scroll .report-table {
   white-space: nowrap;
 }
@@ -285,7 +290,9 @@ body.dark-theme .sw-themed {
   .prose,
   .markdown,
   .markdown .paragraph,
-  .markdown li {
+  .markdown li,
+  main.lit p,
+  main.lit li {
     /* Spacious, for hand-written annotations. */
     line-height: 2.5;
   }
@@ -297,14 +304,17 @@ body.dark-theme .sw-themed {
     opacity: 0.85;
   }
   .output .markdown a,
-  .output .markdown a:visited {
+  .output .markdown a:visited,
+  main.lit a,
+  main.lit a:visited {
     color: #1d3f78;
   }
 
   /* Each top-level section starts a fresh page, so the reader swipes between sections and
    * scrolls within one. The title cell has no h2, so the first page is the title, the
    * findings, and whatever else precedes the first section. */
-  .markdown h2 {
+  .markdown h2,
+  main.lit h2 {
     break-before: page;
   }
 
@@ -315,7 +325,8 @@ body.dark-theme .sw-themed {
   pre,
   blockquote,
   .report-table-scroll,
-  .markdown details {
+  .markdown details,
+  main.lit details {
     break-inside: avoid;
   }
   .admonition-title,

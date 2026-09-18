@@ -1,6 +1,6 @@
 """Print an exported report bundle to PDF, offline, with a headless browser.
 
-A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
+A literate script's bundle (``mini.lit``) is a self-styled static page, so serving it is enough. A ``marimo export html`` bundle loads its frontend runtime (~200 JS/CSS/font URLs) from the jsDelivr CDN, so it won't render in a network-restricted sandbox. The *same* pinned ``dist/`` ships inside the marimo pip package under ``_static/``, so :func:`served_bundle` repoints the bundle's CDN refs at those local assets and serves the result on a loopback port. :func:`print_bundle` then drives Chromium through Playwright and prints the page through the same engine as Chrome's print dialog, so the ``@page`` size and ``@media print`` rules in ``docs/report.css`` (paper sized for a reMarkable 2, one section per page) are honoured.
 
 This runs at export (``scripts/export_reports.py``), the half of publishing that holds the bundle on disk: the PDF lands beside ``index.html``, rides the bundle sync, and is pinned by the same ``publish.lock`` entry as the page. The site build only links it. Chromium stamps a creation date and a random document ID into every PDF, which would make each re-export of an unchanged report a new publish-tier commit, so :func:`normalize_pdf` strips both after printing; two prints of one bundle are then byte-equal.
 
@@ -238,7 +238,7 @@ def print_bundle(
 ) -> Path | None:
     """Print an export bundle to *out*; ``None`` (with a log line) when no browser is available.
 
-    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for marimo to hydrate the first cell output, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
+    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content to appear (marimo hydrating its first cell output, or a literate script's static ``main.lit``), then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -261,7 +261,7 @@ def print_bundle(
             # which a bare headless Chromium in a locale-less container does. Pin one.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
             page.goto(url)
-            page.locator(".output").first.wait_for(timeout=timeout * 1000)
+            page.locator(".output, main.lit").first.wait_for(timeout=timeout * 1000)
             return print_page(page, out, settle=settle)
         finally:
             browser.close()

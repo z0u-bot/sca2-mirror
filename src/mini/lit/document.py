@@ -219,6 +219,25 @@ class Woven:
         return [o for o in self.outputs if o.error]
 
 
+class DroppedOutput(Exception):
+    """A displayable value produced by an expression that is not the last statement of its cell."""
+
+    def __init__(self, line: int):
+        super().__init__(line)
+        self.line = line
+
+
+def _displayable(value: Any) -> bool:
+    """Whether :func:`display` would put *value* on the page: a string, a rich repr, or a figure (``None``, and the return values of ordinary side-effecting calls, are not)."""
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value)
+    if any(getattr(value, attr, None) is not None for attr in ("_repr_markdown_", "_repr_html_")):
+        return True
+    return type(value).__module__.startswith("matplotlib.") and hasattr(value, "savefig")
+
+
 def display(value: Any, *, publish: Publisher | None, name: str) -> str:
     """A cell's last expression as Markdown: strings pass through, HTML reprs and figures become HTML islands."""
     if value is None:
@@ -323,10 +342,24 @@ class Runner:
             ast.increment_lineno(tree, cell.line - 1)
             last = tree.body.pop() if tree.body and isinstance(tree.body[-1], ast.Expr) else None
             with _capture_stdout() as buf:
-                exec(compile(tree, filename, "exec"), ns)
+                # Statement by statement, so a bare expression in the middle of the cell can be
+                # looked at: its value is thrown away, and if it was something the page would
+                # have shown, that is a mistake to report rather than a figure to lose silently.
+                for node in tree.body:
+                    if isinstance(node, ast.Expr):
+                        value = eval(compile(ast.Expression(node.value), filename, "eval"), ns)
+                        if _displayable(value):
+                            raise DroppedOutput(node.lineno)
+                    else:
+                        exec(compile(ast.Module([node], []), filename, "exec"), ns)
                 if isinstance(last, ast.Expr):
                     value = eval(compile(ast.Expression(last.value), filename, "eval"), ns)
                     out.value = display(value, publish=self.publish, name=f"cell-{index}")
+        except DroppedOutput as d:
+            out.error = (
+                f'File "{filename}", line {d.line}: the value of this expression would be shown on the page, but it is not the '
+                "last statement of its cell, so it is discarded. Move it to the end of the cell, or assign it."
+            )
         except Stop as s:
             out.value = s.message
             out.stopped = True
