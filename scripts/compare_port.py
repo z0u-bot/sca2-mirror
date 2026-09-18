@@ -114,6 +114,11 @@ def reduce(text: str) -> list[str]:
     # ``/// kind | title`` fence; its title is a paragraph of its own, as the Marimo render's bold title line is.
     text = re.sub(r"^> ?", "", text, flags=re.MULTILINE)
     text = re.sub(r"^/// *\w+ *\| *(.*)$", r"\1\n", text, flags=re.MULTILINE)
+    text = re.sub(r"^ {4}type: *\w+\n", "", text, flags=re.MULTILINE)  # an admonition's kind, written on its own line
+    # A definition list: Marimo's render shows each term as ``term : definition`` on a paragraph of its own.
+    text = re.sub(r"</?dl\b[^>]*>", "\n\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</dt>\s*<dd\b[^>]*>", " : ", text, flags=re.IGNORECASE)
+    text = re.sub(r"</dd>", "\n\n", text, flags=re.IGNORECASE)
     text = re.sub(r"^(#{1,6} .*)\n(?=\S)", r"\1\n\n", text, flags=re.MULTILINE)  # or to the paragraph below
     text = re.sub(r"\n(?=(?:[-*]|\d+\.) )", "\n\n", text)  # a list item is a paragraph of its own, tight list or loose
     text = re.sub(r"\s+(?=\[\^[^\]]+\]:)", "\n\n", text)  # so is a footnote's definition, wherever it was written
