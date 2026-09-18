@@ -299,7 +299,7 @@ def h2_table(rows: list[H2Row]) -> str:
             + "".join(f'<td class="num">{signed(g, bold=g <= ex.H2_GATE)}</td>' for g in r.gap)
             + f'<td class="num">{r.band:.2f}</td></tr>'
         )
-    return f'<div class="report-table-scroll"><table class="report-table">{head}{body}</table></div>'
+    return f'<table class="report-table">{head}{body}</table>'
 
 
 h2_misses = [(r.t, ch, float(g), r.band) for r in h2_rows for ch, g in zip(CHANNELS, r.gap, strict=True) if g > ex.H2_GATE]  # fmt: skip

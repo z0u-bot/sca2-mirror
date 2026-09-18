@@ -170,8 +170,18 @@ body.dark-theme .sw-themed {
 
 /* Wide tables (e.g. the per-seed completions grid) scroll horizontally inside their own
  * box rather than wrapping cell contents — which detaches a swatch from its word — or
- * forcing the whole page to scroll sideways. .report-table-scroll is not needed for
- * tables in Markdown. */
+ * forcing the whole page to scroll sideways. In a literate script the table is its own
+ * scroll box (the rule Marimo applies to `.markdown table`), so a report there puts the
+ * class on the table and no wrapper; .report-table-scroll is the Marimo-era wrapper. */
+main.lit table.report-table {
+  display: block;
+  overflow-x: auto;
+  width: max-content;
+  max-width: 100%;
+  margin-inline: auto;
+  scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
+  scrollbar-width: thin;
+}
 .report-table-scroll {
   overflow-x: auto;
   scrollbar-color: light-dark(#c1c1c1, #6b6b6b) transparent;
@@ -363,7 +373,8 @@ main.lit table.report-table,
     overflow: visible;
   }
   .output .markdown table,
-  .output .report-table {
+  .output .report-table,
+  main.lit table.report-table {
     display: table;
     overflow: visible;
     white-space: normal;
@@ -373,11 +384,13 @@ main.lit table.report-table,
     margin-inline: 0;
     transform: none;
   }
-  .output :is(.markdown, .report-table-scroll) table.report-table {
+  .output :is(.markdown, .report-table-scroll) table.report-table,
+  main.lit table.report-table {
     font-size: 0.75em;
   }
   /* Cell padding is the widest thing in a nine-column table once the words wrap. */
-  .output :is(.markdown table, .report-table) :is(th, td) {
+  .output :is(.markdown table, .report-table) :is(th, td),
+  main.lit table.report-table :is(th, td) {
     padding-inline: 0.35em;
   }
 }
