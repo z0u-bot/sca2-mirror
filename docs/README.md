@@ -18,6 +18,12 @@ Three ways past it, in rising order of permanence: `git push --no-verify` gets a
 
 `./go site` (CI) then assembles `_site/` from the pinned bundles, serving each report at `_site/<key>/index.html`, with the URL `<key>/`. `./go preview` assembles the same site locally: it exports stale reports to `.mini/exports/` and copies their assets beside the HTML, so it works offline.
 
+### Literate scripts
+
+A literate script is a plain Python file where a top-level string literal is prose (an f-string where it quotes a value, so ruff, ty, and vulture see the names it reads) and the code between prose strings is a cell, with `# title:` (and `# code: show`, for a page about the code; a report hides its cells) as comment lines at the top; ruff, ty, and the IDE see every cell. A `# %%` line splits a cell where prose would not fit. Only a cell's last expression is displayed (a string as Markdown, a matplotlib figure saved and shown), and the runner refuses a displayable value anywhere else in a cell rather than dropping it. `./go lit render docs/m2/ex-2.1.12/report.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and with `--pdf` a print through headless Chromium); `./go lit serve` re-weaves on save with live reload. See `mini.lit` for the design.
+
+A literate script is a report like any notebook: `./go preview`, `./go publish`, and `./go render` recognise it by its `# title:` header (`mini.reports.is_report`) and export it to the same bundle, with the banner, thumbnails, provenance footer, and PDF a notebook gets, plus the woven `index.md` declared as a `text/markdown` alternate and served beside the page. The publish check and `publish.lock` treat it the same way. The one convention that differs from a notebook is that every top-level string is prose, so a variable docstring hung under a constant would weave as a paragraph; write it as a comment (`./go lint` flags it). ex-2.1.12 is the first report in this form; the rest are being ported (`todo/eng/literate-reports.md`).
+
 ### Markdown files
 
 Markdown (`.md`) is converted to HTML and written to `_site/` at the same relative path. Links to a report's `.py` are rewritten to its rendered `<key>/` page. This `README.md` is excluded from the build.
