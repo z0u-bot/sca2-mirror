@@ -460,3 +460,17 @@ class TestRender:
         assert 'class="admonition note"' in html
         assert 'class="footnote"' in html
         assert "<table>" in html
+
+
+class TestSiblingImports:
+    def test_each_script_imports_its_own_sibling(self, tmp_path):
+        """Two reports each with an ``experiment.py`` beside them, run in one process: each sees its own."""
+        ws = []
+        for key in ("a", "b"):
+            d = tmp_path / key
+            d.mkdir()
+            (d / "experiment.py").write_text(f"NAME = {key!r}\n")
+            ws.append(write(d, "# title: T\n\nimport experiment as ex\n\nex.NAME\n"))
+        assert "a" in Runner(ws[0]).weave().markdown
+        assert "b" in Runner(ws[1]).weave().markdown
+        assert "a" in Runner(ws[0]).weave().markdown  # and back again: the earlier directory moves to the front

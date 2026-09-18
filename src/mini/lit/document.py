@@ -323,6 +323,20 @@ def _capture_stdout() -> contextlib.AbstractContextManager[io.StringIO]:
     return sys.stdout.capture()
 
 
+def _own_siblings(doc_dir: Path) -> None:
+    """Make ``import experiment`` in a script find the module beside *that* script.
+
+    Puts the script's directory first on ``sys.path`` (a directory added for an earlier script would otherwise stay ahead of it), and drops from ``sys.modules`` any top-level module that shadows a sibling of the same name: ``experiment`` imported by one report earlier in this process would otherwise be handed, cached, to the next.
+    """
+    if (d := str(doc_dir)) in sys.path:
+        sys.path.remove(d)
+    sys.path.insert(0, d)
+    for name, mod in list(sys.modules.items()):
+        file = getattr(mod, "__file__", None)
+        if file and "." not in name and (doc_dir / f"{name}.py").exists() and Path(file).resolve().parent != doc_dir:
+            del sys.modules[name]
+
+
 class Runner:
     """Runs a script's cells and weaves the result, keeping enough state to make the next run cheap.
 
@@ -429,8 +443,7 @@ class Runner:
         t0 = time.perf_counter()
         doc = doc or parse(self.path)
         ns, keep = self._restore(doc.cells)
-        if (doc_dir := str(self.path.parent)) not in sys.path:
-            sys.path.insert(0, doc_dir)
+        _own_siblings(self.path.parent)
         previous = current_publisher()
         use_publisher(self.publish)
         outputs: list[CellOutput] = []
