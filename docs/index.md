@@ -10,7 +10,7 @@ The first milestone (M1) established the method in autoencoders: [paper](https:/
 
 ## Experiment reports
 
-Each report is a [Marimo](https://marimo.io) notebook that reads durable results produced by a separately-run experiment. Reports are published automatically, with their figures served from a Hugging Face dataset; the infrastructure is [mi-ni](https://github.com/z0u/mi-ni). Each entry below carries searchable tags and a strip of the report's figures, in reading order — click a thumbnail for the full-size image. The strip opens with the report as a PDF, for paper or e-ink.
+Each report is a literate script (plain Python with Markdown prose between the cells) that reads durable results produced by a separately-run experiment. Reports are published automatically, with their figures served from a Hugging Face dataset; the infrastructure is [mi-ni](https://github.com/z0u/mi-ni). Each entry below carries searchable tags and a strip of the report's figures, in reading order — click a thumbnail for the full-size image. The strip opens with the report as a PDF, for paper or e-ink.
 
 <!-- These URLs are rewritten to point to the published notebooks, and the mini:figures markers become thumbnail strips (scripts/build_site.py) -->
 

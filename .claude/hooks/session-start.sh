@@ -81,7 +81,7 @@ fi
     echo
     echo "Experiments (report.py dirs; annotated status in docs/index.md):"
     git ls-files 'docs/**/report.py' | sed 's#/report.py##; s#^docs/#  #' | paste -sd' '
-    echo "This is not an environment the human has direct access to, so if you are working on an experiment, *always* publish the report before pushing. Otherwise the human won't be able to see the rendered report and its figures, which hampers collaboration. When referring to figures in conversation you should share them with 'SendUserFile', or the 'Read' tool if you also want to see it too. The human reviews drafts on a reMarkable: after './go preview --no-serve <report>', send them '.mini/exports/<key>/report.pdf' the same way."
+    echo "This is not an environment the human has direct access to, so if you are working on an experiment, *always* publish the report before pushing. Otherwise the human won't be able to see the rendered report and its figures, which hampers collaboration. When referring to figures in conversation you should share them with 'SendUserFile', or the 'Read' tool if you also want to see it too. The human reviews drafts on a reMarkable: after './go preview --no-serve <report>', send them '_site/<key>/report.pdf' the same way."
     echo
     # The two CLIs, generated rather than pinned here so they can't drift. Both
     # are cheap enough for the synchronous path: `./go` prints its usage in pure
@@ -100,7 +100,7 @@ fi
 
 # 3. Put the project venv first on PATH so bare `python` resolves to the
 #    project's 3.14 interpreter instead of the image's system Python 3.11 (which
-#    chokes on 3.14-only syntax), and so `ruff`, `ty`, `pytest`, `marimo`,
+#    chokes on 3.14-only syntax), and so `ruff`, `ty`, `pytest`,
 #    `mini`, and `modal` are callable without the `uv run`/`./go` prefix.
 #    CLAUDE_ENV_FILE is sourced into the session's shells by Claude Code; we
 #    write it synchronously, before the async handoff below, so it applies even
@@ -129,7 +129,7 @@ fi
 # re-doing work this hook is also doing.
 echo '{"async": true, "asyncTimeout": 600000}'
 
-# 5. Sync the project venv so linters, type-checker, tests, and notebooks work.
+# 5. Sync the project venv so linters, type-checker, tests, and reports work.
 #    Mirrors `./go install` (minus npm/git-hooks, which the agent doesn't need).
 #    --no-group cuda: locally we run CPU-only; the CUDA plugin is for Modal.
 log "syncing venv (uv $(uv --version 2>/dev/null | awk '{print $2}'))"

@@ -7,7 +7,7 @@ from pathlib import Path
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Marimo puts the notebook directory on sys.path, so the experiment
+# The literate-script runner puts the report's directory on sys.path, so the experiment
 # definition is importable — refs and sweep constants can't drift.
 from experiment import ARMS, ARRAYS_REF, CROSS_REF, METRICS_REF, SEEDS
 from mini.lit import memo, stop

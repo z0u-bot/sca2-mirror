@@ -1,6 +1,6 @@
 ---
 name: style-fig
-description: Figure conventions for experiment reports. Configuration for latent-space plots, how to draw hyperspheres and RGB-cubes, data-colored marks, smooth-step token sequence charts, grading clouds, sublines (per-token series drawn under the text), theming, captions and nested sub-figures, plus HTML result-table and color-swatch conventions. Use when drawing or revising any figure, writing a figure or table caption, or building a results table, in a notebook.
+description: Figure conventions for experiment reports. Configuration for latent-space plots, how to draw hyperspheres and RGB-cubes, data-colored marks, smooth-step token sequence charts, grading clouds, sublines (per-token series drawn under the text), theming, captions and nested sub-figures, plus HTML result-table and color-swatch conventions. Use when drawing or revising any figure, writing a figure or table caption, or building a results table, in a report.
 ---
 
 The M1 reports and the GRaM workshop poster set the house style. Match them: a reader who has seen one SCA figure should be able to read the next one without relearning the encoding. The recurring panel types are packaged as helpers whose docstrings hold the mechanics; this file says which to use when.
@@ -49,7 +49,7 @@ When each color has a distribution of responses rather than one value (per-line 
 
 A subline is the text itself with one sparkline per series running underneath, aligned to the tokens: `subline.subline.Subline(…).plot(tokens, series)`, whose docstring holds the mechanics. Tokens may be any width — a wide one draws as a plateau across its glyphs, the same grammar as `smooth_step`. Reach for it when the reader needs to see _which_ token a value lands on; per-character surprisal and predictive entropy over one prompt is the standing case (ex-2.1.1, ex-2.1.2). A matplotlib chart of the same series gives up the alignment with the glyphs, and a heatmap gives up the rate of change.
 
-Two things are ours rather than the library's. Pass `css="svg { --bg-color: light-dark(#fff, #181c1a); }"`: its light background already matches, but its dark default is a lighter grey that reads as a box on the notebook. Then wrap the SVG with `figure_html` and externalize the group, on the same terms as any other figure. Give that wrapper an `aria_label`: an inlined strip has no alt text of its own, and this is what a screen reader announces and what a Markdown render puts in place of the markup — see the `alt-text` skill for what to write.
+Two things are ours rather than the library's. Pass `css="svg { --bg-color: light-dark(#fff, #181c1a); }"`: its light background already matches, but its dark default is a lighter grey that reads as a box on the page. Then wrap the SVG with `figure_html` and externalize the group, on the same terms as any other figure. Give that wrapper an `aria_label`: an inlined strip has no alt text of its own, and this is what a screen reader announces and what a Markdown render puts in place of the markup — see the `alt-text` skill for what to write.
 
 ## Result tables
 

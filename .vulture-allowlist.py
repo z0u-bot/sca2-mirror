@@ -8,6 +8,8 @@ exc_val  # unused variable (src/mini/progress_display.py:115, 122 — __exit__/_
 exc_tb  # unused variable (src/mini/progress_display.py:115, 122 — __exit__/__aexit__)
 create_if_missing  # unused variable (tests/mini/test_apparatus.py:271 — mimics modal.Volume.from_name)
 Styler  # unused import (src/mini/temporal/dopesheet.py:13 — TYPE_CHECKING-only, used in overload return)
+_.create_artists  # unused method (src/mini/vis/plt.py — matplotlib HandlerBase override)
+fontsize  # unused variable (src/mini/vis/plt.py — create_artists' signature)
 
 # Pydantic metadata fields: written at construction, read only via serialization.
 author  # unused variable (src/sca/config.py:64)
@@ -31,3 +33,4 @@ Subline  # unused class (src/subline/subline.py:11)
 lr_finder_search  # unused function (src/utils/lr_finder/lr_finder.py:18)
 plot_lr_finder  # unused function (src/utils/lr_finder/vis.py:10)
 group_properties_by_scale  # unused function (src/mini/temporal/vis.py:41)
+Debouncer  # unused class (src/mini/_debounce.py:16 — BackgroundEmitter took over the hot path)

@@ -51,9 +51,8 @@ from experiment import (
 from experiment import _classify as classify_form
 from experiment import _corpus as corpus_for
 from mini.lit import stop
-from mini.reports import externalize_html
 from mini.store import project_store
-from mini.vis import figure_html, light_dark, themed
+from mini.vis import figure_html, light_dark, svg_figure, themed
 from sca.data import colors
 from subline.series import Series
 from subline.subline import Subline
@@ -551,13 +550,13 @@ def gp_subline(cond: str, row: dict) -> str:
     return figure_html(svg, caption=label, style="display: inline-block; margin: 0 1em 0 0")
 
 
-gp_html = figure_html(
+svg_figure(
     "".join(gp_subline(cond, row) for cond, row in gp_rows_by_cond),
-    aria_label="""
+    alt_text="""
         The equation lime plus black equals green, repeated once per condition, each with a sparkline of per-character surprisal (solid) and predictive entropy (dashed) under the text on a shared 0-to-log-V scale.
     """,
+    name="sublines-garden-path",
 )
-externalize_html(gp_html, name="sublines-garden-path")
 
 # %%
 
