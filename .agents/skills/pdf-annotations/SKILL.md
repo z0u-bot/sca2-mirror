@@ -26,4 +26,6 @@ Sandy reviews reports on a reMarkable: the published page is printed to PDF (nar
 
 The script's heuristics, so you can tell when they mislead: a pen stroke is a filled path of many curve segments in a colour that is neither black nor white; a highlighter stroke is a wide stroked line; anything with a colour that repeats with identical geometry across the document (list bullets, icons) is printed. A margin bar drawn with the tablet's rectangle tool is a single rectangle, so it is reported under `shape colours` next to printed badges and admonition backgrounds. Reviewer colours seen so far: red for edits and notes, purple for document-level marks (a DRAFT badge), green for a section-wide bar, magenta highlighter.
 
+Ink outside the printed page is fine. The reMarkable export widens the page box to fit whatever was drawn past the edge (a page came back at more than twice its printed width), so a note in the margin beyond the paper is on the page the script sees, and the strips carry it. The one thing to watch is a white-filled path the size of the page, which is the printed background and no stroke of the reviewer's.
+
 Scale matters for legibility. 2x zoom on a 450 pt wide page gives 900 px strips; handwriting is readable there, and 1x is not. A strip much taller than about 2000 px loses detail when the model views it, which is why the pages are cut.

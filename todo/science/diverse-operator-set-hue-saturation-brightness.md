@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, grammar, methodology, ex-2.2.3]
 opened: 2026-09-10
-priority: high
+closed: 2026-09-17
 ---
 # A more diverse operator set: add `hue`, `saturation`, `brightness` beside the saturating ops
 
@@ -23,3 +23,5 @@ Two things to keep from the current set: `mix` stays, since it is D2.1's op and 
 **2026-09-13, housekeeping** — promoted, shortlist now 5/6. Two scouting rounds have left this item holding a finished proposal (table A+) and one unfinished decision, and everything queued behind it runs on whichever table gets adopted: the grammar is what the anchored-op prereg trains on, and a table chosen after that prereg is written is a re-run rather than an edit. The other two blocks of the pre-handover work are in flight — the syntax embeddings as [ex-2.2.7](https://github.com/z0u/sca2/pull/168), the intervention operator as [ex-2.2.8](https://github.com/z0u/sca2/pull/169) — and both hand their answers to the same prereg, so this is the piece of its input that still needs a person. What is open is narrow: adopt table A+ or trim it, decide the lines-per-op confound (E4), and specify the probe draw that walks every color as op2 for the non-commutative subset.
 
 **2026-09-15, Fable** — the handover prereg is drafted as [ex-2.2.9](/docs/m2/ex-2.2.9/report.py) and adopts table A+ as proposed. It settles the two open decisions here: lines per op stay at the corpus size (about 9,100 per op at eleven ops), with an exploratory five-seed arm that holds them at the six-op count so E4's confound can be read; and the probe set walks every color as op2 as well as op1 for the three ordered ops, with their reads reported as a subset. The removal statistic is scored on the lines where zeroing the red operand's R moves the answer by at least 0.4 in the unit cube. This item closes when that prereg is frozen; the table itself is no longer open.
+
+**2026-09-17, Fable** — closing. Table A+ ran as [ex-2.2.9](/docs/m2/ex-2.2.9/report.py) at twenty seeds: the eleven ops are learnable, *red* lands on them, and removal is clean on eight. The three HSV ops miss the removal gate, which is now its own item, [removal on the order-sensitive ops](order-sensitive-removal-fast-follow.md); the op set itself is settled.
