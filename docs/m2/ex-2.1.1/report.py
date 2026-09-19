@@ -12,6 +12,7 @@ import numpy as np
 # definition is importable — refs and sweep constants can't drift.
 from experiment import CKPT_REF, CORPUS_SEED, DEPTHS, HOLDOUT_FRAC, METRICS_REF, N_EXAMPLES, SEEDS, WEIGHTS_REF, WIDTHS
 from mini.lit import stop
+from mini.lit.page import render_fragment
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, svg_figure, themed
 from sca import baselines as bl
@@ -122,7 +123,8 @@ pairs = {p for ex in corpus if (p := ex.pair) is not None}
 grid = colors.N_LEVELS**3
 all_pairs = grid * (grid + 1) // 2
 head = "".join(ex.text for ex in corpus[:10])
-body = f"```\n{head}```"
+# Rendered here: `figure_html` assembles raw HTML, where a Markdown fence would stay literal.
+body = render_fragment(f"```\n{head}```")
 caption = f"{len(corpus):,} lines in total: {', '.join(f'{n:,} {f}' for f, n in counts.items())}."
 
 rf"""
