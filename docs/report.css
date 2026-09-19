@@ -234,8 +234,9 @@ main.lit details:not(:open) {
   main.lit table.report-table :is(th, td) {
     padding-inline: 0.35em;
   }
-  /* A number with its seed range, `0.02 (0.00–0.12)`, is one value: let the text columns wrap instead. */
-  main.lit table.report-table td.num {
+  /* A value and its spread, `0.023 ±0.004`, each read as one number. Keep the parts
+   * whole and let the break fall between them when a column is tight. */
+  main.lit table.report-table td.num .range {
     white-space: nowrap;
   }
 }
