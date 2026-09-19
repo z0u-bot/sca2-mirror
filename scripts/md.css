@@ -98,6 +98,9 @@ th, td {
   padding: 0.35em 0.9em;
   border: 0;
   text-align: left;
+  /* Top-aligned, as in the reports: a row whose prose cell wraps to four lines
+   * would otherwise leave its short cells floating in the middle. */
+  vertical-align: top;
 }
 
 th {
