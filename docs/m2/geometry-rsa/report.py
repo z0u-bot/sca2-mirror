@@ -54,8 +54,8 @@ from mini.lit import stop
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 
+# The five residual slices: the embedding and the output of each block.
 SLICES = ("emb", "L1", "L2", "L3", "L4")
-"""The five residual slices: the embedding and the output of each block."""
 
 SITES = {"op1": "operand 1", "op2": "operand 2"}
 VARIANT_TITLE = {"full": "as it is", "axis": "e₁ dropped"}
