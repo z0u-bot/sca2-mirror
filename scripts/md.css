@@ -11,6 +11,8 @@
   --border: #dddddd;
   --code-bg: #f5f5f5;
   --code-accent: #0066cc;
+  /* Table rules, in the booktabs manner: the text colour, eased off a little. */
+  --rule: color-mix(in srgb, var(--fg) 75%, transparent);
 }
 
 @media (prefers-color-scheme: dark) {
@@ -84,20 +86,40 @@ pre code {
   font-size: 1em;
 }
 
+/* Tables in the booktabs manner, matching the reports (src/mini/lit/lit.css): three
+ * horizontal rules and no boxes around cells. */
 table {
   border-collapse: collapse;
   margin-block: 1.5em;
+  margin-inline: auto;
 }
 
 th, td {
-  padding: 0.5em 1em;
-  border: 1px solid var(--border);
+  padding: 0.35em 0.9em;
+  border: 0;
   text-align: left;
+  /* Top-aligned, as in the reports: a row whose prose cell wraps to four lines
+   * would otherwise leave its short cells floating in the middle. */
+  vertical-align: top;
 }
 
 th {
   font-weight: 600;
-  border-bottom: 2px solid var(--border);
+}
+
+/* \toprule, \midrule, \bottomrule. */
+:is(thead, tbody:first-child) > tr:first-child > :is(th, td) {
+  border-top: 2px solid var(--rule);
+}
+thead > tr:last-child > :is(th, td) {
+  border-bottom: 1px solid var(--rule);
+  padding-bottom: 0.5em;
+}
+tbody > tr:first-child > :is(th, td) {
+  padding-top: 0.5em;
+}
+tbody > tr:last-child > :is(th, td) {
+  border-bottom: 2px solid var(--rule);
 }
 
 img, video {

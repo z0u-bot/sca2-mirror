@@ -794,8 +794,8 @@ dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
 """
 
 # A ``<dialog>`` opened with ``showModal`` renders in the browser's *top layer*, above
-# every stacking context on the page — which is why the overlay needs none of the
-# z-index arithmetic the nav and provenance chips do.
+# every stacking context on the page — so the overlay needs no z-index of its own, and
+# a closed one is ``display:none``, which keeps it out of the page's flexbox.
 # It also brings Escape-to-close, the focus trap, and inertness of the page behind it for
 # free. Listeners are delegated from ``document``, so figures added after this script
 # runs are covered without re-binding.
@@ -932,28 +932,47 @@ def set_report_styles(html: str, css: str) -> str:
     return re.sub(r"(</head>)", lambda m: f"    {style}\n{m.group(1)}", html, count=1)
 
 
-# Our nav is *absolutely* positioned, not in normal flow, so it scrolls away with the
-# document (it settles at the top of the page as a header rather than shadowing the
-# content the whole way down). Pinned top-left; the content column gets matching top
-# padding (:data:`_BANNER_CLEARANCE`) so the report's title isn't tucked under it. ``Canvas``/``CanvasText`` are the UA's
-# theme-aware system colors (the export declares ``color-scheme``, so they track the
-# device theme); a blurred translucent backdrop keeps it legible where it does overlap.
-_BANNER_STYLE = (
-    "position:absolute;top:.5rem;left:.5rem;z-index:2147483647;"
-    "display:flex;gap:.75rem;align-items:center;"
-    "padding:.3rem .65rem;font-size:.8125rem;line-height:1.4;"
-    "font-family:system-ui,sans-serif;border-radius:.375rem;"
-    "background:color-mix(in srgb, Canvas 80%, transparent);"
-    "border:1px solid color-mix(in srgb, CanvasText 18%, transparent);"
-    "-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);"
-)
-_BANNER_LINK = "color:inherit;text-decoration:underline"
+# Both injected chips sit in the document's normal flow. The page is a vertical flexbox
+# (``body``, in mini.lit's sheet), so ``order`` is all it takes to put the nav above the
+# content column and the provenance footer below it, whichever order they were injected
+# in — each lands at the head of the body. Nothing overlaps the report any more, so
+# neither needs a z-index, clearance under it, or a blurred backdrop.
+#
+# They're styled by a rule rather than a ``style`` attribute, so that hiding them in
+# print is a matter of one more rule: an attribute style outranks every stylesheet, and
+# would have kept a ``display`` of its own through the print rules below.
+#
+# A chip lines up with the reading column, on the measure and gutter the content uses
+# (mini.lit's sheet defines both; the fallbacks cover a page rendered without it). No box
+# around either one — in flow they're page furniture, and a bordered strip the width of
+# the column reads as an empty field. ``CanvasText`` is the UA's theme-aware text color
+# (the export declares ``color-scheme``, so it tracks the device theme), which is what
+# keeps the provenance rule legible in either scheme.
+_CHIP_CSS = """
+[data-mini-banner],[data-mini-provenance]{
+  box-sizing:border-box;line-height:1.4;font-family:system-ui,sans-serif;
+  width:min(var(--measure, 50rem), 100% - 2 * var(--gutter, 1.5rem));margin-inline:auto}
+[data-mini-banner]{order:-1;margin-block:1.5rem -1rem;
+  display:flex;gap:1rem;align-items:center;font-size:.8125rem}
+[data-mini-banner] a{color:inherit;text-decoration:none;opacity:.7}
+[data-mini-banner] a:hover{text-decoration:underline;opacity:1}
+[data-mini-provenance]{order:1;margin-block:0 2.5rem;font-size:.75rem;
+  background:none;border:0;border-radius:0;padding:.5rem 0 0;
+  border-top:1px solid color-mix(in srgb, CanvasText 15%, transparent)}
+[data-mini-provenance] > summary{cursor:pointer;font-weight:400}
+/* The summary, and the "via <ref>" line under each experiment, recede. */
+[data-mini-provenance] > summary,[data-mini-provenance] > div > div{
+  color:color-mix(in srgb, CanvasText 60%, transparent)}
+@media print{[data-mini-banner],[data-mini-provenance]{display:none}}
+"""
 
-# The nav is out of flow, so it reserves no space; without this the report's first line
-# (its title) would sit under it at the top of the page. A little top padding on the
-# content column (``main.lit``, a literate script's page) drops the whole report clear
-# of the chip.
-_BANNER_CLEARANCE = "main.lit{padding-top:3rem}"
+
+def _with_chip_styles(html: str) -> str:
+    """*html* with :data:`_CHIP_CSS` inlined at the end of ``<head>`` — once, however many chips are injected."""
+    if "data-mini-chip-css" in html:
+        return html
+    style = f"<style data-mini-chip-css>{_CHIP_CSS.strip()}</style>"
+    return re.sub(r"(</head>)", lambda m: f"    {style}\n{m.group(1)}", html, count=1)
 
 
 # The same document in another format, declared in the ``<head>`` so a reader (a crawler, an
@@ -989,46 +1008,18 @@ def alternates(html: str) -> dict[str, str]:
 def set_banner(
     html: str, *, index_url: str | None = None, source_url: str | None = None, pdf_url: str | None = None
 ) -> str:
-    """Give a published report a floating nav — back to the index, out to the source, and the PDF.
+    """Give a published report a nav — back to the index, out to the source, and the PDF.
 
-    A small chip (``← Index`` · ``Source`` · ``PDF``) pinned top-left. It's absolutely positioned and scrolls away with the page; the content column is padded down so the title clears it. A link is omitted when its URL is ``None``; a no-op if none is given. The chip is hidden in print, so the PDF never links to itself.
+    A small chip (``← Index`` · ``Source`` · ``PDF``) at the head of the page, in normal flow above the content column and lined up with it, so it scrolls away as the reader moves down. A link is omitted when its URL is ``None``; a no-op if none is given. The chip is hidden in print, so the PDF never links to itself.
     """
     if index_url is None and source_url is None and pdf_url is None:
         return html
 
-    def link(href: str, label: str) -> str:
-        return f'<a href="{href}" style="{_BANNER_LINK}">{label}</a>'
-
     entries = ((index_url, "&larr; Index"), (source_url, "Source"), (pdf_url, "PDF"))
-    links = [link(url, label) for url, label in entries if url]
-    bar = f'<nav data-mini-banner style="{_BANNER_STYLE}">{"".join(links)}</nav>'
-
-    html = re.sub(
-        r"(</head>)",
-        lambda m: (
-            f"    <style>{_BANNER_CLEARANCE}\n    @media print{{[data-mini-banner]{{display:none}}}}</style>\n{m.group(1)}"
-        ),
-        html,
-        count=1,
-    )
+    links = [f'<a href="{url}">{label}</a>' for url, label in entries if url]
+    bar = f"<nav data-mini-banner>{''.join(links)}</nav>"
+    html = _with_chip_styles(html)
     return _after_body_open(html, bar)
-
-
-# The provenance chip mirrors the nav's mechanics (absolute, UA system colors, blurred
-# backdrop) but sits bottom-left and folds away behind a
-# ``<details>`` — provenance should be *findable*, not competing with the report's
-# content. Absolute (not fixed) so it too scrolls with the page, coming to rest at the
-# foot of the report; the content column's own bottom padding keeps text clear of it.
-_PROVENANCE_STYLE = (
-    "position:absolute;bottom:.5rem;left:.5rem;z-index:2147483647;"
-    "max-width:min(30rem,90vw);"
-    "padding:.3rem .65rem;font-size:.75rem;line-height:1.5;"
-    "font-family:system-ui,sans-serif;border-radius:.375rem;"
-    "background:color-mix(in srgb, Canvas 85%, transparent);"
-    "border:1px solid color-mix(in srgb, CanvasText 18%, transparent);"
-    "-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);"
-)
-_PROVENANCE_DIM = "color:color-mix(in srgb, CanvasText 60%, transparent)"
 
 
 def _provenance_entries(refs: dict[str, dict[str, Any] | None]) -> list[dict[str, Any]]:
@@ -1048,7 +1039,7 @@ def _provenance_entries(refs: dict[str, dict[str, Any] | None]) -> list[dict[str
 def set_provenance(html: str, refs: dict[str, dict[str, Any] | None]) -> str:
     """Give a published report a folded data-provenance footer.
 
-    *refs* is the bundle's provenance sidecar content (ref name → the producer stamped at ``set_ref`` time). Each producing experiment gets one line — name, code state, run date — with the resolved ref names beneath it, inside a ``<details>`` chip pinned bottom-left (scrolling to rest at the foot of the report). A report whose refs carry no producer (or that read no refs at all) is left untouched. Content is derived only from the store's refs, so re-exporting unchanged data injects the same footer.
+    *refs* is the bundle's provenance sidecar content (ref name → the producer stamped at ``set_ref`` time). Each producing experiment gets one line — name, code state, run date — with the resolved ref names beneath it, inside a ``<details>`` chip at the foot of the page, below the content column and lined up with it. A report whose refs carry no producer (or that read no refs at all) is left untouched. Content is derived only from the store's refs, so re-exporting unchanged data injects the same footer.
     """
     entries = _provenance_entries(refs)
     if not entries:
@@ -1061,19 +1052,11 @@ def set_provenance(html: str, refs: dict[str, dict[str, Any] | None]) -> str:
             bits.append(f"<code>{code}</code>{' (dirty)' if e.get('git_dirty') else ''}")
         if run_at := e.get("run_at"):
             bits.append(f"run {str(run_at)[:10]}")
-        via = f'<div style="{_PROVENANCE_DIM}">via {", ".join(e["refs"])}</div>'
+        via = f"<div>via {', '.join(e['refs'])}</div>"
         return f"<div>{' · '.join(bits)}{via}</div>"
 
     chip = (
-        f'<details data-mini-provenance style="{_PROVENANCE_STYLE}">'
-        f'<summary style="cursor:pointer;{_PROVENANCE_DIM}">Data provenance</summary>'
-        f"{''.join(line(e) for e in entries)}"
-        "</details>"
+        f"<details data-mini-provenance><summary>Data provenance</summary>{''.join(line(e) for e in entries)}</details>"
     )
-    html = re.sub(
-        r"(</head>)",
-        lambda m: f"    <style>@media print{{[data-mini-provenance]{{display:none}}}}</style>\n{m.group(1)}",
-        html,
-        count=1,
-    )
+    html = _with_chip_styles(html)
     return _after_body_open(html, chip)

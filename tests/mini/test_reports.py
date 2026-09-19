@@ -350,14 +350,15 @@ _EXPORT_HTML = '<html><head><meta charset="utf-8" /></head><body><main class="li
 
 def test_set_banner_injects_nav():
     out = set_banner(_EXPORT_HTML, index_url="https://o.github.io/r/", source_url="https://github.com/o/r/x.py")
-    # Our bar is the first thing in <body>, so it paints above the report.
+    # Our bar is the first thing in <body>; `order` is what lifts it above the column.
     assert out.index("<body>") < out.index("<nav data-mini-banner") < out.index('<main class="lit">')
-    assert '<a href="https://o.github.io/r/" style=' in out and "&larr; Index" in out
-    assert '<a href="https://github.com/o/r/x.py" style=' in out and ">Source</a>" in out
-    # Absolute, not in-flow, so the chip floats above the page (and scrolls with it).
-    assert "position:absolute" in out[out.index("<nav data-mini-banner") :][:200]
-    # The content column is padded down so the report title isn't tucked under the chip.
-    assert "main.lit{padding-top:3rem}" in out and out.index("padding-top:3rem") < out.index("</head>")
+    assert '<a href="https://o.github.io/r/">' in out and "&larr; Index" in out
+    assert '<a href="https://github.com/o/r/x.py">' in out and ">Source</a>" in out
+    # Styled by a rule in the head, so the print rules below it can hide the chip: an
+    # attribute style would outrank them.
+    assert "style=" not in out[out.index("<nav data-mini-banner") :]
+    assert "[data-mini-banner]{order:-1" in out and out.index("order:-1") < out.index("</head>")
+    assert "@media print{[data-mini-banner],[data-mini-provenance]{display:none}}" in out
 
 
 def test_set_banner_omits_missing_links():
@@ -370,7 +371,7 @@ def test_set_banner_omits_missing_links():
 
 def test_set_banner_links_the_pdf_after_the_source():
     out = set_banner(_EXPORT_HTML, source_url="https://github.com/o/r/x.py", pdf_url="report.pdf")
-    assert out.index(">Source</a>") < out.index('<a href="report.pdf" style=')
+    assert out.index(">Source</a>") < out.index('<a href="report.pdf">')
     assert ">PDF</a>" in out
 
 
@@ -454,9 +455,18 @@ def test_set_provenance_injects_a_folded_footer():
     assert "<strong>prep</strong>" in out and "<code>v1-3-gabc1234</code> (dirty)" in out
     assert "run 2026-07-12" in out
     assert "via shared/curves, shared/other" in out  # both refs fold into one experiment entry
-    assert "@media print{[data-mini-provenance]{display:none}}" in out  # hidden in print, like the banner
-    # Absolute like the nav, so it floats above the page.
-    assert "position:absolute" in out[out.index("<details data-mini-provenance") :][:200]
+    # Hidden in print, like the banner, and styled by the same rule block rather than an
+    # attribute style — which would outrank that print rule.
+    assert "@media print{[data-mini-banner],[data-mini-provenance]{display:none}}" in out
+    assert "style=" not in out[out.index("<details data-mini-provenance") :]
+    assert "[data-mini-provenance]{order:1" in out and out.index("order:1") < out.index("</head>")
+
+
+def test_chip_styles_are_inlined_once_for_both_chips():
+    """The export injects the provenance footer and the site build the nav, into the same page."""
+    out = set_provenance(_EXPORT_HTML, {"shared/curves": _PRODUCER})
+    out = set_banner(out, index_url="../index.html")
+    assert out.count("data-mini-chip-css") == 1
 
 
 def test_set_provenance_is_noop_without_attributable_producers():
