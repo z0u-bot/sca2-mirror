@@ -54,7 +54,7 @@ mini status ex-2.1.2                           # read-only; also: watch, logs, r
 mini retry docs/m2/ex-2.1.2/experiment.py      # after a fix — finished tasks are reused
 
 # Report loop — reports read stored results; they never re-run the experiment
-./go open docs/m2/ex-2.1.2/report.py           # edit live in marimo
+./go serve docs/m2/ex-2.1.2/report.py          # edit live, with reload
 ./go preview                                   # export stale reports → local site → :8000
 ./go check --fix                               # lint/format/types/tests before committing
 

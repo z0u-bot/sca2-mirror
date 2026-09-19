@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [notebooks, tooling, typing]
 opened: 2026-08-12
+closed: 2026-09-18
 ---
 # Require public cell variables to be annotated, with the most specific type available
 
@@ -26,3 +27,6 @@ The backlog it found on arrival: **91 bare public assignments** to annotate, plu
 Two things worth knowing before the annotating pass. First, **16 of the 91 are not in their cell's `return` tuple at all**, so nothing downstream reads them and an annotation propagates nowhere: `scores`, `n_seeds`, `s_bz`, `s_fr`, `rp_bz`, `rp_fr`, `corpus`, `log_v`, `sub_width`, `sub_css`, `cells`, `MARK`, `STAR`, `E`, `LR`, `depth_spread`. Those want a leading underscore rather than a type — a naming fix, not this one. Second, the return tuple is a *better* filter than the underscore convention for finding the annotations that actually pay, and the check could take it as an option later; it's left out for now because it depends on Marimo having re-saved the file (the edit hook keeps it current, but that's an assumption the checker would rather not carry).
 
 The gate is the natural next step once the list is short: move it into `./go lint`, and add it to `.claude/hooks/marimo-format.sh` so a new one is caught where it's written.
+
+**2026-09-19, Fable (forward-port of mi-ni#90)** — Moot: Marimo was removed, along with `scripts/unannotated_cell_vars.py` and `./go annotations`. A literate script has no generated cell signatures to propagate an annotation onto, so the mechanism this item is about no longer exists.
+

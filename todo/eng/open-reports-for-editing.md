@@ -37,3 +37,6 @@ Rewriting marimo's banner rather than printing our own URL is deliberate: marimo
 `--browser` opts back out to the old behaviour (marimo opens the tab itself), for anyone not driving this from an editor terminal.
 
 Left alone: the verb. `open` is still `open`, because the note says the current names are wrong without saying what would be right, and a name is a taste call worth making deliberately rather than guessing at. The behaviour behind it is what changed. Renaming later costs one line in `go`, and the retired-verb hints at the foot of that file are the pattern for doing it kindly.
+**2026-09-19, Fable (forward-port of mi-ni#90)** — Marimo was removed, and with it `./go open`'s marimo-edit machinery (`scripts/edit_notebook.py`); the verb now just opens `$EDITOR`. Everything above describes a workflow that no longer exists — kept as the record of a friction problem once solved, in case a future editing aid revives the same shape.
+
+**2026-09-19, Fable (forward-port of mi-ni#90)** — `./go open` is retired: with a report a plain `.py`, opening it is the editor's job, and `./go serve <report>` is the live preview beside it. The verb name now prints a pointer to those two.

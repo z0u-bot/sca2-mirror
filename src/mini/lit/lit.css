@@ -1,6 +1,5 @@
 /* The page style for a woven document. Base typography follows scripts/md.css (the site's
- * Markdown pages), figure and table rules follow docs/report.css — without the parts of
- * either that exist to outrank Marimo's own stylesheet. */
+ * Markdown pages), figure and table rules follow docs/report.css. */
 
 :root {
   color-scheme: light dark;
@@ -12,6 +11,13 @@
   --code-bg: #f5f5f5;
   --code-accent: #0066cc;
   --mark: #fff3a8;
+  /* Table rules, in the booktabs manner: the text colour, eased off a little. */
+  --rule: color-mix(in srgb, var(--fg) 75%, transparent);
+  /* The reading measure, and the page's own side inset. Every block in the content
+   * column is capped at --measure and centred; the print stylesheet redefines it in
+   * absolute units (see docs/report.css). */
+  --measure: 50rem;
+  --gutter: 1.5rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -26,6 +32,8 @@
   }
 }
 
+/* The page is a vertical flexbox, so the nav and data-provenance chips that
+ * `mini.reports` injects sit above and below the content column in normal flow. */
 body {
   background-color: var(--bg);
   color: var(--fg);
@@ -33,12 +41,28 @@ body {
   font-size: 0.9rem;
   line-height: 1.6;
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100dvh;
 }
+
+/* The content column. `main.lit` spans the page and each block *inside* it is capped
+ * at the reading measure and centred — rather than capping the column as a whole —
+ * which is what lets a figure or a table opt out and take the full page width. */
 main.lit {
-  max-width: 50rem;
-  margin-inline: auto;
-  padding-inline: 1.5rem;
+  flex: 1 0 auto;
+  padding-inline: var(--gutter);
   padding-block: 2rem;
+}
+main.lit > * {
+  max-width: var(--measure);
+  margin-inline: auto;
+}
+/* Figures and tables run the full width of the page, out into the column's margins:
+ * a wide plot or a many-column table gets the room, and anything narrower than the
+ * measure still centres on it. Element selectors, so no report has to opt in. */
+main.lit > :is(figure, table) {
+  max-width: none;
 }
 
 a { color: var(--link); text-decoration: none; }
@@ -89,10 +113,18 @@ a.anchor-link { opacity: 0; color: var(--fg-muted); transition: opacity 0.2s eas
 a.anchor-link::after { content: '#'; font-size: 0.8em; margin-inline: 0.4em; }
 :hover > a.anchor-link { opacity: 1; }
 
-/* Tables: ragged right by default; a numeric column opts in with `---:` in the Markdown. */
-table { border-collapse: collapse; margin-block: 1.5em; }
-th, td { padding: 0.4em 0.8em; border: 1px solid var(--border); text-align: left; vertical-align: top; }
-th { font-weight: 600; border-bottom: 2px solid var(--border); }
+/* Tables in the booktabs manner: horizontal rules only — one above the headings, one
+ * under them, one under the last row — and no boxes around cells. Ragged right by
+ * default; a numeric column opts in with `---:` in the Markdown. */
+table { border-collapse: collapse; margin-block: 1.5em; margin-inline: auto; }
+th, td { padding: 0.35em 0.8em; border: 0; text-align: left; vertical-align: top; }
+th { font-weight: 600; }
+/* \toprule, \midrule, \bottomrule. The rules are on the cells rather than the table
+ * so that they travel with the content when a wide table scrolls inside its own box. */
+:is(thead, tbody:first-child) > tr:first-child > :is(th, td) { border-top: 2px solid var(--rule); }
+thead > tr:last-child > :is(th, td) { border-bottom: 1px solid var(--rule); padding-bottom: 0.5em; }
+tbody > tr:first-child > :is(th, td) { padding-top: 0.5em; }
+tbody > tr:last-child > :is(th, td) { border-bottom: 2px solid var(--rule); }
 
 img, video { max-width: 100%; height: auto; }
 
@@ -103,14 +135,19 @@ blockquote {
   color: var(--fg-muted);
 }
 
-/* Figures: centred when narrower than the column; sub-figures sit side by side and
- * reflow to a stack on a narrow viewport. Captions are muted italic. */
+/* Figures: the box runs the full page width (above), and the body centres within it,
+ * so anything smaller than the page sits over the reading column. Sub-figures sit side
+ * by side and reflow to a stack on a narrow viewport. Captions are muted italic. */
 figure { margin-inline: 0; text-align: center; }
 figure img { margin-inline: auto; display: block; }
 figure:has(> figure) { text-wrap: balance; }
 figure:has(> figure) > figure { display: inline-block; vertical-align: top; margin: 0 0.5em; }
+/* A caption is prose, so it keeps the reading measure even under a full-width figure.
+ * `100%` is the ceiling for a sub-figure, whose own box is narrower than that. */
 figcaption {
+  max-width: min(var(--measure), 100%);
   margin-top: 0.6em;
+  margin-inline: auto;
   font-size: 0.9em;
   font-style: italic;
   opacity: 0.75;
@@ -147,8 +184,12 @@ dl > dt { font-weight: 600; margin-top: 0.8em; }
 
 @media print {
   :root { color-scheme: light; }
-  body { font-size: 11pt; }
-  main.lit { max-width: none; padding: 0; }
+  /* Paper has no viewport to fill, and the chips are hidden, so the flexbox comes off. */
+  body { font-size: 11pt; display: block; min-height: 0; }
+  /* The page's own margins are the gutter here (`@page` in the report stylesheet), so
+   * the column rules above carry over unchanged: prose is capped at --measure, and a
+   * figure or table reaches past it to the full width of the printed page. */
+  main.lit { padding: 0; }
   a { color: inherit; }
   a.anchor-link { display: none; }
   pre, figure, table { break-inside: avoid; }

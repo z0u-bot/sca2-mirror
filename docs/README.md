@@ -1,28 +1,22 @@
 # docs/
 
-This directory contains executable experiment notebooks and source files for the project site. The site is built into `_site/` — by `./go preview` locally, or `./go site` in CI.
+This directory contains executable experiment reports (literate scripts) and source files for the project site. The site is built into `_site/` — by `./go preview` locally, or `./go site` in CI.
 
 ## File types
 
-### Marimo notebooks
+### Literate scripts
 
-Notebooks (`.py`) are the primary content, and the only thing in Git; the exported HTML is never committed.
+Reports (`.py`) are the primary content, and the only thing in Git; the exported HTML is never committed. A literate script is a plain Python file where a top-level string literal is prose (an f-string where it quotes a value, so ruff, ty, and vulture see the names it reads) and the code between prose strings is a cell, with `# title:` (and `# code: show`, for a page about the code; a report hides its cells) as comment lines at the top; ruff, ty, and the IDE see every cell. A `# %%` line splits a cell where prose would not fit. Only a cell's last expression is displayed (a string as Markdown, a matplotlib figure saved and shown), and the runner refuses a displayable value anywhere else in a cell rather than dropping it. Every top-level string is prose, so a variable docstring hung under a constant would weave as a paragraph; write it as a comment (`./go lint` flags it). `./go render docs/tour.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and with `--pdf` a print through headless Chromium); `./go serve` re-weaves on save with live reload. See `mini.lit` and `todo/eng/literate-reports.md` for the design.
 
-`./go publish` exports each notebook to a self-contained bundle (`index.html` plus a name-keyed `_assets/`, and a `report.pdf` printed from the page for reading on paper or e-ink), and mirrors it to the HF bucket under `exports/<key>/`. The export also writes a small copy of every figure under `_assets/thumbs/` and declares them in the HTML, so an index page's figure strips (a `mini:figures` marker in a Markdown file; see [`build_site.py`](../scripts/build_site.py)) cost a few KB per figure rather than the full-size PNG; a strip opens with a chip linking the report's PDF when the bundle declares one. The site build then defers every figure until it scrolls into view, and makes it click-to-enlarge in an overlay — both from the HTML alone, so they apply to reports published before either existed. The key is the notebook's docs-relative path without the suffix, so `docs/overview.py` becomes `overview` and `docs/foo/bar.py` becomes `foo/bar`. A notebook named `report.py` is the exception: it takes its directory as the key, so `docs/foo/report.py` becomes `foo`, and a one-report experiment publishes at `foo/` rather than the redundant `foo/report/`.
+`./go publish` exports each report to a self-contained bundle (`index.html` plus a name-keyed `_assets/`), and mirrors it to the HF bucket under `exports/<key>/`. The export also writes a small copy of every figure under `_assets/thumbs/` and declares them in the HTML, so an index page's figure strips (a `mini:figures` marker in a Markdown file; see [`build_site.py`](../scripts/build_site.py)) cost a few KB per figure rather than the full-size PNG; a strip opens with a chip linking the report's PDF. The site build then defers every figure until it scrolls into view, and makes it click-to-enlarge in an overlay — both from the HTML alone, so they apply to reports published before either existed. The key is the report's docs-relative path without the suffix, so `docs/overview.py` becomes `overview` and `docs/foo/bar.py` becomes `foo/bar`. A report named `report.py` is the exception: it takes its directory as the key, so `docs/foo/report.py` becomes `foo`, and a one-report experiment publishes at `foo/` rather than the redundant `foo/report/`.
 
 Publishing also records the commit sha that the bundle landed as into [`publish.lock`](./publish.lock). Commit that file. Under a storage profile (`MINI_PROFILE=dev`; the `mi-ni` skill's storage reference) the pins go to a gitignored `.mini/publish.<profile>.lock` instead, so an engineering publish never moves the production record. The site serves each report at its pinned revision, so a publish from a branch deploys nothing until the pin reaches main; the PR preview serves the branch's pins meanwhile.
 
 Forgetting to publish is caught rather than done for you, in two places. The push hook ([`pre-push-check.sh`](../.claude/hooks/pre-push-check.sh)) blocks a push that changed a report without moving its pin, and CI's `Reports published` step repeats the check on the PR. Both run [`scripts/unpublished_reports.py`](../scripts/unpublished_reports.py) — a git diff against the base branch, compared with `publish.lock` — so neither needs the store, a render, or a write token. The publish itself stays with you, in the session that already has a warm store.
 
-Three ways past it, in rising order of permanence: `git push --no-verify` gets a push out now (CI still flags it); the `skip-publish-check` label settles it for one PR; and `# mini:manual-publish` in a notebook (see `mini.reports`) opts that report out for good, for one you'd rather publish on your own schedule.
+Three ways past it, in rising order of permanence: `git push --no-verify` gets a push out now (CI still flags it); the `skip-publish-check` label settles it for one PR; and `# mini:manual-publish` in a report (see `mini.reports`) opts that report out for good, for one you'd rather publish on your own schedule.
 
 `./go site` (CI) then assembles `_site/` from the pinned bundles, serving each report at `_site/<key>/index.html`, with the URL `<key>/`. `./go preview` assembles the same site locally: it exports stale reports to `.mini/exports/` and copies their assets beside the HTML, so it works offline.
-
-### Literate scripts
-
-A literate script is a plain Python file where a top-level string literal is prose (an f-string where it quotes a value, so ruff, ty, and vulture see the names it reads) and the code between prose strings is a cell, with `# title:` (and `# code: show`, for a page about the code; a report hides its cells) as comment lines at the top; ruff, ty, and the IDE see every cell. A `# %%` line splits a cell where prose would not fit. Only a cell's last expression is displayed (a string as Markdown, a matplotlib figure saved and shown), and the runner refuses a displayable value anywhere else in a cell rather than dropping it. `./go lit render docs/m2/ex-2.1.12/report.py` weaves it to `.mini/lit/<key>/` (HTML, Markdown, and with `--pdf` a print through headless Chromium); `./go lit serve` re-weaves on save with live reload. See `mini.lit` for the design.
-
-A literate script is a report like any notebook: `./go preview`, `./go publish`, and `./go render` recognise it by its `# title:` header (`mini.reports.is_report`) and export it to the same bundle, with the banner, thumbnails, provenance footer, and PDF a notebook gets, plus the woven `index.md` declared as a `text/markdown` alternate and served beside the page. The publish check and `publish.lock` treat it the same way. The one convention that differs from a notebook is that every top-level string is prose, so a variable docstring hung under a constant would weave as a paragraph; write it as a comment (`./go lint` flags it). ex-2.1.12 is the first report in this form; the rest are being ported (`todo/eng/literate-reports.md`).
 
 ### Markdown files
 
@@ -34,9 +28,9 @@ Images, SVGs, and the like are copied as-is into `_site/`.
 
 ### Shared report styles
 
-[`report.css`](./report.css) is one stylesheet for cross-report polish: centering narrow figures, `.sw` color swatches via [`colors.swatch`](../src/sca/data/colors.py), `.report-table` headings, and `.report-subline-row`. Its `@media print` block sizes the page for a reMarkable 2. The export prints each report through it (`mini.report_print`), on a page grown until every section fits on one and then clipped to its content, so a bundle carries a `report.pdf` and the published page links it from the nav chip; the `report-render` skill prints the same way for checking a print-style edit. The PDF is baked at export like the figures, so a print-style edit reaches an old report's PDF on its next publish.
+[`report.css`](./report.css) is one stylesheet for cross-report polish: `.sw` color swatches via [`colors.swatch`](../src/sca/data/colors.py), `.report-table` alignment and its scroll box, and quiet `<details>`. The page frame — the reading measure, booktabs table rules, and the full-page width every figure and table gets — is [`mini.lit`'s own sheet](../src/mini/lit/lit.css); this one layers on top. Its `@media print` block sizes the page for e-ink (a reMarkable 2). The site build prints each report through it (`mini.report_print`), on a page grown until every section fits on one and then clipped to its content, so every report page has a `report.pdf` beside it, linked from the nav chip; the `report-render` skill prints the same way for checking a print-style edit. The build keeps a memo of what it printed from (`_site/pdfs.json`, and on the deployed site the previous deploy's copy), so a report is printed again only when its page, this stylesheet, or the print tooling changed, and a print-style edit reaches every report's PDF on the next build.
 
-Each report points at it with `marimo.App(css_file="…/report.css")`, so it shows live in edit mode and bakes into the export. The build re-inlines it from source as well (`mini.reports.set_report_styles`), so editing `report.css` restyles every published report without re-exporting any notebook. Keep it small and selector-scoped, since it layers on top of Marimo's own CSS.
+Each report links it, so it shows live while editing and bakes into the export. The build re-inlines it from source as well (`mini.reports.set_report_styles`), so editing `report.css` restyles every published report without re-exporting any report. Keep it small and selector-scoped. `mini.lit`'s sheet has no such seam — it is baked at export time only, so a change there reaches a report on its next export (`./go publish` always re-exports; `./go preview` needs `--force`).
 
 ## Structure
 
@@ -44,17 +38,17 @@ Each report points at it with `marimo.App(css_file="…/report.css")`, so it sho
 docs/
 ├── README.md                This file (excluded from build)
 ├── report.css               Shared report stylesheet (baked via css_file + re-inlined at build;
-│                            its @media print block shapes each bundle's report.pdf)
+│                            its @media print block shapes each report's report.pdf)
 ├── publish.lock             Export key → pinned publish-tier revision (written by ./go publish)
 ├── index.md                 Built as _site/index.html
-├── overview.py              Marimo notebook → exported bundle, served at _site/overview/
+├── overview.py              Literate script → exported bundle, served at _site/overview/
 └── ex-9.9/                  An experiment, split into definition + report
-    ├── experiment.py        Importable main(ctx) DAG — not a notebook, so the build ignores it
-    └── report.py            Marimo notebook → served at _site/ex-9.9/
+    ├── experiment.py        Importable main(ctx) DAG — not a report, so the build ignores it
+    └── report.py            Literate script → served at _site/ex-9.9/
 ```
 
 Exported bundles live (gitignored) under `.mini/exports/<key>/` locally; their durable home is the bucket. Nothing under `docs/` holds generated HTML.
 
-`./go render <notebook>` writes a third thing, for reading rather than serving: the same document as plain Markdown at `.mini/renders/<key>.md`, figures as `![alt](…)` links to the files on disk. Same key, also gitignored, also regenerated on demand — it skips a report no older than its last render, and `--force` overrides that. See the `report-render` skill.
+`./go render <report>` is the light form, for reading rather than serving: the weave alone (no provenance, thumbnails, or PDF) under `.mini/lit/<key>/`, where `index.md` is the same document as plain Markdown, with figures as `<figure>` links to the files on disk beside it. Same key, also gitignored, also regenerated on demand. See the `report-render` skill.
 
-Heavier or multi-step experiments live in a subdirectory as an importable `experiment.py` (the definition, driven by the `mini` CLI) plus a `report.py` notebook, which reads durable results and publishes. A plain `.py` that isn't a Marimo notebook is ignored by the build, so the definition module never lands on the site. See the `mi-ni` skill for authoring, running, and monitoring.
+Heavier or multi-step experiments live in a subdirectory as an importable `experiment.py` (the definition, driven by the `mini` CLI) plus a `report.py` literate script, which reads durable results and publishes. A plain `.py` that isn't a literate script (no `# title:` header) is ignored by the build, so the definition module never lands on the site. See the `mi-ni` skill for authoring, running, and monitoring.

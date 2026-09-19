@@ -1,29 +1,21 @@
 #!/usr/bin/env python
 """Export reports to self-contained bundles, optionally syncing to the bucket.
 
-Each report (a Marimo notebook or a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the named-keyed ``_assets/`` its publisher wrote (a notebook's setup cell points :func:`~mini.reports.report_bundle` there; ``mini.lit.render`` aims its own publisher the same way). The two forms differ only in how the HTML is produced; everything after that (provenance, thumbnails, the PDF, the sync) is shared. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
+Each report (a literate script under ``docs/``; :func:`~mini.reports.is_report`) exports to its own bundle at ``.mini/exports/<key>/`` — ``index.html`` plus the name-keyed ``_assets/`` its publisher wrote (``mini.lit.render`` installs a publisher aimed at the output's ``_assets/``). After the weave, provenance, thumbnails and the sync follow; the PDF is the site build's. With ``--publish`` each bundle is then mirrored to the configured HF bucket at ``exports/<key>/``: the authenticated half of publishing (it needs the data the report reads + a write token). ``scripts/build_site.py`` assembles the site from these bundles — the synced ones in CI (read-only), the local ones offline.
 """
 
 import argparse
 import json
-import os
 import shutil
-import subprocess
 import sys
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).parent))  # so `import clean_docs` (sibling) works
 
-from build_site import LinkResolver, resolve_html_links  # noqa: E402
-from clean_docs import clean_html, default_hidden_code  # noqa: E402
-from mini.lit import is_literate_script  # noqa: E402
-from mini.report_print import print_bundle  # noqa: E402
+from mini.lit import render  # noqa: E402
 from mini.reports import (  # noqa: E402
-    EXPORTING_ENV,
     MD_LEAF,
     MD_TYPE,
     PDF_LEAF,
-    PDF_TYPE,
     PROVENANCE_ASSET,
     export_dir,
     export_key,
@@ -45,10 +37,10 @@ DOCS = ROOT / "docs"
 REPORT_CSS = DOCS / "report.css"
 
 
-def notebooks_to_export(paths: list[str]) -> list[Path]:
+def reports_to_export(paths: list[str]) -> list[Path]:
     """The reports to export — the given ones, or every report under ``docs/``.
 
-    Source-only example notebooks (``# mini:source-only``, e.g. ``docs/gpt.py``) are skipped even when named explicitly: the site links to their GitHub source rather than running them, so exporting one (which re-runs its inline compute) is never intended.
+    Source-only example scripts (``# mini:source-only``, e.g. ``docs/gpt.py``) are skipped even when named explicitly: the site links to their GitHub source rather than running them, so exporting one (which re-runs its inline compute) is never intended.
     """
     if not paths:
         return reports(DOCS)
@@ -58,18 +50,18 @@ def notebooks_to_export(paths: list[str]) -> list[Path]:
         if is_report(path):
             keep.append(path)
         else:
-            print(f"  skip {path.name}: source-only example, not a rendered report — open it with `./go open`")
+            print(f"  skip {path.name}: source-only example, not a rendered report — see `./go render`")
     return keep
 
 
-def bundle_is_stale(nb: Path) -> bool:
-    """Whether *nb*'s bundle is missing or older than anything it's built from."""
-    return is_stale(nb, export_dir(nb) / "index.html")
+def bundle_is_stale(path: Path) -> bool:
+    """Whether *path*'s bundle is missing or older than anything it's built from."""
+    return is_stale(path, export_dir(path) / "index.html")
 
 
-def export_one(nb: Path) -> Path:
-    """Export *nb* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
-    out = export_dir(nb) / "index.html"
+def export_one(path: Path) -> Path:
+    """Export *path* to ``.mini/exports/<key>/index.html`` (assets land beside it). Returns the dir."""
+    out = export_dir(path) / "index.html"
     out.parent.mkdir(parents=True, exist_ok=True)
     # The render rewrites every asset it still produces, and the sync mirrors whatever is
     # here; clear the last export's first so a figure the report no longer draws (or a
@@ -77,8 +69,8 @@ def export_one(nb: Path) -> Path:
     assets = out.parent / "_assets"
     shutil.rmtree(assets, ignore_errors=True)
     sidecar = assets / PROVENANCE_ASSET
-    print(f"  export {nb.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
-    html = _weave(nb, out) if is_literate_script(nb) else _export_notebook(nb, out)
+    print(f"  export {path.relative_to(ROOT)} -> {out.relative_to(ROOT)}")
+    html = _weave(path, out)
     if sidecar.exists():  # the render read store refs — cite their producers in a footer
         refs = json.loads(sidecar.read_text()).get("refs", {})
         html = set_provenance(html, refs)
@@ -88,49 +80,19 @@ def export_one(nb: Path) -> Path:
     if thumbs:
         print(f"  thumbs {len(thumbs)} figure(s) -> {assets.relative_to(ROOT)}/thumbs/")
     out.write_text(html, "utf-8")
-    # The PDF, for reading on paper or e-ink (todo/eng/pdf-exports.md): printed here, the
-    # half that holds the bundle, and synced beside the HTML so the site build can link it
-    # without a browser of its own. Author links are resolved the way the published page
-    # resolves them, in the printed copy only, so the PDF's links work and its bytes are a
-    # function of the report alone (left relative, they would carry the loopback port the
-    # print served from, and an unchanged report would upload a new file every time).
-    pdf = out.parent / PDF_LEAF
-    pdf.unlink(missing_ok=True)  # the last export's, which a skipped print must not leave to sync
-    from_dir = nb.parent.relative_to(DOCS).as_posix()
-    printable = resolve_html_links(
-        html,
-        LinkResolver.discover(),
-        from_dir="" if from_dir == "." else from_dir,
-        out_dir=export_key(nb),
-        externalizing=True,
-    )
-    print(f"  print  {out.relative_to(ROOT)} -> {pdf.relative_to(ROOT)} (headless Chromium; a few seconds)")
-    if print_bundle(out.parent, pdf, html=printable) is not None:
-        out.write_text(set_alternate(html, type=PDF_TYPE, href=PDF_LEAF), "utf-8")
+    # The PDF is the site build's to print (build_site.PdfMemo), since 2026-09-19; a bundle
+    # exported before then still holds one, which the sync would otherwise carry along.
+    (out.parent / PDF_LEAF).unlink(missing_ok=True)
     return out.parent
-
-
-def _export_notebook(nb: Path, out: Path) -> str:
-    """Run ``marimo export`` on *nb*, writing *out*, and return the cleaned HTML."""
-    # Mark the render as an export so the report's setup cell points its publisher at
-    # the bundle (_assets/, beside this HTML); under interactive `marimo edit` the var is
-    # absent and figures go to the notebook's public/ instead — see mini.reports.exporting.
-    env = {**os.environ, EXPORTING_ENV: "1"}
-    subprocess.run(["marimo", "export", "html", "-f", str(nb), "-o", str(out)], check=True, cwd=ROOT, env=env)
-    clean_html(out)  # scrub terminal control seqs + redact modal URLs from the published HTML
-    default_hidden_code(out)  # literate reports open with code collapsed; the menu toggle still reveals it
-    return out.read_text("utf-8")
 
 
 def _weave(script: Path, out: Path) -> str:
     """Weave the literate *script* into the bundle holding *out*, and return the page.
 
-    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the same publisher a notebook uses, so the sidecar and the thumbnails work unchanged. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here for the print below, since a script's page carries only ``mini.lit``'s own; the site build re-inlines the current source on top, as it does for a notebook.
+    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the report publisher, so the sidecar and the thumbnails read from one place. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here so the bundle stands on its own; the site build re-inlines the current source on top.
 
     A cell that raised is a failed export: the page would carry the traceback where a figure should be, and the sync would publish it.
     """
-    from mini.lit import render
-
     rendered = render(script, out_dir=out.parent)
     if errors := rendered.woven.errors:
         lines = "\n\n".join(f"cell at line {o.cell.line}:\n{o.error}" for o in errors)
@@ -142,23 +104,23 @@ def _weave(script: Path, out: Path) -> str:
     return html
 
 
-def publish_one(nb: Path, store) -> str | None:
-    """Export *nb*, mirror its bundle to ``exports/<key>/``, and return its revision.
+def publish_one(path: Path, store) -> str | None:
+    """Export *path*, mirror its bundle to ``exports/<key>/``, and return its revision.
 
     The revision (a publish-tier commit sha, ``None`` on a history-less bucket) is what the caller pins in ``docs/publish.lock`` — the site serves the bundle at that exact commit, so this publish changes nothing deployed until the pin lands on main.
     """
-    bundle = export_one(nb)
-    key = export_key(nb)
+    bundle = export_one(path)
+    key = export_key(path)
     print(f"  sync   {bundle.relative_to(ROOT)} -> exports/{key}/")
     return store.sync_export(bundle, key)
 
 
 def update_pins(new: dict[str, str]) -> None:
-    """Fold this run's pins into the active manifest (:func:`~mini.reports.publish_lock`), pruning keys with no notebook.
+    """Fold this run's pins into the active manifest (:func:`~mini.reports.publish_lock`), pruning keys with no report.
 
-    Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted notebook's pin doesn't linger. The production manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence. A profile's manifest is gitignored: dev pins never reach CI.
+    Pruning uses the *full* report set (not just what was published now), so a partial publish never drops other reports' pins, but a deleted report's pin doesn't linger. The production manifest must be committed for the pins to take effect — it's the identity half of a publish; the upload was only evidence. A profile's manifest is gitignored: dev pins never reach CI.
     """
-    live = {export_key(nb) for nb in reports(DOCS)}
+    live = {export_key(path) for path in reports(DOCS)}
     pins = {k: v for k, v in (load_pins(ROOT) | new).items() if k in live}
     save_pins(ROOT, pins)
 
@@ -170,35 +132,37 @@ def main() -> None:
     ap.add_argument(
         "--stale-only",
         action="store_true",
-        help="skip reports whose bundle is newer than the notebook (mtime heuristic)",
+        help="skip reports whose bundle is newer than the script (mtime heuristic)",
     )
-    ap.add_argument("notebooks", nargs="*", help="reports (default: all under docs/)")
+    ap.add_argument("reports", nargs="*", help="reports (default: all under docs/)")
     args = ap.parse_args()
 
     if args.publish and args.stale_only:
         ap.error("--stale-only is a preview optimization; publishing always re-exports")
-    if args.publish and not args.notebooks and not args.all:
-        ap.error("refusing to publish every report implicitly — name the notebooks, or pass --all")
+    if args.publish and not args.reports and not args.all:
+        ap.error("refusing to publish every report implicitly — name the reports, or pass --all")
 
-    nbs = notebooks_to_export(args.notebooks)
-    if not nbs:
+    paths = reports_to_export(args.reports)
+    if not paths:
         sys.exit("No reports found under docs/.")
 
     if not args.publish:
         if args.stale_only:
-            for nb in (fresh := [nb for nb in nbs if not bundle_is_stale(nb)]):
-                print(f"  fresh  {nb.relative_to(ROOT)} (bundle newer than notebook — `--force` re-exports)")
-            nbs = [nb for nb in nbs if nb not in fresh]
-        for nb in nbs:
-            export_one(nb)
-        print(f"\n{len(nbs)} bundle(s) exported to .mini/exports/." if nbs else "\nNothing stale; bundles untouched.")
+            for path in (fresh := [path for path in paths if not bundle_is_stale(path)]):
+                print(f"  fresh  {path.relative_to(ROOT)} (bundle newer than script — `--force` re-exports)")
+            paths = [path for path in paths if path not in fresh]
+        for path in paths:
+            export_one(path)
+        print(
+            f"\n{len(paths)} bundle(s) exported to .mini/exports/." if paths else "\nNothing stale; bundles untouched."
+        )
         return
 
-    publish_all(nbs)
+    publish_all(paths)
 
 
-def publish_all(nbs: list[Path]) -> None:
-    """Publish each notebook's bundle, then pin the revisions in ``docs/publish.lock``."""
+def publish_all(paths: list[Path]) -> None:
+    """Publish each report's bundle, then pin the revisions in ``docs/publish.lock``."""
     from mini.hf_store import HFStore
     from mini.store import store_for
 
@@ -206,13 +170,13 @@ def publish_all(nbs: list[Path]) -> None:
     if not isinstance(store, HFStore):
         sys.exit("No HF bucket configured — set [tool.mini] store-bucket and run `./go auth`, then retry --publish.")
     pins = {}
-    for nb in nbs:
-        if (rev := publish_one(nb, store)) is not None:
-            pins[export_key(nb)] = rev
+    for path in paths:
+        if (rev := publish_one(path, store)) is not None:
+            pins[export_key(path)] = rev
     target = store.publish_repo or store.bucket  # exports route to the repo when a publish tier is set (#38)
     profile = active_profile()
     where = f"{target} (profile {profile})" if profile else target
-    print(f"\nPublished {len(nbs)} report(s) to {where}.")
+    print(f"\nPublished {len(paths)} report(s) to {where}.")
     if pins:
         update_pins(pins)
         pinned = f"Pinned in {publish_lock()}: " + ", ".join(f"{k} @ {v[:12]}" for k, v in sorted(pins.items()))
