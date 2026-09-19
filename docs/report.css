@@ -151,12 +151,15 @@ main.lit details:not(:open) {
 @media print {
   @page {
     size: 158mm 1010mm;
-    margin: 10mm 20mm 12mm;
+    /* Side margins are small here and the reading measure comes from `--measure`
+     * below, so a figure or a table can reach past the text into the page's margins
+     * the way it does on screen. Text still sits 20mm in from the paper edge. */
+    margin: 10mm 5mm 12mm;
   }
-  nav[data-mini-banner] {
-    display: none;
+  :root {
+    /* 118mm — the line length the 20mm side margins used to give, kept as it was. */
+    --measure: 118mm;
   }
-
   /* Type. 11pt body on a ~120mm column is about 60 characters a line. */
   html {
     font-size: 11pt;
@@ -228,7 +231,7 @@ main.lit details:not(:open) {
     font-size: 0.75em;
     width: auto;
     max-width: 100%;
-    margin-inline: 0;
+    margin-inline: auto;
   }
   /* Cell padding is the widest thing in a nine-column table once the words wrap. */
   main.lit table.report-table :is(th, td) {

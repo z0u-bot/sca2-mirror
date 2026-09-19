@@ -53,7 +53,7 @@ Two things are ours rather than the library's. Pass `css="svg { --bg-color: ligh
 
 ## Result tables
 
-Authored HTML tables (built by hand and wrapped in `mo.md`) use the shared classes in `docs/report.css` rather than inline `style=`, so central edits restyle every report at once: `report-table` on the `<table>`, `num` on numeric `<th>`s and their `<td>`s, a `report-table-scroll` wrapper for wide data, and a caption via `figure_html(..., class_="report-figure")` on the same terms as a figure. In a scored table, make it visible at a glance what counts as good: mark each column's desired direction (↑ or ↓, matching the report's glossary) in its header, and bold the values that pass their gate.
+Authored HTML tables use the shared classes in `docs/report.css` rather than inline `style=`, so central edits restyle every report at once: `report-table` on the `<table>`, `num` on numeric `<th>`s and their `<td>`s, `range` on a spread quoted beside a value, and a caption via `figure_html(..., class_="report-figure")` on the same terms as a figure. Those classes cover the *content* — alignment, tabular figures, and the horizontal scroll box a very wide table falls back to. Layout needs none of them: `mini.lit`'s stylesheet gives every table and figure in a report the full width of the page, with the caption held to the reading measure, by element rather than by class. Tables read as booktabs would print them — three horizontal rules, no cell boxes — so don't draw your own. In a scored table, make it visible at a glance what counts as good: mark each column's desired direction (↑ or ↓, matching the report's glossary) in its header, and bold the values that pass their gate.
 
 Tabular data is great for precision, but it requires a lot of effort to read and interpret. Tables should almost always be accompanied by at least one chart.
 
@@ -67,7 +67,7 @@ Judge dark variants by compositing `_assets/<name>-dark.png` over `#111`: dark e
 
 The title goes in the caption, as its opening phrase — never in `fig.suptitle` (`ax.set_title` still names a panel _within_ a figure). A caption guides decoding ("Each column shows…") and may keep one clause of interpretation where an encoding needs it; findings and their evidence belong in prose cells near the figure. Tables get a caption on the same terms, via `figure_html`.
 
-Panels share one matplotlib figure only when they share axes, a colorbar, or a scale the reader compares across. Otherwise render each as its own `@themed` figure with a short caption, and wrap the group in `figure_html(body, caption=..., aria_label=...)`, whose outer caption holds the shared decoding — each panel then keeps its own size and the row reflows on a narrow viewport. `report.css` styles the nesting; the docstring explains `aria_label`.
+Panels share one matplotlib figure only when they share axes, a colorbar, or a scale the reader compares across. Otherwise render each as its own `@themed` figure with a short caption, and wrap the group in `figure_html(body, caption=..., aria_label=...)`, whose outer caption holds the shared decoding — each panel then keeps its own size and the row reflows on a narrow viewport. `mini.lit`'s stylesheet styles the nesting; the docstring explains `aria_label`.
 
 Give every figure alt text (see the alt-text skill).
 
