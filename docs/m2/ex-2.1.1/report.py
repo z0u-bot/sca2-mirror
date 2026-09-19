@@ -12,9 +12,9 @@ import numpy as np
 # definition is importable — refs and sweep constants can't drift.
 from experiment import CKPT_REF, CORPUS_SEED, DEPTHS, HOLDOUT_FRAC, METRICS_REF, N_EXAMPLES, SEEDS, WEIGHTS_REF, WIDTHS
 from mini.lit import stop
-from mini.reports import externalize_html
+from mini.lit.page import render_fragment
 from mini.store import project_store
-from mini.vis import figure_html, light_dark, themed
+from mini.vis import figure_html, light_dark, svg_figure, themed
 from sca import baselines as bl
 from sca.data import colors, cube
 from sca.vis import CUBE_VIEWS, draw_cube_bound, grid_diameter, plot_rgb_cube, project_cube
@@ -123,7 +123,8 @@ pairs = {p for ex in corpus if (p := ex.pair) is not None}
 grid = colors.N_LEVELS**3
 all_pairs = grid * (grid + 1) // 2
 head = "".join(ex.text for ex in corpus[:10])
-body = f"```\n{head}```"
+# Rendered here: `figure_html` assembles raw HTML, where a Markdown fence would stay literal.
+body = render_fragment(f"```\n{head}```")
 caption = f"{len(corpus):,} lines in total: {', '.join(f'{n:,} {f}' for f, n in counts.items())}."
 
 rf"""
@@ -348,7 +349,7 @@ def sublines(rows: list[tuple[str, dict]], series, aria_label: str, name: str) -
         return figure_html(svg, caption=tag, style="display: inline-block; margin: 0 .5em")
 
     strip = "".join(one(tag_name, row) for tag_name, row in rows)
-    return externalize_html(figure_html(strip, aria_label=aria_label), name=name)
+    return svg_figure(strip, alt_text=aria_label, name=name)
 
 
 def pad(row: dict, key: str) -> np.ndarray:

@@ -1,6 +1,6 @@
 ---
 name: style-py
-description: Python style and typing conventions for this repo — method chaining, modern syntax, where to put type hints given that Marimo generates cell signatures, and the literate programming standard for notebooks. Use when writing or reviewing any Python.
+description: Python style and typing conventions for this repo — method chaining, modern syntax, where to put type hints, and the literate programming standard for reports. Use when writing or reviewing any Python.
 ---
 
 House style, in three lines: chain your calls, use the newest syntax the toolchain accepts, and keep it short.
@@ -46,101 +46,7 @@ Use `T | None`, never `Optional[T]`:
 
 You don't need annotations everywhere. Put one wherever inference would otherwise stall — usually the point where a value first enters the code. That single annotation then carries through everything downstream.
 
-### Marimo cells
-
-Marimo generates cell function signatures, so a parameter is bare unless the cell that _defines_ that value annotated it. Where the parameter is bare, inference has nothing to work from at the top of the cell. Annotate the first local binding and the rest of the cell follows:
-
-```python
-@app.cell(hide_code=True)
-def _(RUNGS, grading):
-    _rungs: list[str] = [c for c in RUNGS if c != "lam0"]
-    _resp: dict[str, tuple[np.ndarray, float, float]] = {c: grading(c) for c in _rungs}
-```
-
-Annotate a _public_ name and Marimo copies that annotation onto the parameter list of every cell downstream, the next time it saves the file:
-
-```python
-@app.cell(hide_code=True)
-def _(_sv):
-    sv_trials: dict[int, dict] = {t["trial"]: t for t in _sv["trials"]}
-    return (sv_trials,)
-
-
-@app.cell(hide_code=True)
-def _(sv_trials: dict[int, dict]):  # Marimo propagated this annotation
-    ...
-```
-
-Leave them alone: if you add or change them, Marimo will regenerate them and cause churn in Git. Annotate the definition instead.
-
-`marimo check --fix <file>` applies the rewrite from the CLI, and is authoritative over signatures: it fills in missing annotations, corrects wrong ones, and removes any with no annotated definition behind them. It runs automatically on edit (a `PostToolUse` hook) and on commit (via lint-staged), so this mostly self-corrects.
-
-`./go annotations [path...]` names the public cell variables that are still bare, so you can see a notebook's share before you start: `./go annotations docs/m2/ex-2.1.8`. It's advisory — a worklist, not a gate — and it reports names bound by unpacking (`a, b = ...`) separately, since Python has no syntax to annotate those and the fix is to split the statement instead.
-
-Naming:
-
-- Symbols that are cell-local must start with `_`, or Marimo will complain.
-- Symbols within nested functions should usually not start with `_`.
-
-```python
-@app.cell(hide_code=True)
-def _():
-    def _foo(x: int) -> int:
-        y = x + 1
-        return y
-```
-
-Utilities and setup:
-
-- In general, put imports and constants in a setup cell.
-- Put utility functions in their own reusable cells. Don't put them in the setup cell, or editing a function would invalidate every cell in the notebook.
-- Instead of returning function closures from a cell, use a reusable class definition. Prefer smaller classes so edits invalidate fewer cells.
-
-```python
-with app.setup(hide_code=True):
-    # This is the "setup" cell
-    from mini.reports import report_bundle, use_publisher
-
-    use_publisher(report_bundle(__file__))
-
-    SLICE_NAMES = ["emb", "1", "2", "3", "4"]
-    """A docstring for a constant."""
-
-    None  # Prevent the docstring from rendering
-
-
-@app.class_definition(hide_code=True)
-@dataclass(frozen=True)
-class Data:
-    data: tuple[dict[str, dict[str, np.ndarray]], np.ndarray]
-
-    def stat(self, key: str, cond: str) -> np.ndarray:
-        return np.array([r[key] for r in self.data[cond]], float)
-
-
-@app.function(hide_code=True)
-def load_results() -> tuple[dict[str, dict[str, np.ndarray]], np.ndarray]:
-    # This is a "reusable function" cell
-    ...
-    return data
-
-
-@app.cell(hide_code=True)
-def _():
-    data: Data = Data(data=load_results())  # annotate, so downstream cells see the type
-    return (data,)
-
-
-@app.cell(hide_code=True)
-def _(data: Data):
-    _stat = data.stat(...)  # now properly typed
-    ...
-    return
-```
-
-Method defaults and annotations may read the setup cell, and the class body and its methods are type-checked like any module-level class. Annotating the instance is what carries that to the call sites: Marimo copies `Data` onto every downstream signature, and `ty` then catches a misspelled method or a wrong argument in the cells that use it. Leave the instance bare and those cells go unchecked.
-
-This is for a bundle several cells share. A `_plot()` closure inside one figure cell stays where it is — it has one caller, and the state it reads is right above it.
+A literate script's cells are ordinary top-level code in one shared namespace — there are no generated function signatures to keep in sync, so annotate the same way you would in any module: wherever inference would otherwise stall, usually where a value first enters the code. A name reused across cells is typed by flow, the same as any reassigned local.
 
 ### Matplotlib axes
 
@@ -156,11 +62,9 @@ fig, axes = plt.subplots(2, 3, ...)  # 2D
 axes = cast(AxesGrid, axes)
 ```
 
-## Notebooks and literate scripts
+## Literate scripts
 
-Our experiments and reports ship code and prose together: as literate scripts (`mini.lit`, the form reports are moving to) or as Marimo notebooks. Iterate on both. Aim for literate programming: the Markdown should explain what the next cell does and why, so the report reads as an argument rather than a script with captions.
-
-### Literate scripts
+Our experiments and reports ship code and prose together, as literate scripts (`mini.lit`): the only report form. Aim for literate programming: the Markdown should explain what the next cell does and why, so the report reads as an argument rather than a script with captions.
 
 A literate script is a plain module with a `# title:` header: a top-level string is prose (an f-string where it quotes a value), and the code between two prose strings is a cell. Everything is ordinary Python, so annotate as you would in a module; there are no generated signatures. The conventions that come from the form:
 
