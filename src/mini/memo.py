@@ -180,7 +180,12 @@ def _project_functions(obj: Any, *, any_source: bool = False) -> list[types.Func
     if isinstance(obj, types.MethodType):
         obj = obj.__func__
     if isinstance(obj, type):
-        members = [m.__func__ if isinstance(m, (staticmethod, classmethod)) else m for m in vars(obj).values()]
+        # Deferred annotations (3.14) put an ``__annotate_func__`` in every annotated class, closing over the class namespace as ``__classdict__``; it computes ``__annotations__``, never a result, so it is not evidence.
+        members = [
+            m.__func__ if isinstance(m, (staticmethod, classmethod)) else m
+            for k, m in vars(obj).items()
+            if k not in ("__annotate__", "__annotate_func__")
+        ]
         return [m for m in members if isinstance(m, types.FunctionType) and (any_source or _is_project_source(m))]
     return [obj] if isinstance(obj, types.FunctionType) and (any_source or _is_project_source(obj)) else []
 

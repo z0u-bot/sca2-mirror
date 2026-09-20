@@ -490,3 +490,11 @@ def test_reachable_values_cross_a_library_wrapper_and_encode_what_the_caller_can
     assert list(untracked) == ["TABLE"] and isinstance(untracked["TABLE"], np.ndarray)
     tracked, untracked = reachable_values(wrapped, lambda v: str(v.tolist()) if isinstance(v, np.ndarray) else str(v))
     assert tracked["TABLE"] == "[0, 1, 2]" and not untracked
+
+
+def test_reachable_values_skip_the_deferred_annotation_function(load_module):
+    """Python 3.14 gives every annotated class an ``__annotate_func__`` closing over the class namespace; it is not code the task runs, so the class dict must not surface as an untracked value."""
+    src = "class Results:\n    x: int\n\n    def val(self):\n        return 1\n\n\ndef plot(res: Results):\n    return res.val()\n"
+    plot = load_module("figs", src, "a").plot
+    tracked, untracked = reachable_values(plot, str)
+    assert not untracked and "__classdict__" not in tracked
