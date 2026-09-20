@@ -528,6 +528,49 @@ class TestServe:
             conn.close()
             server.shutdown()
 
+    def test_what_the_browser_may_keep(self, tmp_path):
+        """A stamped figure is immutable, the page is revalidated, the poll and a miss are never kept."""
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            got = {}
+            for path in ("/", "/index.html", "/_assets/fig.png?v=deadbeef", "/_assets/fig.png", "/nope.png"):
+                conn.request("HEAD", path)
+                r = conn.getresponse()
+                r.read()
+                got[path] = r.getheader("Cache-Control")
+            assert got["/"] == got["/index.html"] == "no-cache"
+            assert got["/_assets/fig.png?v=deadbeef"] == "public, max-age=31536000, immutable"
+            assert got["/_assets/fig.png"] == "no-cache"  # unstamped: the URL says nothing about the bytes
+            assert got["/nope.png"] == "no-store"
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_the_page_is_kept_until_a_build_changes_it(self, tmp_path):
+        """A reload with no build behind it answers 304, so the browser keeps the page it parsed (DevTools with it)."""
+        import http.client
+
+        server, site = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/index.html")
+            r = conn.getresponse()
+            r.read()
+            etag = r.getheader("ETag")
+            conn.request("GET", "/index.html", headers={"If-None-Match": etag})
+            r = conn.getresponse()
+            assert r.status == 304 and r.read() == b""
+            (tmp_path / "out" / "index.html").write_text("<p>a build landed</p>")
+            conn.request("GET", "/index.html", headers={"If-None-Match": etag})
+            r = conn.getresponse()
+            assert r.status == 200 and r.read() == b"<p>a build landed</p>"
+        finally:
+            conn.close()
+            server.shutdown()
+
     def test_a_replaced_file_mid_request_is_still_whole(self, tmp_path):
         """A build lands while the page is loading: the browser gets one version or the other, never a short body."""
         import http.client

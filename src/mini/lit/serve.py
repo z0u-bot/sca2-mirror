@@ -3,11 +3,14 @@ Watch a script, re-weave it on save, and serve it with a live reload.
 
 The editor stays whatever you write in; the browser is the viewer. The page goes to ``.mini/lit-live/<key>/``, apart from where ``render`` writes, so the two can run at once (they share only the memo cache, which is content-keyed). One process holds the :class:`~mini.lit.document.Runner` (so unchanged cells are not re-run and ``@memo`` hits are in memory), polls the document and the ``.py`` files beside it for changes, rewrites ``index.html`` when something moved, and answers a long-poll from the page so the browser reloads the moment a build lands. A sibling ``.py`` edit (a helper module beside the document) drops that module from ``sys.modules`` and resets the runner, since any cell may have imported it.
 
+A reload is the whole page again, so what the browser may keep matters: figures are served as immutable (their URL carries a stamp of their content, so a re-drawn one arrives as a new URL) and the page is revalidated against an ``ETag``, which keeps a reload from re-fetching every figure — and keeps the page in the browser's cache, where DevTools reads the source behind a CSS rule.
+
 The server listens before the first build, and a build shows its work: when a cell is still running after a moment (a download, a fit), the page is replaced with the document as it stands — everything above it, a running note, and the prose below with pending marks — so a slow cell never hides the rest of the report. The real page replaces it when the build lands.
 """
 
 from __future__ import annotations
 
+import hashlib
 import html
 import sys
 import threading
@@ -28,6 +31,20 @@ __all__ = ["serve"]
 # download is visible at once, long enough that the ordinary run of quick cells does not
 # reload the page once per cell.
 PARTIAL_AFTER = 0.3
+
+# What the browser may keep. A figure's URL carries a ``?v=`` stamp of its content
+# (``mini.reports.Publisher``), so those bytes are immutable under that URL and a re-drawn
+# figure arrives as a new URL — hence ``FOREVER``, and a reload repaints from the cache
+# instead of pulling every figure down the wire again. The page itself has one URL for
+# every version of itself, so it is ``REVALIDATE``: kept, but checked on each load, which
+# costs one conditional request and answers ``304`` until a build lands. ``NEVER`` is for
+# the version poll, whose whole point is to be current. The distinction matters beyond the
+# flicker: ``no-store`` would have the browser discard the page as soon as it is parsed,
+# and DevTools with it — no original source behind a CSS rule, no re-reading what was
+# served.
+FOREVER = "public, max-age=31536000, immutable"
+REVALIDATE = "no-cache"
+NEVER = "no-store"
 
 _RELOAD = """
 <script>
@@ -73,6 +90,8 @@ class _Site:
 
 class _Handler(SimpleHTTPRequestHandler):
     site: _Site
+    _cache: str | None = None
+    _head = False
 
     # Speak HTTP/1.1, so a connection is reused across requests. The default is HTTP/1.0,
     # one connection per request and closed after each; a report page asks for forty-odd
@@ -88,9 +107,10 @@ class _Handler(SimpleHTTPRequestHandler):
     timeout = 90
 
     def do_GET(self) -> None:  # noqa: N802
+        self._cache = None
         if self.path.startswith("/__version"):
             after = int(self.path.rpartition("=")[2] or 0)
-            self._send(str(self.site.wait_past(after, timeout=25)).encode(), "text/plain")
+            self._send(str(self.site.wait_past(after, timeout=25)).encode(), "text/plain", NEVER)
             return
         if self.path in ("/", ""):
             self.path = "/index.html"
@@ -106,20 +126,40 @@ class _Handler(SimpleHTTPRequestHandler):
         except OSError:
             self.send_error(HTTPStatus.NOT_FOUND, "File not found")
             return
-        self._send(body, self.guess_type(str(path)))
+        self._send(body, self.guess_type(str(path)), FOREVER if "?v=" in self.path else REVALIDATE)
 
-    def _send(self, body: bytes, ctype: str) -> None:
+    def do_HEAD(self) -> None:  # noqa: N802
+        """The same answer as a GET, minus the body — so the headers a probe sees are the ones a page gets."""
+        self._head = True
+        try:
+            self.do_GET()
+        finally:
+            self._head = False
+
+    def _send(self, body: bytes, ctype: str, cache: str) -> None:
+        """Answer with *body*, under the *cache* policy, as a 304 if the page already holds these bytes."""
+        self._cache = cache
+        etag = None if cache == NEVER else f'"{hashlib.sha256(body).hexdigest()[:16]}"'
+        if etag is not None and etag in [t.strip() for t in self.headers.get("If-None-Match", "").split(",")]:
+            self.send_response(HTTPStatus.NOT_MODIFIED)
+            self.send_header("ETag", etag)
+            self.end_headers()
+            return
         self.send_response(HTTPStatus.OK)
         self.send_header("Content-Type", ctype)
         self.send_header("Content-Length", str(len(body)))
+        if etag is not None:
+            self.send_header("ETag", etag)
         self.end_headers()
+        if self._head:
+            return
         try:
             self.wfile.write(body)
         except OSError:  # the page went away mid-send; this connection is no longer framed
             self.close_connection = True
 
     def end_headers(self) -> None:
-        self.send_header("Cache-Control", "no-store")
+        self.send_header("Cache-Control", self._cache or NEVER)  # a 404 or a listing: never keep it
         super().end_headers()
 
     def log_message(self, format: str, *args: object) -> None:  # quiet
