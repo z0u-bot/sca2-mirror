@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 from sca.data.colors import redness
@@ -40,27 +40,26 @@ GRID_UNIT = np.asarray(GRID, float) / TOP
 RED_WORDS = {n for n in ex.PALETTE if redness(ex.PALETTE[n]) >= ex.RED_DOSE}
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's fixed per-call latency is a couple of seconds, so resolving five refs one at a time is most of a render.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+def read_npz(path: Path | None) -> dict[str, np.ndarray] | None:
+    if path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files}
 
 
 def ink(cond: str) -> str:
@@ -454,8 +453,8 @@ def decoded_colors(res: Results) -> dict:
                 [d[:, pos[i], tgt[i], rows[i]] for i in range(len(rows))], axis=1
             )  # (L1, n, 3)
             out[op, pas, "answer"] = d[:, ex.DECODE_POS, 2, rows]  # (L1, n, 3)
-        out[op, "operand_truth"] = GRID_UNIT[tok[rows, pos]]
-        out[op, "answer_truth"] = GRID_UNIT[ans[rows]]
+        out[op, "truth", "operand"] = GRID_UNIT[tok[rows, pos]]
+        out[op, "truth", "answer"] = GRID_UNIT[ans[rows]]
     return out
 
 
@@ -535,13 +534,17 @@ Neither set matches what the training labeller used.[^labeller]
 [^stream]: The *residual stream* is the running vector the transformer carries from block to block; each block reads it and adds to it. A *slice* is that vector at one depth, and a *position* is one token in the line.
 """
 
-res = Results(
-    m229=require(load_json(ex.EX229_METRICS_REF), ex.EX229_METRICS_REF),
-    traj=require(load_json(ex.EX229_TRAJ_REF), ex.EX229_TRAJ_REF),
-    probes=require(load_npz(ex.EX229_PROBE_REF), ex.EX229_PROBE_REF),
-    metrics=load_json(ex.METRICS_REF),
-    arrays=load_npz(ex.ARRAYS_REF),
-)
+with tempfile.TemporaryDirectory() as _tmp:
+    _files = fetch(
+        [ex.EX229_METRICS_REF, ex.EX229_TRAJ_REF, ex.EX229_PROBE_REF, ex.METRICS_REF, ex.ARRAYS_REF], Path(_tmp)
+    )
+    res = Results(
+        m229=require(read_json(_files[ex.EX229_METRICS_REF]), ex.EX229_METRICS_REF),
+        traj=require(read_json(_files[ex.EX229_TRAJ_REF]), ex.EX229_TRAJ_REF),
+        probes=require(read_npz(_files[ex.EX229_PROBE_REF]), ex.EX229_PROBE_REF),
+        metrics=read_json(_files[ex.METRICS_REF]),
+        arrays=read_npz(_files[ex.ARRAYS_REF]),
+    )
 
 r"""
 ## Removal on the order-sensitive ops
@@ -691,11 +694,16 @@ def title(ax: Axes, view: ViewName, text: str) -> None:
         ax.set_title(text, fontsize=7, pad=8)  # padded clear of the top corner letter
 
 
-def plot_guess(op: str) -> plt.Figure:
+def per_op[K, V](d: dict[tuple, V], op: str) -> dict[tuple, V]:
+    """One op's entries of a dict keyed `(op, ...)`, with the op dropped from the key."""
+    return {k[1:]: v for k, v in d.items() if k[0] == op}
+
+
+def plot_guess(op: str, guess_pairs: dict[tuple, Counter]) -> plt.Figure:
     fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
     for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
         ax = axes[view, slot, pas]
-        pairs = guess_pairs[op, slot, pas]
+        pairs = guess_pairs[slot, pas]
         if not pairs:
             draw_cube_bound(ax, view, labels=True)
             title(ax, view, f"red at {g}, {pas}: no removal lines")
@@ -716,8 +724,14 @@ def plot_guess(op: str) -> plt.Figure:
     return fig
 
 
+@memo
+def guess_figure(op: str, pairs: dict[tuple, Counter]) -> str:
+    """One op's block of the greedy-answer figure, memoized on its (truth, guess) counts."""
+    return themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op, pairs)
+
+
 figure_html(
-    "".join(themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op) for op in OPS),
+    "".join(guess_figure(op, per_op(guess_pairs, op)) for op in OPS),
     caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, and sized by how many answers made that move; the clean panels show where the true answers lie, and a projected mark whose color matches its place is an answer that still matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
@@ -737,12 +751,12 @@ The greedy answer is only one token. The whole answer distribution says how conf
 cloud_mass = answer_mass(res)
 
 
-def plot_cloud(op: str) -> plt.Figure:
+def plot_cloud(op: str, mass: dict[tuple, np.ndarray]) -> plt.Figure:
     rng = np.random.default_rng(1)
     fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
     for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
         ax = axes[view, slot, pas]
-        m = cloud_mass[op, slot, pas]
+        m = mass[slot, pas]
         if m.sum() == 0:
             draw_cube_bound(ax, view, labels=True)
         else:
@@ -751,8 +765,14 @@ def plot_cloud(op: str) -> plt.Figure:
     return fig
 
 
+@memo
+def cloud_figure(op: str, mass: dict[tuple, np.ndarray]) -> str:
+    """One op's block of the answer-mass figure, memoized on its mean mass per slot and pass."""
+    return themed(plot_cloud, name=f"cloud-{op}", caption=f"`{op}`")(op, mass)
+
+
 figure_html(
-    "".join(themed(plot_cloud, name=f"cloud-{op}", caption=f"`{op}`")(op) for op in OPS),
+    "".join(cloud_figure(op, per_op(cloud_mass, op)) for op in OPS),
     caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, in the wheel view (top) and the solid view (bottom), as in the previous figure. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
     aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
 )
@@ -805,14 +825,14 @@ def slice_name(sl: int) -> str:
     return "emb" if sl == 0 else f"slice {sl}"
 
 
-def plot_decoded(op: str) -> plt.Figure:
+def plot_decoded(op: str, dec: dict[tuple, np.ndarray]) -> plt.Figure:
     n_sl = len(ex.SLICES)
     fig, axes = view_grid(READS, ex.SLICES, figsize=(1.75 * n_sl, 7.6), stacked=True)
     for view, what, sl in itertools.product(VIEWS, READS, ex.SLICES):
         ax = axes[view, what, sl]
-        truth = decoded[op, f"{what}_truth"]
-        d = np.clip(decoded[op, "projection", what][sl], -0.2, 1.2)
-        ring = np.clip(decoded[op, "clean", what][sl], -0.2, 1.2)
+        truth = dec["truth", what]
+        d = np.clip(dec["projection", what][sl], -0.2, 1.2)
+        ring = np.clip(dec["clean", what][sl], -0.2, 1.2)
         if what == "operand":
             # A few dozen lines that all start at red: one stub each is the legible picture. No rings,
             # since a ring at red under a red stub adds nothing.
@@ -836,8 +856,14 @@ def plot_decoded(op: str) -> plt.Figure:
     return fig
 
 
+@memo
+def decoded_figure(op: str, dec: dict[tuple, np.ndarray]) -> str:
+    """One op's block of the decoded-colors figure, memoized on its seed-mean decodes."""
+    return themed(plot_decoded, name=f"decoded-{op}", caption=f"`{op}`")(op, dec)
+
+
 figure_html(
-    "".join(themed(plot_decoded, name=f"decoded-{op}", caption=f"`{op}`")(op) for op in OPS),
+    "".join(decoded_figure(op, per_op(decoded, op)) for op in OPS),
     caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with a stub from the clean decode of the same line, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer; there are too many lines for rings and stubs, so the moves from the clean decodes to the projected ones are drawn as a smoothed flow, on the same terms as the greedy-answer figure. Each read is shown in the wheel view and, under it, the solid view, as in the answer figures. *emb* is the embedding, and slice *n* is the stream after *n* blocks.",
     aria_label="Cube panels of probe-decoded colors across five slices, in wheel and solid views. The operand marks start at red and slide further from it with each slice, toward orange on one side and pink on the other, at nearly constant lightness; the answer flow points away from red for the reddish answers and gently inward elsewhere.",
 )
@@ -869,7 +895,7 @@ hsv_rows = []
 last = len(ex.SLICES) - 1
 for op in OPS:
     for what, name in (("operand", "red operand"), ("answer", "answer at `=`")):
-        truth = decoded[op, f"{what}_truth"]
+        truth = decoded[op, "truth", what]
         ht = hsv(truth)
         for sl in (1, last):
             cells = [f"`{op}`, {name}, {slice_name(sl)}"]

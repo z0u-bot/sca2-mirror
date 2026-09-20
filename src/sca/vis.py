@@ -203,7 +203,7 @@ def plot_rgb_cube(
 
     Pass *labels* to letter the corners (see :func:`draw_cube_bound`). Marks are sized in points by *s*, which is what a scatter of arbitrary points wants — an embedding projection shouldn't grow its dots just because the vocabulary did. Pass *diameter* instead to size them in panel units, where the cube spans 2 from black to white: marks then hold their size relative to the cube under any figure resize, and a plot of a whole grid can ask for `grid_diameter(levels)` and tile it with no trial and error. It also takes one diameter per point, for a panel that reads a scalar as mark area.
     """
-    from matplotlib.collections import EllipseCollection
+    from matplotlib.collections import EllipseCollection, LineCollection
     from matplotlib.colors import to_rgba_array
 
     from mini.vis import light_dark
@@ -221,8 +221,14 @@ def plot_rgb_cube(
     # silhouette overhangs it by half its width, and the limits are the cube's, not the ink's.
     if truth is not None:
         tru = project_cube(np.asarray(truth, dtype=float)[order], view)
-        for p, t, c in zip(xy, tru, rgba, strict=True) if stubs else ():
-            ax.plot([t[0], p[0]], [t[1], p[1]], "-", color=c, lw=0.7, alpha=0.5, zorder=1, clip_on=False)
+        if stubs:
+            # One collection, not one line artist per point: a panel of hundreds of stubs draws
+            # in one pass, which is most of what a figure of many such panels spends its time on.
+            ax.add_collection(
+                LineCollection(
+                    list(np.stack([tru, xy], axis=1)), colors=rgba, lw=0.7, alpha=0.5, zorder=1, clip_on=False
+                )
+            )
         if rings:
             ax.scatter(tru[:, 0], tru[:, 1], c="none", edgecolors=rgba, s=s * 1.3, lw=0.7, zorder=2, clip_on=False)
     if diameter is not None:
