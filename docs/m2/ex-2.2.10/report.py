@@ -595,12 +595,13 @@ table_html(
 # %%
 
 
+@memo
 @themed(
     name="counterfactuals",
     caption="**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Dots are the kept share of the twenty `handover` seeds on the red lines under the projection, with the seed mean in the larger marker. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (plus), or its replacement by gray of the same value (cross). To zero is the rule that picked the removal lines, and it predicts near zero everywhere.",
     alt_text="Chart of kept share by op and red slot. Observed kept shares track the change-of-hue prediction in six of eight columns; hue-hsv with red at op1 sits at a third where the hue prediction is one, and mix and value-hsv with red at op1 sit near zero under every prediction.",
 )
-def plot_cf() -> plt.Figure:
+def plot_cf(kept: dict[tuple[str, str], np.ndarray], cf: dict[str, dict[int, dict[str, float]]]) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, ax = plt.subplots(figsize=(7.2, 2.9), layout="constrained")
     xs, labels = [], []
@@ -609,14 +610,7 @@ def plot_cf() -> plt.Figure:
         x = i + (i // 2) * 0.5
         xs.append(x)
         labels.append(f"{op}\nred at {g}")
-        dots(
-            ax,
-            x,
-            res.kept("handover", op, f"red_{g}"),
-            "handover",
-            rng=rng,
-            label="observed, red lines" if i == 0 else None,
-        )
+        dots(ax, x, kept[op, g], "handover", rng=rng, label="observed, red lines" if i == 0 else None)
         for j, (name, m, lt, dk) in enumerate(cfs):
             ax.plot(
                 x + 0.22 + 0.16 * j,
@@ -636,7 +630,7 @@ def plot_cf() -> plt.Figure:
     return fig
 
 
-plot_cf()
+plot_cf({(op, g): res.kept("handover", op, f"red_{g}") for op in OPS for _, g in SLOTS}, cf)
 
 # %%
 hue = {(op, s): cf[op][s]["change of hue"] for op in OPS for s, _ in SLOTS}
@@ -937,39 +931,38 @@ The natural reading was that the anneal, over the last tenth of training, lets t
 """
 
 ret = retention_stats(res)
+RET_CONDS = ("handover", "handover-slot", "handover-tied")
 
 
+def traj_lines(cond: str) -> tuple[np.ndarray, np.ndarray]:
+    """The epochs and the (seed, epoch) line alignment of a condition's runs, on the first run's epoch grid."""
+    trajs = [res.traj[r["label"]]["traj"] for r in res.by_cond(cond)]
+    ep = np.array(trajs[0]["epoch"])
+    return ep, np.array([np.interp(ep, t["epoch"], t["m_line"]) for t in trajs])
+
+
+@memo
 @themed(
     name="retention",
     caption="**Line alignment over training, and two retention ratios.** Left: line alignment against epoch for the three handover conditions, one faint line per seed with the seed mean drawn over them; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
     alt_text="Three panels. Left, alignment trajectories with faint per-seed lines under a bold mean: handover rises to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
 )
-def plot_ret() -> plt.Figure:
+def plot_ret(
+    lines: dict[str, tuple[np.ndarray, np.ndarray]], ret: dict[str, np.ndarray], a0: float, gate: float
+) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.8), layout="constrained", width_ratios=[2.2, 1, 1])
     ax = axes[0]
-    conds = ("handover", "handover-slot", "handover-tied")
-    for cond in conds:
-        trajs = [res.traj[r["label"]]["traj"] for r in res.by_cond(cond)]
-        ep = np.array(trajs[0]["epoch"])
-        ml = np.array([np.interp(ep, t["epoch"], t["m_line"]) for t in trajs])
+    conds = tuple(lines)
+    for cond, (ep, ml) in lines.items():
         for row in ml:
             ax.plot(ep, row, "-", color=ink(cond), lw=0.5, alpha=0.18, zorder=1)
         ax.plot(ep, ml.mean(axis=0), "-", color=ink(cond), lw=1.6, label=cond, zorder=3)
-    a0 = float(np.mean([anneal_start(res, r["label"]) for r in res.by_cond("handover")]))
-    ax.axvspan(
-        a0,
-        max(res.traj["handover-s0"]["traj"]["epoch"]),
-        facecolor=light_dark("#000", "#fff"),
-        alpha=0.06,
-        lw=0,
-        zorder=0,
-    )
+    ax.axvspan(a0, lines["handover"][0].max(), facecolor=light_dark("#000", "#fff"), alpha=0.06, lw=0, zorder=0)
     ax.text(a0, 0.02, " anneal", fontsize=6.5, va="bottom", color=light_dark("#333", "#ccc"))
     ax.set_xlabel("epoch")
     ax.set_ylabel("line alignment m_line")
     ax.set_ylim(0, 0.85)
-    gate = res.m229["design"]["gates"]["retention"]
     for ax, col, name in ((axes[1], (3, 0), "end ÷ peak"), (axes[2], (3, 2), "end ÷ at anneal start")):
         for i, cond in enumerate(conds):
             v = ret[cond][:, col[0]] / ret[cond][:, col[1]]
@@ -983,7 +976,12 @@ def plot_ret() -> plt.Figure:
     return fig
 
 
-plot_ret()
+plot_ret(
+    {c: traj_lines(c) for c in RET_CONDS},
+    {c: ret[c] for c in RET_CONDS},
+    float(np.mean([anneal_start(res, r["label"]) for r in res.by_cond("handover")])),
+    res.m229["design"]["gates"]["retention"],
+)
 
 # %%
 h, s, t = (ret[c] for c in ("handover", "handover-slot", "handover-tied"))
@@ -1010,12 +1008,13 @@ But `handover` changed two things at once relative to the recipe of ex-2.2.3: th
 cont = {c: containment_rows(res, c) for c in CONDS}
 
 
+@memo
 @themed(
     name="containment",
     caption="**Containment by condition.** Per seed, with the seed mean in the larger marker. Left: the mean alignment of the stream on the non-red lines with the anchor axis at op1, with the reference level from ex-2.2.3 dotted. Middle: the mean absolute axis component of the embedding rows for the 209 non-red color words. Right: the axis component of the `⏎` embedding row, with the same row of the untied readout as an open marker beside it where the condition has one.",
     alt_text="Three dot panels by condition. Alpha at op1: control near 0, handover-tied 0.16, handover-slot 0.18, handover 0.28, handover-narrow 0.30. Non-red rows: all conditions between 0.06 and 0.10. The newline row: near zero on control and handover-slot, 0.17 on handover, 0.27 on handover-tied.",
 )
-def plot_cont() -> plt.Figure:
+def plot_cont(cont: dict[str, dict[str, np.ndarray]], ref: float) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.7), layout="constrained")
     panels = (
@@ -1028,7 +1027,6 @@ def plot_cont() -> plt.Figure:
             dots(ax, i, cont[cond][key], cond, rng=rng, label=cond if key == "alpha" else None)
         ax.set_xticks(range(len(CONDS)), [c.replace("handover-", "h.-") for c in CONDS], fontsize=6.5)
         ax.set_title(title, fontsize=8)
-    ref = res.m229["design"]["gates"]["mean_align_ref"]
     axes[0].axhline(ref, color=light_dark("#333", "#ddd"), lw=0.7, ls=":", zorder=2)
     axes[2].axhline(0, color=light_dark("#333", "#ddd"), lw=0.5, zorder=1)
     for ax in axes[2:]:
@@ -1054,7 +1052,7 @@ def plot_cont() -> plt.Figure:
     return fig
 
 
-plot_cont()
+plot_cont(cont, res.m229["design"]["gates"]["mean_align_ref"])
 
 # %%
 a = {c: float(cont[c]["alpha"].mean()) for c in CONDS}

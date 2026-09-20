@@ -187,20 +187,42 @@ class HFStore(Store):
     def _read_ref(self, name: str) -> str | None:
         return self._read_refs([name])[name]
 
+    def _ref_cache_path(self, info: Any) -> Path | None:
+        """Where a ref payload with this bucket entry's Xet hash lives locally, or None when the hash is unknown."""
+        xet_hash = getattr(info, "xet_hash", None)
+        return self._cache.root / "ref-cache" / xet_hash if xet_hash else None
+
     def _read_refs(self, names: list[str]) -> dict[str, str | None]:
         # One paths-info request tells present from absent (no per-name existence
-        # probe), and the present ones download in a single batched call — so a
-        # report resolving a dozen refs pays the bucket's round-trip floor once.
+        # probe) and carries each ref's Xet hash. That hash is a content hash, so a
+        # payload cached under it stays right for as long as the ref points at it,
+        # and only the refs whose hash is new download, in a single batched call —
+        # so a report resolving a dozen refs pays the bucket's round-trip floor
+        # once, and on a warm machine pays paths-info alone. That matters because
+        # a bucket download costs a couple of seconds however few bytes it moves.
         paths = {f"refs/{n}.json": n for n in names}
         infos = self._paths_info(list(paths))
         out = cast(dict[str, str | None], dict.fromkeys(names))
-        if not infos:
+        pull: dict[str, tuple[Any, Path | None]] = {}
+        for path, info in infos.items():
+            cached = self._ref_cache_path(info)
+            if cached is not None and cached.exists():
+                out[paths[path]] = cached.read_text()
+            else:
+                pull[path] = (info, cached)
+        if not pull:
             return out
         with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
-            files = [(info, str(Path(d) / f"{i}.json")) for i, info in enumerate(infos.values())]
+            files = [(info, str(Path(d) / f"{i}.json")) for i, (info, _) in enumerate(pull.values())]
             self.api.download_bucket_files(self._cas, files=files)
-            for path, (_, tmp) in zip(infos, files, strict=True):
-                out[paths[path]] = Path(tmp).read_text()
+            for (path, (_, cached)), (_, tmp) in zip(pull.items(), files, strict=True):
+                payload = Path(tmp).read_text()
+                out[paths[path]] = payload
+                if cached is not None:  # written whole then renamed in, so a reader never sees a partial file
+                    cached.parent.mkdir(parents=True, exist_ok=True)
+                    part = cached.with_name(f"{cached.name}.tmp.{os.getpid()}.{threading.get_ident()}")
+                    part.write_text(payload)
+                    part.replace(cached)
         return out
 
     # -- publish --------------------------------------------------------------
