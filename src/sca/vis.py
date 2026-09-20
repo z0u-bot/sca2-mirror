@@ -15,7 +15,15 @@ from jaxtyping import Float
 if TYPE_CHECKING:
     from matplotlib.axes import Axes
 
-__all__ = ["CUBE_VIEWS", "CubeView", "project_cube", "grid_diameter", "plot_rgb_cube", "align_to_cube"]
+__all__ = [
+    "CUBE_VIEWS",
+    "CORNER_LETTERS",
+    "CubeView",
+    "project_cube",
+    "grid_diameter",
+    "plot_rgb_cube",
+    "align_to_cube",
+]
 
 type ViewName = Literal["solid", "solid-back", "wheel"]
 
@@ -124,21 +132,51 @@ def align_to_cube(x: np.ndarray, rgb: np.ndarray) -> tuple[np.ndarray, float]:
     return mapped, float(((mapped - rgb) ** 2).sum() / max((yc**2).sum(), 1e-12))
 
 
-def draw_cube_bound(ax: Axes, view: ViewName = "solid", *, fill: bool = True) -> None:
+CORNER_LETTERS = {
+    (1, 0, 0): "R",
+    (0, 1, 0): "G",
+    (0, 0, 1): "B",
+    (0, 1, 1): "C",
+    (1, 0, 1): "M",
+    (1, 1, 0): "Y",
+    (1, 1, 1): "W",
+    (0, 0, 0): "K",
+}
+"""One letter per cube corner: the six hues, W for white and K for black (as in CMYK, keeping B for blue)."""
+
+
+def draw_cube_bound(ax: Axes, view: ViewName = "solid", *, fill: bool = True, labels: bool = False) -> None:
     """The cube's silhouette and the geometry-panel conventions, without any data.
 
     :func:`plot_rgb_cube` calls this; call it directly when a panel draws its own marks — a lattice with edges between them, say, where the caller has to interleave zorders itself. The silhouette goes behind everything (zorder −10) and its rim in front (zorder 10), so marks in between are framed either way. Draw your marks with ``clip_on=False``: the limits describe the domain rather than the ink, so a mark centered on the silhouette overhangs it by half its width, and clipping would flatten that overhang. Spilling into a neighboring panel is the lesser problem.
+
+    *labels* letters the rim's corners (see :data:`CORNER_LETTERS`) just outside the silhouette, for a figure that shows more than one view or a reader new to the projection.
     """
     from matplotlib.patches import Polygon
 
     from mini.vis import light_dark
 
-    hull = project_cube(CUBE_VIEWS[view].rim, view)
+    v = CUBE_VIEWS[view]
+    hull = project_cube(v.rim, view)
     if fill:
         ax.add_patch(Polygon(hull, closed=True, facecolor=light_dark("#eee", "#111"), lw=0, zorder=-10))
         ax.add_patch(
             Polygon(hull, closed=True, facecolor="none", edgecolor=light_dark("#0005", "#fff4"), lw=1, zorder=10)
         )
+    if labels:
+        for corner, xy in zip(v.rim, hull, strict=True):
+            at = xy * (1 + 0.09 / np.linalg.norm(xy))
+            ax.text(
+                at[0],
+                at[1],
+                CORNER_LETTERS[tuple(int(c) for c in corner)],
+                ha="center",
+                va="center",
+                fontsize=6,
+                color=light_dark("#0008", "#fff8"),
+                zorder=10,
+                clip_on=False,
+            )
     ax.set_aspect("equal")
     ax.set_xlim(-1.1, 1.1)
     ax.set_ylim(-1.1, 1.1)
@@ -155,19 +193,20 @@ def plot_rgb_cube(
     diameter: float | np.ndarray | None = None,
     view: ViewName = "solid",
     bound: bool = True,
+    labels: bool = False,
 ) -> None:
     """One color-cube panel, per the repo's figure conventions (see the style-fig skill).
 
     The cube bound as a background hexagon, data-colored points, fixed domain limits, no axes. Pass *truth* (the same points' true RGB) to also draw each point's target as an open ring with a stub to where it actually landed, so positional error reads off the panel. Titles and annotations stay with the caller. See :data:`CUBE_VIEWS` for *view*; analysis panels usually want ``"wheel"``.
 
-    Marks are sized in points by *s*, which is what a scatter of arbitrary points wants — an embedding projection shouldn't grow its dots just because the vocabulary did. Pass *diameter* instead to size them in panel units, where the cube spans 2 from black to white: marks then hold their size relative to the cube under any figure resize, and a plot of a whole grid can ask for `grid_diameter(levels)` and tile it with no trial and error. It also takes one diameter per point, for a panel that reads a scalar as mark area.
+    Pass *labels* to letter the corners (see :func:`draw_cube_bound`). Marks are sized in points by *s*, which is what a scatter of arbitrary points wants — an embedding projection shouldn't grow its dots just because the vocabulary did. Pass *diameter* instead to size them in panel units, where the cube spans 2 from black to white: marks then hold their size relative to the cube under any figure resize, and a plot of a whole grid can ask for `grid_diameter(levels)` and tile it with no trial and error. It also takes one diameter per point, for a panel that reads a scalar as mark area.
     """
     from matplotlib.collections import EllipseCollection
     from matplotlib.colors import to_rgba_array
 
     from mini.vis import light_dark
 
-    draw_cube_bound(ax, view, fill=bound)
+    draw_cube_bound(ax, view, fill=bound, labels=labels)
     v = CUBE_VIEWS[view]
     # Nearer the reader draws last: every flat view of the cube hides one axis, so without this
     # the back of a filled grid paints over its front.

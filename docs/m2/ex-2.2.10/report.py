@@ -20,7 +20,7 @@ from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 from sca.data.colors import redness
 from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, TOP, vocabulary
-from sca.vis import CUBE_VIEWS, draw_cube_bound, plot_rgb_cube, project_cube
+from sca.vis import CUBE_VIEWS, ViewName, draw_cube_bound, plot_rgb_cube, project_cube
 
 # What a result cell shows while the run has not published yet.
 RESULTS_TO_COME = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
@@ -265,16 +265,17 @@ def answer_pairs(res: Results) -> dict[tuple[str, int, str], Counter]:
     return out
 
 
-def cube_cloud(ax: Axes, mass: np.ndarray, *, n: int = 2500, rng, s: float = 3.0) -> None:
-    """A dithered cloud in the wheel view: *n* dots shared out over the grid colors in proportion to *mass*,
+def cube_cloud(ax: Axes, mass: np.ndarray, *, view: ViewName = "wheel", n: int = 2500, rng, s: float = 3.0) -> None:
+    """A dithered cloud in one view of the cube: *n* dots shared out over the grid colors in proportion to *mass*,
     each jittered within its color's cell and drawn in that color.
     """
-    draw_cube_bound(ax, "wheel")
+    draw_cube_bound(ax, view, labels=True)
     counts = rng.multinomial(n, mass / mass.sum())
     idx = np.repeat(np.arange(len(mass)), counts)
     rgb = GRID_UNIT[idx] + rng.uniform(-0.5, 0.5, (len(idx), 3)) / TOP
-    xy = project_cube(rgb, "wheel")
-    order = rng.permutation(len(idx))
+    xy = project_cube(rgb, view)
+    # Nearer the reader draws last, as plot_rgb_cube does, so the solid view shows its front.
+    order = np.argsort(rgb @ CUBE_VIEWS[view].toward, kind="stable")
     ax.scatter(
         xy[order, 0],
         xy[order, 1],
@@ -313,20 +314,22 @@ def flow_arrows(
     guess: np.ndarray,
     n: np.ndarray,
     *,
+    view: ViewName = "wheel",
     sigma: float = 0.2,
     step: float = 0.2,
     min_share: float = 0.25,
     min_sep: float = 0.3,
+    min_move: float = 0.05,
     spread: bool = True,
 ) -> None:
-    """The (truth → guess) moves as a sampled flow field in the wheel view.
+    """The (truth → guess) moves as a sampled flow field in one view of the cube.
 
-    A stub per move stacks up illegibly once moves span the wheel, so this smooths them instead: at each point of a hex lattice with a truth mark nearby, the count-weighted mean move of the truths within a Gaussian of width *sigma*, drawn as an arrow in the local mean truth color and sized by the local count. Where the moves split two ways — a cell whose answers go left or right but rarely between — the cell gets an arrow per side, provided each side holds *min_share* of the weight and they differ by *min_sep*. Moves that spread more ways than two average out, so a short arrow can also mean a scatter. With *spread*, each arrow sits in a faint wedge spanning one circular standard deviation of its side's directions (weighted by count and length, so the short moves' noisy directions count for little), at the side's mean length.
+    A stub per move stacks up illegibly once moves span the wheel, so this smooths them instead: at each point of a hex lattice with a truth mark nearby, the count-weighted mean move of the truths within a Gaussian of width *sigma*, drawn as an arrow in the local mean truth color and sized by the local count. Where the moves split two ways — a cell whose answers go left or right but rarely between — the cell gets an arrow per side, provided each side holds *min_share* of the weight and they differ by *min_sep*. Moves that spread more ways than two average out, so a short arrow can also mean a scatter; a mean move under *min_move* draws nothing, since the marks already show an answer that stays put. With *spread*, each arrow sits in a faint wedge spanning one circular standard deviation of its side's directions (weighted by count and length, so the short moves' noisy directions count for little), at the side's mean length.
     """
     from matplotlib.patches import FancyArrowPatch, Wedge
     from matplotlib.path import Path as MplPath
 
-    t, g = project_cube(truth, "wheel"), project_cube(guess, "wheel")
+    t, g = project_cube(truth, view), project_cube(guess, view)
     d = g - t
     length = np.hypot(d[:, 0], d[:, 1])
     angle = np.arctan2(d[:, 1], d[:, 0])
@@ -335,7 +338,7 @@ def flow_arrows(
     pts = np.array([(x + (step / 2 if j % 2 else 0), y) for j, y in enumerate(ys) for x in xs])
     # Sample only inside the cube (a tail outside it would read as an answer from nowhere), and
     # only where a truth mark lies close enough for the smoothed move to describe it.
-    inside = MplPath(project_cube(CUBE_VIEWS["wheel"].rim, "wheel")).contains_points(pts, radius=0.02)
+    inside = MplPath(project_cube(CUBE_VIEWS[view].rim, view)).contains_points(pts, radius=0.02)
     cells = []
     for p in pts[inside]:
         dist = np.sqrt(((t - p) ** 2).sum(1))
@@ -363,7 +366,7 @@ def flow_arrows(
     w_max = max(c[2] for c in cells)
     for p, parts, _, color in cells:
         for m, wk, mean_angle, sd, mean_len in parts:
-            if np.hypot(*m) < 0.05:
+            if np.hypot(*m) < min_move:
                 continue  # the marks already show where an answer stays put
             size = np.sqrt(wk / w_max)
             if spread and sd > 0.05:
@@ -660,15 +663,37 @@ if res.arrays is None or res.metrics is None:
     stop(RESULTS_TO_COME)
 
 guess_pairs = answer_pairs(res)
+# The two house views of the cube, one row each: down the gray diagonal, then red toward the reader.
+VIEWS: tuple[ViewName, ...] = ("wheel", "solid")
+
+
+def view_grid() -> tuple[plt.Figure, dict[tuple[ViewName, int, str], Axes]]:
+    """The figure the two removal-line figures share: one sub-figure per red slot, so the gap between
+    them is wider than the gap within, with a row per view and a column per pass. Only the top row
+    carries titles; the bottom row is the same panel seen from the side.
+    """
+    fig = plt.figure(figsize=(8.4, 4.6), layout="constrained")
+    axes = {}
+    for (slot, _g), sub in zip(SLOTS, fig.subfigures(1, len(SLOTS), wspace=0.08), strict=True):
+        grid = sub.subplots(len(VIEWS), len(PASSES))
+        for (i, view), (j, pas) in itertools.product(enumerate(VIEWS), enumerate(PASSES)):
+            axes[view, slot, pas] = grid[i, j]
+    return fig, axes
+
+
+def title(ax: Axes, view: ViewName, text: str) -> None:
+    if view == VIEWS[0]:
+        ax.set_title(text, fontsize=7, pad=8)  # padded clear of the top corner letter
 
 
 def plot_guess(op: str) -> plt.Figure:
-    fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.3), layout="constrained")
-    for ax, ((slot, g), pas) in zip(axes, itertools.product(SLOTS, PASSES), strict=True):
+    fig, axes = view_grid()
+    for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
+        ax = axes[view, slot, pas]
         pairs = guess_pairs[op, slot, pas]
         if not pairs:
-            draw_cube_bound(ax, "wheel")
-            ax.set_title(f"red at {g}, {pas}: no removal lines", fontsize=7)
+            draw_cube_bound(ax, view, labels=True)
+            title(ax, view, f"red at {g}, {pas}: no removal lines")
             continue
         keys = np.array(list(pairs))
         n = np.array([pairs[tuple(k)] for k in keys], float)
@@ -677,17 +702,18 @@ def plot_guess(op: str) -> plt.Figure:
         keys, n = keys[on], n[on]
         truth, guess = GRID_UNIT[keys[:, 0]], GRID_UNIT[keys[:, 1]]
         dia = 0.01 + 0.1 * np.sqrt(n / n.max())
-        plot_rgb_cube(ax, guess, truth, s=0.01, diameter=dia, view="wheel")
+        plot_rgb_cube(ax, guess, truth, s=0.01, diameter=dia, view=view, labels=True)
         if pas == "projection":
-            flow_arrows(ax, truth, guess, n, sigma=0.25, step=0.4)
+            # The solid view looks down the red–cyan axis, so a move along it leaves only jitter here.
+            flow_arrows(ax, truth, guess, n, view=view, sigma=0.2, step=0.4, min_move=0.05 if view == "wheel" else 0.08)
         note = f", {off} off-vocab" if off else ""
-        ax.set_title(f"red at {g}, {pas} ({int(n.sum())}{note})", fontsize=7)
+        title(ax, view, f"red at {g}, {pas} ({int(n.sum())}{note})")
     return fig
 
 
 figure_html(
     "".join(themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op) for op in OPS),
-    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer; marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
+    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer; marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
 
@@ -702,21 +728,21 @@ cloud_mass = answer_mass(res)
 
 def plot_cloud(op: str) -> plt.Figure:
     rng = np.random.default_rng(1)
-    fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.3), layout="constrained")
-    for i, ((slot, g), pas) in enumerate(itertools.product(SLOTS, PASSES)):
-        ax = axes[i]
+    fig, axes = view_grid()
+    for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
+        ax = axes[view, slot, pas]
         m = cloud_mass[op, slot, pas]
         if m.sum() == 0:
-            draw_cube_bound(ax, "wheel")
+            draw_cube_bound(ax, view, labels=True)
         else:
-            cube_cloud(ax, m, rng=rng)
-        ax.set_title(f"red at {g}, {pas}", fontsize=7)
+            cube_cloud(ax, m, view=view, rng=rng)
+        title(ax, view, f"red at {g}, {pas}")
     return fig
 
 
 figure_html(
     "".join(themed(plot_cloud, name=f"cloud-{op}", caption=f"`{op}`")(op) for op in OPS),
-    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right. Wheel view of the RGB cube. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
+    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, in the wheel view (top) and the solid view (bottom), as in the previous figure. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
     aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
 )
 
