@@ -20,7 +20,7 @@ from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 from sca.data.colors import redness
 from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, TOP, vocabulary
-from sca.vis import draw_cube_bound, plot_rgb_cube, project_cube
+from sca.vis import CUBE_VIEWS, draw_cube_bound, plot_rgb_cube, project_cube
 
 # What a result cell shows while the run has not published yet.
 RESULTS_TO_COME = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
@@ -285,6 +285,108 @@ def cube_cloud(ax: Axes, mass: np.ndarray, *, n: int = 2500, rng, s: float = 3.0
         zorder=3,
         clip_on=False,
     )
+
+
+def split_moves(d: np.ndarray, w: np.ndarray, iters: int = 10) -> list[np.ndarray]:
+    """Weighted 2-means on displacement vectors: the member mask of each side (one or two).
+
+    Seeded by splitting across the mean direction, so a cell whose answers fan out to either side of it comes back as two moves rather than one that points between them.
+    """
+    m = (w[:, None] * d).sum(0) / w.sum()
+    axis = np.array([-m[1], m[0]]) / np.hypot(*m) if np.hypot(*m) > 1e-9 else np.array([1.0, 0.0])
+    lab = (d - m) @ axis > 0
+    for _ in range(iters):
+        cs = [
+            (w[lab == k, None] * d[lab == k]).sum(0) / w[lab == k].sum() if w[lab == k].sum() > 0 else m
+            for k in (False, True)
+        ]
+        new = ((d - cs[1]) ** 2).sum(1) < ((d - cs[0]) ** 2).sum(1)
+        if (new == lab).all():
+            break
+        lab = new
+    return [lab == k for k in (False, True) if w[lab == k].sum() > 0]
+
+
+def flow_arrows(
+    ax: Axes,
+    truth: np.ndarray,
+    guess: np.ndarray,
+    n: np.ndarray,
+    *,
+    sigma: float = 0.2,
+    step: float = 0.2,
+    min_share: float = 0.25,
+    min_sep: float = 0.3,
+    spread: bool = True,
+) -> None:
+    """The (truth → guess) moves as a sampled flow field in the wheel view.
+
+    A stub per move stacks up illegibly once moves span the wheel, so this smooths them instead: at each point of a hex lattice with a truth mark nearby, the count-weighted mean move of the truths within a Gaussian of width *sigma*, drawn as an arrow in the local mean truth color and sized by the local count. Where the moves split two ways — a cell whose answers go left or right but rarely between — the cell gets an arrow per side, provided each side holds *min_share* of the weight and they differ by *min_sep*. Moves that spread more ways than two average out, so a short arrow can also mean a scatter. With *spread*, each arrow sits in a faint wedge spanning one circular standard deviation of its side's directions (weighted by count and length, so the short moves' noisy directions count for little), at the side's mean length.
+    """
+    from matplotlib.patches import FancyArrowPatch, Wedge
+    from matplotlib.path import Path as MplPath
+
+    t, g = project_cube(truth, "wheel"), project_cube(guess, "wheel")
+    d = g - t
+    length = np.hypot(d[:, 0], d[:, 1])
+    angle = np.arctan2(d[:, 1], d[:, 0])
+    xs = np.arange(-1, 1.001, step)
+    ys = np.arange(-1, 1.001, step * np.sqrt(3) / 2)
+    pts = np.array([(x + (step / 2 if j % 2 else 0), y) for j, y in enumerate(ys) for x in xs])
+    # Sample only inside the cube (a tail outside it would read as an answer from nowhere), and
+    # only where a truth mark lies close enough for the smoothed move to describe it.
+    inside = MplPath(project_cube(CUBE_VIEWS["wheel"].rim, "wheel")).contains_points(pts, radius=0.02)
+    cells = []
+    for p in pts[inside]:
+        dist = np.sqrt(((t - p) ** 2).sum(1))
+        if dist.min() > step * 0.75:
+            continue
+        w = n * np.exp(-(dist**2) / (2 * sigma**2))
+        total = float(w.sum())
+        color = np.clip((w[:, None] * truth).sum(0) / total, 0, 1)
+        sides = split_moves(d, w)
+        means = [(w[s, None] * d[s]).sum(0) / w[s].sum() for s in sides]
+        if len(sides) == 2 and (
+            min(w[s].sum() for s in sides) / total < min_share or np.hypot(*(means[0] - means[1])) < min_sep
+        ):
+            sides = [np.ones(len(d), bool)]
+        parts = []
+        for s in sides:
+            ws = w[s]
+            m = (ws[:, None] * d[s]).sum(0) / ws.sum()
+            # Circular mean and spread of the direction, weighted by count × length.
+            wl = ws * length[s]
+            z = (wl * np.exp(1j * angle[s])).sum() / wl.sum() if wl.sum() > 0 else 1.0
+            sd = np.sqrt(max(-2 * np.log(max(abs(z), 1e-9)), 0))
+            parts.append((m, float(ws.sum()), float(np.angle(z)), float(sd), float((ws * length[s]).sum() / ws.sum())))
+        cells.append((p, parts, total, color))
+    w_max = max(c[2] for c in cells)
+    for p, parts, _, color in cells:
+        for m, wk, mean_angle, sd, mean_len in parts:
+            if np.hypot(*m) < 0.05:
+                continue  # the marks already show where an answer stays put
+            size = np.sqrt(wk / w_max)
+            if spread and sd > 0.05:
+                a, half = np.degrees(mean_angle), np.degrees(min(sd, np.pi))
+                ax.add_patch(
+                    Wedge(p, mean_len, a - half, a + half, facecolor=color, lw=0, alpha=0.12, zorder=1, clip_on=False)
+                )
+            # The head is sized in points, so cap it against the shaft or a short move is all head.
+            head = min(4 + 7 * size, 30 * float(np.hypot(*m)))
+            arrow = FancyArrowPatch(
+                p,
+                p + m,
+                arrowstyle="-|>",
+                mutation_scale=head,
+                lw=0.4 + 1.8 * size,
+                color=color,
+                alpha=0.9,
+                zorder=4,
+                clip_on=False,
+                shrinkA=0,
+                shrinkB=0,
+            )
+            ax.add_patch(arrow)
 
 
 def answer_mass(res: Results) -> dict[tuple[str, int, str], np.ndarray]:
@@ -574,7 +676,10 @@ def plot_guess(op: str) -> plt.Figure:
         on = keys[:, 1] >= 0
         keys, n = keys[on], n[on]
         truth, guess = GRID_UNIT[keys[:, 0]], GRID_UNIT[keys[:, 1]]
-        plot_rgb_cube(ax, guess, truth, truth=truth, diameter=0.04 + 0.16 * np.sqrt(n / n.max()), view="wheel")
+        dia = 0.01 + 0.1 * np.sqrt(n / n.max())
+        plot_rgb_cube(ax, guess, truth, s=0.01, diameter=dia, view="wheel")
+        if pas == "projection":
+            flow_arrows(ax, truth, guess, n, sigma=0.25, step=0.4)
         note = f", {off} off-vocab" if off else ""
         ax.set_title(f"red at {g}, {pas} ({int(n.sum())}{note})", fontsize=7)
     return fig
@@ -582,7 +687,7 @@ def plot_guess(op: str) -> plt.Figure:
 
 figure_html(
     "".join(themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op) for op in OPS),
-    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer and a stub between them. Marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth.",
+    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer; marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
 
