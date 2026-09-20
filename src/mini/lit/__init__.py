@@ -9,6 +9,7 @@ See :mod:`mini.lit.document` for the format and execution model, :mod:`mini.lit.
 
 from mini.lit.document import Runner, Stop, is_literate_script, parse, stop
 from mini.lit.caching import cache_dir, memo, set_cache_dir
+from mini.lit.npz import LazyNpz, read_npz
 from mini.lit.render import render, to_pdf
 
 __all__ = [
@@ -18,6 +19,8 @@ __all__ = [
     "is_literate_script",
     "stop",
     "memo",
+    "LazyNpz",
+    "read_npz",
     "cache_dir",
     "set_cache_dir",
     "render",

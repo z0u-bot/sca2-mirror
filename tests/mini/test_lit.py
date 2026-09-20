@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from mini.lit import Runner, is_literate_script, memo, parse, render
+from mini.lit import LazyNpz, Runner, is_literate_script, memo, parse, read_npz, render
 from mini.lit import set_cache_dir
 from mini.lit.document import Cell, Prose
 from mini.lit.page import page, to_html
@@ -356,6 +356,16 @@ class TestMemo:
         p.write_text(p.read_text().replace("x * 2", "x * 3"))
         assert "(9, 9, 1)" in Runner(p).weave().markdown
 
+    def test_memo_key_stands_in_for_the_object(self, tmp_path):
+        """A results object keyed by ``__memo_key__`` hits while the key holds and misses when it moves, whatever its other fields do."""
+        src = (
+            "from dataclasses import dataclass\nfrom mini.lit import memo\nimport numpy as np\ncalls = []\n"
+            "@dataclass(frozen=True)\nclass Results:\n    sha: int\n    big: object\n    def __memo_key__(self):\n        return self.sha\n"
+            "@memo\ndef f(res):\n    calls.append(1)\n    return res.sha\n"
+            "f(Results(1, object())), f(Results(1, np.zeros(3))), f(Results(2, object())), len(calls)\n"
+        )
+        assert "(1, 1, 2, 2)" in Runner(write(tmp_path, src)).weave().markdown
+
     def test_miss_on_a_design_constant_read_off_a_module(self, tmp_path):
         """A report reads its gates as ``ex.GATE``; editing one must redraw what quotes it, though the task fingerprint alone would not see it."""
         design = write(tmp_path, "GATE = 0.02\n", name="design.py")
@@ -384,7 +394,7 @@ class TestMemo:
 
         q = write(
             tmp_path,
-            "from mini.lit import memo\nclass Box: ...\nB = Box()\n@memo\ndef g():\n    return 1\n    B\ng()\n",
+            "from mini.lit import memo\nclass Box: ...\nB = Box()\n@memo\ndef g():\n    return 1 if B else 0\ng()\n",
             name="opaque.py",
         )
         with caplog.at_level("WARNING", logger="mini.lit.caching"):
@@ -636,3 +646,37 @@ class TestServe:
         finally:
             conn.close()
             server.shutdown()
+
+
+class TestLazyNpz:
+    @pytest.fixture(autouse=True)
+    def cache(self, tmp_path):
+        set_cache_dir(tmp_path / "cache")
+        yield
+        set_cache_dir(None)
+
+    def test_reads_on_demand_and_keys_by_content(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        path = tmp_path / "a.npz"
+        np.savez_compressed(path, x=np.arange(3), y=np.ones((2, 2)))
+        z = read_npz(path)
+        assert z is not None and read_npz(None) is None
+        assert sorted(z) == ["x", "y"] and len(z) == 2 and "x" in z and "q" not in z
+        assert z["x"].tolist() == [0, 1, 2] and z["x"] is z["x"]  # decompressed once, then kept
+        assert z.__memo_key__() == LazyNpz(path.read_bytes()).__memo_key__()
+        np.savez_compressed(path, x=np.arange(4))
+        assert LazyNpz(path.read_bytes()).__memo_key__() != z.__memo_key__()
+
+    def test_memo_takes_it_as_an_argument(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        path = tmp_path / "a.npz"
+        np.savez_compressed(path, x=np.arange(3))
+        calls = []
+
+        @memo
+        def total(z: LazyNpz) -> int:
+            calls.append(1)
+            return int(z["x"].sum())
+
+        z = LazyNpz(path.read_bytes())
+        assert total(z) == 3 and total(LazyNpz(path.read_bytes())) == 3 and len(calls) == 1

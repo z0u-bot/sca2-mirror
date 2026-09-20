@@ -498,3 +498,14 @@ def test_reachable_values_skip_the_deferred_annotation_function(load_module):
     plot = load_module("figs", src, "a").plot
     tracked, untracked = reachable_values(plot, str)
     assert not untracked and "__classdict__" not in tracked
+
+
+def test_reachable_values_do_not_take_an_attribute_for_a_global(load_module):
+    """``self.metrics`` inside a method must not pull a module-level ``metrics`` into the value walk: the dict is large and the read never touches it."""
+    src = (
+        "metrics = {'big': 1}\n\nclass Results:\n    def __init__(self, m):\n        self.metrics = m\n\n    def runs(self):\n        return self.metrics['runs']\n\n"
+        "res = Results({'runs': []})\n\ndef plot():\n    return res.runs()\n"
+    )
+    plot = load_module("figs", src, "a").plot
+    tracked, untracked = reachable_values(plot, str)
+    assert "metrics" not in tracked and not untracked

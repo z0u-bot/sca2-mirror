@@ -51,7 +51,6 @@ from sca.data.ops import (
     mix_probe_lines,
     on_grid,
     probe_partners,
-    relevance,
     unordered_pairs,
 )
 from sca.vis import CUBE_VIEWS, draw_cube_bound, grid_diameter, project_cube
@@ -115,11 +114,16 @@ class Scout:
 
     op: Op
 
+    # Each read below is a pure function of the op (and its arguments), so it is memoized on disk: a warm render
+    # never evaluates an op on the grammar's lines. The answer table itself stays lazy, since the reads that use it
+    # are the cached ones, and pickling fifteen tables of 46,000 lines would cost more than it saves.
+
     @cached_property
     def table(self) -> dict[tuple[Rgb, Rgb], Rgb]:
         return {(a, b): self.op(a, b) for a, b in lines()}
 
     @cached_property
+    @memo
     def counts(self) -> np.ndarray:
         """Unordered pairs whose answer is each grid color, in palette order."""
         index = {c: i for i, c in enumerate(colors())}
@@ -136,24 +140,29 @@ class Scout:
         return float(-(p * np.log2(p)).sum())
 
     @cached_property
+    @memo
     def marginals(self) -> np.ndarray:
         """(channel, level): the share of unordered pairs whose answer has that level in that channel."""
         ans = np.array([self.table[(a, b)] for a, b in unordered_pairs()])
         return np.stack([[np.mean(ans[:, c] == lv) for lv in LEVELS] for c in range(3)])
 
     @cached_property
+    @memo
     def commutative(self) -> float:
         return commutativity(self.op)
 
     @cached_property
+    @memo
     def redder(self) -> int:
         """Lines whose answer is redder than either operand."""
         return sum(redness(ans) > max(redness(a), redness(b)) + 1e-9 for (a, b), ans in self.table.items())
 
+    @memo
     def dependence(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
         """The share of *pairs* (ordered) whose answer changes when the redder operand's R falls by *drop*."""
         return float(np.mean([self.op(*lowered(a, b, drop)) != self.table[(a, b)] for a, b in pairs]))
 
+    @memo
     def dependence_stochastic(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
         """The same read under stochastic rounding: the share of a line's answer mass that moves when the
         redder operand's R falls by *drop* (the total variation distance), averaged over *pairs*.
@@ -164,6 +173,7 @@ class Scout:
             moved.append(sum(abs(p.get(k, 0.0) - q.get(k, 0.0)) for k in p.keys() | q.keys()) / 2)
         return float(np.mean(moved))
 
+    @memo
     def displacement(self, pairs: list[tuple[Rgb, Rgb]], drop: int) -> float:
         """How far the answer moves, in unit-cube RGB, when the redder operand's R falls by *drop*: the mean
         over *pairs*, where √3 is corner to corner.
@@ -174,6 +184,7 @@ class Scout:
             )
         )
 
+    @memo
     def sensitivity(self, role: int, seed: int = 0) -> float:
         """The share of lines whose answer changes when the operand in *role* (0 or 1) is replaced by a
         random other color: does the op read that operand at all?
@@ -511,10 +522,29 @@ We compare three tables: the one from ex-2.2.3, table A (drop `add`, add the thr
 """
 
 by_name = {op.name: op for op in ALL_OPS}
+
+
+@memo
+def relevance_tables(tables: dict[str, tuple[str, ...]], ops: dict[str, Op]) -> dict[str, dict[str, dict[int, float]]]:
+    """Per table and anchored op, `sca.data.ops.relevance` over the ordered lines, with every op's answers computed once.
+
+    The library function evaluates every op of the table on every line for each anchored op; here that is fifteen ops on 46,000 lines, so the answers are tabulated first and the count is a comparison per line.
+    """
+    ls = lines()
+    answers = {n: np.array([ops[n](a, b) for a, b in ls]) for n in ops}
+    out: dict[str, dict[str, dict[int, float]]] = {}
+    for label, names in tables.items():
+        out[label] = {}
+        for n in names:
+            same = sum((answers[m] == answers[n]).all(axis=1).astype(int) for m in names if m != n)
+            counts = np.bincount(same, minlength=len(names))
+            out[label][n] = {k: float(c) / len(ls) for k, c in enumerate(counts) if c}
+    return out
+
+
+relevance_by_table = relevance_tables(TABLES, by_name)
 blocks = []
-for label, names in TABLES.items():
-    table_ops = tuple(by_name[n] for n in names)
-    dists = {n: relevance(by_name[n], table_ops, lines()) for n in names}
+for label, dists in relevance_by_table.items():
     dist_levels = sorted({k for dd in dists.values() for k, v in dd.items() if v >= 0.005})
     head = ["anchored op", *(str(k) for k in dist_levels)]
     table_rows = [
@@ -532,10 +562,7 @@ figure_html(
 )
 
 # %%
-alone = {
-    label: {n: relevance(by_name[n], tuple(by_name[m] for m in names), lines())[0] for n in names}
-    for label, names in TABLES.items()
-}
+alone = {label: {n: relevance_by_table[label][n][0] for n in names} for label, names in TABLES.items()}
 trio_alone = [alone["A+"][n] for n in HSV_TRIO]
 
 rf"""

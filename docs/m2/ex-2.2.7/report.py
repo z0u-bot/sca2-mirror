@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -12,7 +13,7 @@ import numpy as np
 # The document's directory is on sys.path while it runs, so the conditions and the
 # ref come from the definition module beside this one.
 import experiment as ex
-from mini.lit import memo, stop
+from mini.lit import memo, read_npz, stop
 from mini.store import project_store
 from mini.vis import AxesGrid, figure_html, light_dark, themed
 
@@ -63,27 +64,16 @@ STRIP_LABEL = {
 }
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists: one `get_refs` and one `get_many` for the lot."""
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
 
 
 def span2(v: np.ndarray, fmt: str = ".3f") -> str:
@@ -156,9 +146,9 @@ class Results:
     """
 
     metrics: dict
-    arrays: dict[str, np.ndarray]
+    arrays: Mapping[str, np.ndarray]
     prod: dict
-    prod_arrays: dict[str, np.ndarray]
+    prod_arrays: Mapping[str, np.ndarray]
 
     def is_prod(self, cond: str) -> bool:
         return cond in (ex.REFERENCE, *ex.STORED)
@@ -230,12 +220,14 @@ class Results:
         return all(r["tied"] for r in self.part_a(cond))
 
 
-metrics = load_json(ex.METRICS_REF)
-arrays_ = load_npz(ex.ARRAYS_REF)
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch([ex.METRICS_REF, ex.ARRAYS_REF, ex.EX223_METRICS_REF, ex.EX223_ARRAYS_REF], Path(_tmp))
+    metrics = read_json(files[ex.METRICS_REF])
+    arrays_ = read_npz(files[ex.ARRAYS_REF])
+    prod = read_json(files[ex.EX223_METRICS_REF])
+    prod_arrays = read_npz(files[ex.EX223_ARRAYS_REF])
 if metrics is None or arrays_ is None:
     stop("No results published yet. Run the experiment (see `experiment.py`) and re-open this report.")
-prod = load_json(ex.EX223_METRICS_REF)
-prod_arrays = load_npz(ex.EX223_ARRAYS_REF)
 if prod is None or prod_arrays is None:
     stop("Ex-2.2.3's production results are not reachable.")
 res: Results = Results(metrics, arrays_, prod, prod_arrays)

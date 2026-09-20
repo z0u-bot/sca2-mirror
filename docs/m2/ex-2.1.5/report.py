@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 
 import matplotlib.pyplot as plt
@@ -21,32 +22,30 @@ from sca.data import mixed_vocab as mv
 from sca.data.mixed_vocab import LANDMARKS
 
 
-def load_results() -> tuple[dict, dict[str, np.ndarray]] | None:
-    """Resolve metrics and stacked per-condition arrays from the store, or None if unpublished."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists: one `get_refs` and one `get_many` for the lot."""
     store = project_store()
-    arts = store.get_refs([METRICS_REF, ARRAYS_REF])
-    m_art, a_art = arts[METRICS_REF], arts[ARRAYS_REF]
-    if m_art is None or a_art is None:
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def load_results(files: dict[str, Path | None]) -> tuple[dict, dict[str, np.ndarray]] | None:
+    """Metrics and stacked per-condition arrays, or None if unpublished."""
+    m_path, a_path = files[METRICS_REF], files[ARRAYS_REF]
+    if m_path is None or a_path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        m_path, a_path = store.get_many([(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz")])
-        metrics = json.loads(m_path.read_text())
-        with np.load(a_path) as z:
-            arrays = {k: z[k] for k in z.files}
-    return metrics, arrays
+    with np.load(a_path) as z:
+        return json.loads(m_path.read_text()), {k: z[k] for k in z.files}
 
 
-def load_cross() -> dict | None:
+def load_cross(files: dict[str, Path | None]) -> dict | None:
     """Cross-form exact match for the bridge condition, or None if it hasn't been scored.
 
     Written by `cross_eval.py`, which sits outside the sweep DAG — see H5.
     """
-    store = project_store()
-    art = store.get_refs([CROSS_REF])[CROSS_REF]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        return json.loads(store.get(art, Path(d) / "cross.json").read_text())
+    path = files[CROSS_REF]
+    return None if path is None else json.loads(path.read_text())
 
 
 r"""
@@ -75,13 +74,15 @@ Lineage: the base language (ex-2.1.1, 2.1.2) bridged names and hex with alias an
 [M1/Ex-1.7]: https://z0u.github.io/ex-preppy/m1-color-mlp/ex-1.7-sparse-labels.html#Labelling
 """
 
-res = load_results()
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch([METRICS_REF, ARRAYS_REF, CROSS_REF], Path(_tmp))
+    res = load_results(files)
+    cross = load_cross(files)
 if res is None:
     stop("_Results are not published yet; the analysis cells below render once they are._")
 metrics, arrays = res
 cells = {c["label"]: c for c in metrics["cells"]}
 stats = metrics["corpus_stats"]
-cross = load_cross()
 
 
 def seed_mean(arm: str, set_name: str, key: str) -> float:

@@ -4,6 +4,7 @@ import itertools
 import json
 import tempfile
 from collections import Counter
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -16,8 +17,8 @@ from matplotlib.transforms import Affine2D
 # (the document's directory is on sys.path while it runs). The prose quotes the frozen
 # gates, and that module carries the same numbers with each gate's wording in its docstring.
 import experiment as ex
-from mini.lit import memo, stop
-from mini.store import project_store
+from mini.lit import memo, read_npz, stop
+from mini.store import Artifact, project_store
 from mini.vis import (
     AxesGrid,
     AxesRow,
@@ -59,27 +60,23 @@ INK = {
 # One ink per condition, as (light, dark) pairs for `light_dark`; the D2.1 reference draws as a ghost.
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, tuple[Artifact, Path] | None]:
+    """Each ref's artifact and published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's per-call latency is most of a render if the refs are resolved one at a time. The artifact rides along because `Results` keys the figure cache by the hashes of what it was built from.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | {r: (a, p) for (r, a), p in zip(have.items(), paths, strict=True)}
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+def read_json(got: tuple[Artifact, Path] | None) -> dict | None:
+    return None if got is None else json.loads(got[1].read_text())
+
+
+def read_arrays(got: tuple[Artifact, Path] | None) -> Mapping[str, np.ndarray] | None:
+    return None if got is None else read_npz(got[1])
 
 
 def order_stat(a: np.ndarray, q: float, axis: int) -> np.ndarray:
@@ -89,11 +86,6 @@ def order_stat(a: np.ndarray, q: float, axis: int) -> np.ndarray:
     n = a.shape[axis]
     k = int(np.ceil(n * (1 - q / 100)))
     return np.take(np.sort(a, axis=axis), n - k, axis=axis)
-
-
-def load_survey() -> dict | None:
-    """The ex-2.1.11 survey's stored results, or None if unpublished."""
-    return load_json(ex.SURVEY_REF)
 
 
 def span2(v: np.ndarray, fmt: str = ".3f") -> str:
@@ -123,6 +115,13 @@ def table_html(head: list[str], rows: list[list[str]], caption: str, *, ref_rows
     return figure_html(table, caption=caption, class_="report-figure")
 
 
+@memo
+def mix_counts() -> dict[str, int]:
+    """The line counts the prose quotes (the same for every op by dose; `mix` stands for all)."""
+    return ex.line_counts(ex.MIX)
+
+
+@memo
 def op_table_md() -> str:
     """The op table: each rule, how often it lands on the grid unrounded, and its redder-than-both lines."""
     rows = []
@@ -135,6 +134,7 @@ def op_table_md() -> str:
     return head + "\n".join(rows)
 
 
+@memo
 def agreement_md() -> str:
     """Pairwise agreement: the share of pairs on which two ops give the same answer."""
     names = [op.name for op in ex.OPS]
@@ -146,6 +146,7 @@ def agreement_md() -> str:
     return head + "\n".join(rows)
 
 
+@memo
 def relevance_md() -> str:
     """Per candidate anchored op, the share of its lines on which k other ops give the same answer."""
     dists = {op.name: ex.relevance(op) for op in ex.OPS}
@@ -177,9 +178,8 @@ def conditions_md() -> str:
     return head + "\n".join(rows)
 
 
-def calibration_md() -> str:
+def calibration_md(cal: dict | None) -> str:
     """The pre-freeze read: holdout exact match per op for one seed of each control arm."""
-    cal = load_json(ex.CALIBRATION_REF)
     if cal is None:
         return "_The calibration has not been published yet._"
     head = "| run | " + " | ".join(f"`{o}`" for o in ex.OP_NAMES) + " |\n|" + " ---: |" * (len(ex.OP_NAMES) + 1) + "\n"
@@ -201,11 +201,16 @@ class Results:
 
     metrics: dict
     traj: dict
-    arrays: dict[str, np.ndarray]
+    arrays: Mapping[str, np.ndarray]
     geometry: dict
     ex2110: dict
     ex221: dict
     survey: dict | None
+    sources: tuple[Artifact | None, ...]  # what the fields were read from, in field order
+
+    def __memo_key__(self) -> list[str | None]:
+        """The figure cache keys a `Results` by the hashes of its sources rather than digesting every array it holds."""
+        return [a.sha256 if a is not None else None for a in self.sources]
 
     def runs(self, cond: str) -> list[dict]:
         """The eval records of a condition, in seed order."""
@@ -437,20 +442,41 @@ def draw_probe_grid(ax: plt.Axes, stack: np.ndarray, *, own: int | None, row_nam
         sec.set_ylabel("R², 0–1 per row", fontsize=7)
 
 
-loaded = load_json(ex.METRICS_REF)
+REFS = [
+    ex.METRICS_REF,
+    ex.TRAJ_REF,
+    ex.ARRAYS_REF,
+    ex.GEOMETRY_REF,
+    ex.EX2110_METRICS_REF,
+    EX221_METRICS_REF,
+    ex.SURVEY_REF,
+]
+with tempfile.TemporaryDirectory() as _tmp:
+    got = fetch([*REFS, ex.CALIBRATION_REF], Path(_tmp))
+    loaded = read_json(got[ex.METRICS_REF])
+    traj_loaded, arrays_loaded, geometry_loaded = (
+        read_json(got[ex.TRAJ_REF]),
+        read_arrays(got[ex.ARRAYS_REF]),
+        read_json(got[ex.GEOMETRY_REF]),
+    )
+    ex2110_loaded, ex221_loaded = read_json(got[ex.EX2110_METRICS_REF]), read_json(got[EX221_METRICS_REF])
+    survey_loaded, calibration = read_json(got[ex.SURVEY_REF]), read_json(got[ex.CALIBRATION_REF])
 if loaded is None:
     stop("_Results are not published yet; the result cells render once they are._")
-metrics: dict = loaded
-traj_loaded, arrays_loaded, geometry_loaded = (
-    load_json(ex.TRAJ_REF),
-    load_npz(ex.ARRAYS_REF),
-    load_json(ex.GEOMETRY_REF),
-)
-ex2110_loaded, ex221_loaded = load_json(ex.EX2110_METRICS_REF), load_json(EX221_METRICS_REF)
+metrics_loaded: dict = loaded
 assert traj_loaded and arrays_loaded and geometry_loaded and ex2110_loaded and ex221_loaded, (
     "a reference result is missing from the store"
 )
-res: Results = Results(metrics, traj_loaded, arrays_loaded, geometry_loaded, ex2110_loaded, ex221_loaded, load_survey())
+res: Results = Results(
+    metrics_loaded,
+    traj_loaded,
+    arrays_loaded,
+    geometry_loaded,
+    ex2110_loaded,
+    ex221_loaded,
+    survey_loaded,
+    tuple(g[0] if g is not None else None for g in (got[r] for r in REFS)),
+)
 # The design the DAG ran is the one this document quotes.
 assert res.metrics["design"]["n_runs"] == ex.N_RUNS
 assert len(res.metrics["runs"]) == ex.N_RUNS, len(res.metrics["runs"])
@@ -1690,7 +1716,8 @@ Every op but `lighten` has lines whose answer is redder than either operand (the
 """
 
 
-def _table() -> tuple[str, dict[str, tuple[np.ndarray, np.ndarray]]]:
+@memo
+def e3_table() -> tuple[str, dict[str, tuple[np.ndarray, np.ndarray]]]:
     c = ex.RECIPE.name
     bins = np.linspace(0.0, 1.0, 11)
     ops = [op for op in ex.OP_NAMES if ex.line_counts(ex.OP_BY_NAME[op])["redder"] > 0]
@@ -1746,7 +1773,7 @@ def _table() -> tuple[str, dict[str, tuple[np.ndarray, np.ndarray]]]:
     return table_html(head, rows, caption), profiles
 
 
-e3_table_html, e3_profiles = _table()
+e3_table_html, e3_profiles = e3_table()
 e3_table_html
 
 # %%
@@ -2060,7 +2087,8 @@ Added after the results were read. H4's removal statistic asks whether the answe
 """
 
 
-def _table() -> str:
+@memo
+def dependent_table() -> str:
     from sca.config import TokenizerConfig
     from sca.data.colors import redness
     from sca.data.named_colors import WordTokenizer
@@ -2117,7 +2145,7 @@ def _table() -> str:
     return table_html(head, rows, caption)
 
 
-_table()
+dependent_table()
 
 r"""
 ## Discussion
@@ -2182,7 +2210,7 @@ Across the pairs, the snap rounds up about as often as down. `screen` and `multi
 # about a third is `screen`-`lighten` (37.5%), as the design's deps section has it.
 # Verify: the rendered agreement table above the sentence.
 rf"""
-Each op has {ex.line_counts(ex.MIX)["lines"]:,} lines, of which {ex.line_counts(ex.MIX)["red"]:,} are red and {ex.line_counts(ex.MIX)["nonred"]:,} non-red by dose, the larger of the two operand rednesses. Those counts are the same for every op, since dose reads the operands.
+Each op has {mix_counts()["lines"]:,} lines, of which {mix_counts()["red"]:,} are red and {mix_counts()["nonred"]:,} non-red by dose, the larger of the two operand rednesses. Those counts are the same for every op, since dose reads the operands.
 
 {op_table_md()}
 
@@ -2210,7 +2238,7 @@ The table gives, for each op we might anchor, the share of its lines at each k. 
 rf"""
 {ex.N_LINES:,} lines, the same count as D2.1. Ops are drawn uniformly, and within an op the training pairs are drawn uniformly with random operand order, the way ex-2.1.10 drew the `mix` pairs. For each op, a fifth of its distinct pairs is held out, keyed on (op, pair), so a pair held out under `add` may still be trained under `mix`. Corpus seed {ex.CORPUS_SEED}.
 
-D2.1 drew its {ex.N_LINES:,} lines from 5,832 distinct ones, so the corpus held about seventeen copies of each. Here the {ex.N_LINES:,} lines come from six times {ex.line_counts(ex.MIX)["lines"]:,} distinct ones, so most distinct lines appear at most once, and most pairs of an op never appear under that op. In E4, the `corpus` arms keep the {ex.N_LINES:,} lines and narrow the op set, while the `per-op` arms narrow the op set and keep {ex.CONTROL.lines_per_op:,} lines per op.
+D2.1 drew its {ex.N_LINES:,} lines from 5,832 distinct ones, so the corpus held about seventeen copies of each. Here the {ex.N_LINES:,} lines come from six times {mix_counts()["lines"]:,} distinct ones, so most distinct lines appear at most once, and most pairs of an op never appear under that op. In E4, the `corpus` arms keep the {ex.N_LINES:,} lines and narrow the op set, while the `per-op` arms narrow the op set and keep {ex.CONTROL.lines_per_op:,} lines per op.
 
 The operands are the whole grid for every op, as they were in D2.1; what differs by op is where the answers land. `add` sends a fifth of its pairs to white, `screen` crowds the light half of the cube and `multiply` the dark half, and `mix`, `lighten`, and `darken` spread their answers through it.
 """
@@ -2220,12 +2248,21 @@ The operands are the whole grid for every op, as they were in D2.1; what differs
 _grid = np.array(ex.colors(), dtype=float) / ex.TOP
 _index = {c: i for i, c in enumerate(ex.colors())}
 _pairs = ex.unordered_pairs()
-answer_counts: dict[str, np.ndarray] = {}
-for _op in ex.OPS:
-    _n = np.zeros(len(_grid))
-    for _c, _k in Counter(_op(_a, _b) for _a, _b in _pairs).items():
-        _n[_index[_c]] = _k
-    answer_counts[_op.name] = _n
+
+
+@memo
+def count_answers() -> dict[str, np.ndarray]:
+    """Per op, how many unordered operand pairs land on each grid color."""
+    out = {}
+    for op in ex.OPS:
+        n = np.zeros(len(_grid))
+        for c, k in Counter(op(a, b) for a, b in _pairs).items():
+            n[_index[c]] = k
+        out[op.name] = n
+    return out
+
+
+answer_counts = count_answers()
 FULL_CELL = 600
 # Pairs at which a mark fills its grid cell. Area is proportional to the count, so `add`'s white
 # corner (a fifth of all pairs) overflows its cell, which is the point.
@@ -2326,7 +2363,7 @@ Before the freeze we run a calibration: one seed of each control arm on the six-
 
 **The calibration ran.** One seed of each control arm, published under `{ex.CALIBRATION_REF}`; the table below reads it. Both lengths learn all six ops: holdout exact match is 1.0 on every op but one at each length, and that one misses a single line of its {ex.N_EVAL}. The rounded ops are as clean as the others, and held-out surprisal is below 0.02 nats everywhere. So the corpus, the step counts, and the set of arms stay as designed, and `control-short` stays too, since its numbers say it will read the proposals' task cost at their own length without a training deficit of its own. Nothing about the arms or the gates changed after this read.
 
-{calibration_md()}
+{calibration_md(calibration)}
 
 /// details | Glossary
 - **line** — one equation, `c1 ‹op› c2 = answer`, six word-level tokens. The op word is one token, like each color. Bare *op* is the operation; *op1* and *op2* are the operand roles.

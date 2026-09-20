@@ -957,7 +957,7 @@ _CHIP_CSS = """
 [data-mini-banner],[data-mini-provenance]{
   box-sizing:border-box;line-height:1.4;font-family:system-ui,sans-serif;
   width:min(var(--measure, 50rem), 100% - 2 * var(--gutter, 1.5rem));margin-inline:auto}
-[data-mini-banner]{order:-1;margin-block:1.5rem -1rem;
+[data-mini-banner]{order:-1;margin-block:1rem;
   display:flex;gap:1rem;align-items:center;font-size:.8125rem}
 [data-mini-banner] a{color:inherit;text-decoration:none;opacity:.7}
 [data-mini-banner] a:hover{text-decoration:underline;opacity:1}

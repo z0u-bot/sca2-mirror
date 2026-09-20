@@ -166,13 +166,33 @@ def reachable_values(fn: Callable, encode: Callable[[Any], str | None]) -> tuple
             done.add(id(f))
             for dotted, value in _module_value_refs(f):
                 note(dotted, value)
-            for name, ref in _named_refs(f):
-                if name is not None:
-                    note(name, ref)
+            for name, ref in _global_and_closure_refs(f):
+                note(name, ref)
                 walk(ref)
 
     walk(fn, root=True)  # the root is walked wherever it lives: a library wrapper's closure holds the project code
     return tracked, untracked
+
+
+def _global_and_closure_refs(fn: types.FunctionType) -> list[tuple[str, Any]]:
+    """The globals *fn* loads by name, from every nested code object, plus its closure cells, as ``(name, value)`` pairs.
+
+    Narrower than :func:`_named_refs`, which reads ``co_names`` whole and so takes an attribute for a global of the same name (``self.metrics`` for a module-level ``metrics``). Code evidence can afford that, a source fingerprint is cheap; a value walk cannot, when the global is a 10 MB dict digested on every call. The task walk keeps its wider net, since narrowing it would move the fingerprint of every task it over-tracked.
+    """
+    g = fn.__globals__
+    names = {
+        ins.argval
+        for c in _nested_codes(fn.__code__)
+        for ins in dis.get_instructions(c)
+        if ins.opname in ("LOAD_GLOBAL", "LOAD_NAME", "LOAD_FROM_DICT_OR_GLOBALS")
+    }
+    refs: list[tuple[str, Any]] = [(n, g[n]) for n in sorted(names) if n in g]
+    for name, cell in zip(fn.__code__.co_freevars, fn.__closure__ or (), strict=False):
+        try:
+            refs.append((name, cell.cell_contents))
+        except ValueError:
+            pass
+    return refs
 
 
 def _project_functions(obj: Any, *, any_source: bool = False) -> list[types.FunctionType]:

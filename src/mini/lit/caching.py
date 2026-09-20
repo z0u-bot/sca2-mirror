@@ -5,7 +5,7 @@ A cache for the expensive calls a document makes: figures, fits, anything slow.
 
 A memoized function that writes assets through the current :class:`~mini.reports.Publisher` (a ``themed`` figure writes two PNGs) has those files recorded with its value, and the hit is honoured only while they exist — so clearing the output directory re-draws, and a stale cache can never point at a missing image.
 
-Inputs need a stable encoding. Plain data, dataclasses, and NumPy arrays are handled (an array is hashed by its bytes); an object whose ``repr`` carries a memory address makes the call miss every time, and :mod:`mini.memo` logs a warning when that happens.
+Inputs need a stable encoding. Plain data, dataclasses, and NumPy arrays are handled (an array is hashed by its bytes); an object whose ``repr`` carries a memory address makes the call miss every time, and :mod:`mini.memo` logs a warning when that happens. Digesting a large input costs time on every call (about half a second for a 10 MB metrics dict), so a results object assembled from published artifacts can define ``__memo_key__()`` returning those artifacts' hashes, and is then keyed by them instead.
 """
 
 from __future__ import annotations
@@ -72,7 +72,12 @@ def _values_fp(fn: Callable) -> str:
 
 
 def _prepare(o: Any) -> Any:
-    """Replace the inputs :func:`mini.memo.task_key_parts` cannot encode stably with digests it can."""
+    """Replace the inputs :func:`mini.memo.task_key_parts` cannot encode stably with digests it can.
+
+    An object with a ``__memo_key__()`` method is encoded as what it returns and never walked: a results object built from published artifacts answers with their hashes, which key its content the way an ``Artifact`` argument keys a task's, for a few bytes instead of a digest of every array and run it holds.
+    """
+    if (key := getattr(o, "__memo_key__", None)) is not None and callable(key):
+        return ["memo_key", type(o).__qualname__, _prepare(key())]
     mod = type(o).__module__
     if mod.startswith("numpy") and hasattr(o, "tobytes"):
         return ["ndarray", str(o.dtype), list(o.shape), hashlib.sha256(o.tobytes()).hexdigest()[:16]]

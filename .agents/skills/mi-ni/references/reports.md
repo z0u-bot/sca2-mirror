@@ -64,7 +64,7 @@ with tempfile.TemporaryDirectory() as _tmp:
     loaded = load_results(files)     # typed loaders reading files[REF], so stop() narrowing still works
 ```
 
-Pair it with `@memo` on every figure (the `style-py` skill, "Fast renders") and a warm render is about two seconds.
+Pair it with `@memo` on every figure (the `style-py` skill, "Fast renders") and a warm render is about two seconds. Read a large `.npz` with `mini.lit.read_npz`, which decompresses each array on first access, and leave the loaders themselves unmemoized: a ref can move to new data under the same name, which no fingerprint sees.
 
 `stop()` halts execution from that point on: later cells don't run, and later prose renders with the names it can't resolve shown as pending marks. So consume the data only through names defined at or after the guard (its re-export, or stats derived there), never through a name that might still be `None`.
 
