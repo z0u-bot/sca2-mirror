@@ -244,12 +244,16 @@ def inputs_touched_at(report: str | Path) -> float:
 
 
 def is_stale(report: str | Path, output: Path) -> bool:
-    """Whether *output* is missing or older than anything *report* is built from (:func:`inputs_touched_at`).
+    """Whether *output* is missing, older than anything *report* is built from (:func:`inputs_touched_at`), or a page from before ``mini.lit``.
 
-    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check.
+    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check. A bundle an earlier exporter wrote is stale whatever its mtime: the site build prints from ``main.lit``, which such a page does not have.
     """
+    from mini.lit.page import is_lit_page
+
     out = Path(output)
-    return not out.exists() or out.stat().st_mtime < inputs_touched_at(report)
+    if not out.exists() or out.stat().st_mtime < inputs_touched_at(report):
+        return True
+    return not is_lit_page(out.read_text("utf-8"))
 
 
 # The pin manifest: export key → the publish-tier commit sha its bundle was last

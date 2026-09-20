@@ -32,7 +32,7 @@ def report(tmp_path: Path) -> Path:
     (nb := docs / "report.py").write_text(_APP)
     (experiment := docs / "experiment.py").write_text("def main(ctx): ...\n")
     (out := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
-    (out / "index.html").write_text("<html></html>")
+    (out / "index.html").write_text('<html><main class="lit"></main></html>')
     for p in (nb, experiment, docs, out / "index.html"):
         stamp(p, BEFORE)
     stamp(out / "index.html", BUNDLE_AT)
@@ -45,6 +45,14 @@ def test_a_fresh_bundle_is_not_stale(report):
 
 def test_a_missing_bundle_is_stale(report):
     (export_reports.export_dir(report) / "index.html").unlink()
+    assert export_reports.bundle_is_stale(report) is True
+
+
+def test_a_bundle_from_before_lit_is_stale(report):
+    """An older exporter's page has no `main.lit`, whatever its mtime: the site build cannot print it."""
+    out = export_reports.export_dir(report) / "index.html"
+    out.write_text("<html><marimo-mode>notebook</marimo-mode></html>")
+    stamp(out, BUNDLE_AT)
     assert export_reports.bundle_is_stale(report) is True
 
 

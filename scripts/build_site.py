@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.lit.page import FONTS
+from mini.lit.page import FONTS, is_lit_page
 from mini.report_print import print_bundle, print_stamp
 from mini.reports import (
     PDF_LEAF,
@@ -290,6 +290,11 @@ def _read_bundle(report: Path, *, store, pins: dict[str, str], externalizing: bo
             return _Bundle(None, notes=(f"  ! {key}: not exported locally — run `./go preview {nb_rel}` (skipping)",))
         assets = bundle / ASSET_LINK
         html = (bundle / "index.html").read_text("utf-8")
+        if not is_lit_page(html):
+            nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
+            return _Bundle(
+                None, notes=(f"  ! {key}: local export predates mini.lit — run `./go preview {nb_rel}` (skipping)",)
+            )
         renditions = tuple(
             p for kind, href in alternates(html).items() if kind != PDF_TYPE and (p := bundle / href).is_file()
         )
