@@ -158,6 +158,8 @@ def figure_html(
 
     The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* was produced and how it is styled (that is left to CSS or the caller). *caption* is Markdown, rendered here (:func:`_render_caption`) so the fragment stands on its own wherever it is shown; an HTML fragment passes through unchanged.
 
+    A :func:`themed` figure is already a ``<figure>``, so wrap it here only to make sub-figures — several themed figures under one caption (``figure_html(a + b, caption=...)``, which the stylesheet lays side by side). A single themed figure's caption goes to :func:`themed` itself; wrapping one here nests a figure in a figure for nothing.
+
     *aria_label* gives the figure an accessible name for when the body is a group of marks that reads as one picture with no text of its own — e.g. a strip of inline SVGs. It is a plain ``aria-label`` (not ``role="img"``): a figure takes its name from the label without becoming atomic, so any sub-figures and their captions stay navigable. (``role="img"`` would make the subtree presentational and hide them — the reason to avoid it for a captioned group.)
     """
     import html
