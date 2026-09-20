@@ -1,6 +1,7 @@
 """Tests for ``mini.lit``: parsing, weaving, incremental re-runs, the memo, and the page."""
 
 import importlib
+import os
 import sys
 import textwrap
 from pathlib import Path
@@ -18,6 +19,13 @@ def write(tmp_path: Path, text: str, name: str = "doc.py") -> Path:
     p = tmp_path / name
     p.write_text(textwrap.dedent(text).lstrip())
     return p
+
+
+def header(response, name: str) -> str:
+    """*response*'s header, failing the test if the server left it out — which every assertion below would rather say plainly than pass ``None`` on."""
+    value = response.getheader(name)
+    assert value is not None, f"the response carries no {name}"
+    return value
 
 
 class TestParse:
@@ -377,6 +385,9 @@ class TestMemo:
         set_cache_dir(tmp_path / "cache")
         assert "(0.02, 0)" in Runner(p).weave().markdown
         design.write_text("GATE = 0.03\n")
+        # The rewrite kept design.py's size and landed in the same whole second, so Python's cached
+        # bytecode still validates and the re-import would hand back the old GATE. Date it forward.
+        os.utime(design, (later := design.stat().st_mtime + 2, later))
         set_cache_dir(tmp_path / "cache")
         sys.modules.pop("design")  # a fresh process would not hold the old module
         assert "(0.03, 1)" in Runner(p).weave().markdown
@@ -568,7 +579,7 @@ class TestServe:
                 r = conn.getresponse()
                 body = r.read()
                 assert r.status == 200
-                assert len(body) == int(r.getheader("Content-Length"))
+                assert len(body) == int(header(r, "Content-Length"))
                 assert r.version == 11 and not r.will_close  # the next request reuses this socket
         finally:
             conn.close()
@@ -605,7 +616,7 @@ class TestServe:
             conn.request("GET", "/index.html")
             r = conn.getresponse()
             r.read()
-            etag = r.getheader("ETag")
+            etag = header(r, "ETag")
             conn.request("GET", "/index.html", headers={"If-None-Match": etag})
             r = conn.getresponse()
             assert r.status == 304 and r.read() == b""
@@ -627,7 +638,7 @@ class TestServe:
             conn.request("GET", "/_assets/fig.png")
             r = conn.getresponse()
             (tmp_path / "out" / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(10))
-            assert len(r.read()) == int(r.getheader("Content-Length"))
+            assert len(r.read()) == int(header(r, "Content-Length"))
         finally:
             conn.close()
             server.shutdown()
