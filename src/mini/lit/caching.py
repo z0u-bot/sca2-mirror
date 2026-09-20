@@ -19,7 +19,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Callable, ParamSpec, TypeVar, overload
 
-from mini.memo import task_key_parts
+from mini.memo import _builtin_name, _is_project_source, _value_json, reachable_values, task_key_parts
 from mini.reports import current_publisher
 
 __all__ = ["memo", "cache_dir", "set_cache_dir"]
@@ -45,6 +45,30 @@ def set_cache_dir(path: Path | str | None) -> None:
     global _cache_dir
     _cache_dir = None if path is None else Path(path)
     _hot.clear()
+
+
+@functools.cache
+def _values_fp(fn: Callable) -> str:
+    """Evidence on top of the task fingerprint: every plain value *fn* reads, arrays included.
+
+    Two things the task fingerprint leaves out matter here. A report reads its design through ``import experiment as ex`` and then ``ex.GATE``, which that fingerprint does not see; and it keeps its data in module-level arrays, which that fingerprint skips for want of a JSON encoding (:func:`mini.memo.reachable_values` says why both stay out of task records). Here a spurious miss redraws a figure, so both go in, arrays hashed by content like the inputs are: editing a gate re-renders what quotes it, and a figure that reads a global array re-draws when the array changes. What still cannot be encoded — a model, a store — is warned about once, since a figure that reads it would otherwise be served stale.
+    """
+    tracked, untracked = reachable_values(fn, lambda v: _value_json(_prepare(v), default=_builtin_name))
+    # Data the figure could be stale against: a container, or an instance of the project's own classes (a
+    # loaded model, a results bundle). A logger or a store handle read from a helper is neither.
+    untracked = {
+        n: v for n, v in untracked.items() if isinstance(v, (dict, list, tuple, set)) or _is_project_source(type(v))
+    }
+    if untracked:
+        names = ", ".join(f"{n} ({type(v).__name__})" for n, v in sorted(untracked.items()))
+        log.warning(
+            "lit.caching: %s reads %s, which the cache cannot fingerprint; a hit would outlive a change to it. "
+            "Pass it as an argument instead.",
+            getattr(fn, "__qualname__", fn),
+            names,
+        )
+    blob = "\n".join(f"{k}={v}" for k, v in sorted(tracked.items()))
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
 
 
 def _prepare(o: Any) -> Any:
@@ -84,7 +108,7 @@ def memo(fn: Callable[P, R] | None = None, /, *, version: str | None = None) -> 
         @functools.wraps(fn)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             key, parts = task_key_parts(fn, (_prepare(args), _prepare(kwargs)), version)
-            evidence = f"{parts['code_fp']}:{parts.get('version', '')}"
+            evidence = f"{parts['code_fp']}:{_values_fp(fn)}:{parts.get('version', '')}"
             pub = current_publisher()
             asset_dir = pub.asset_dir if pub is not None else None
 

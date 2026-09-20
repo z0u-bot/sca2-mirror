@@ -75,6 +75,15 @@ A literate script is a plain module with a `# title:` header: a top-level string
 - Every top-level string is prose, so a variable docstring under a constant would weave as a paragraph. Write it as a comment (`./go lint` flags the slip).
 - One namespace, top to bottom: no `_private` cell names, and a name may be reused across cells (ty types by flow). Precompute joined lists as strings in the cell rather than in the prose field.
 - `if cond: stop("…")` ends a preregistration early; the prose below still renders with pending marks for what it cannot evaluate.
-- Slow work goes under `@memo` (outside `@themed` for a figure), with anything that should invalidate the cache, the alt text included, passed as an argument.
+- Slow work goes under `@memo`; see "Fast renders" below.
+
+### Fast renders
+
+A report is read as Markdown far more often than it is published (`./go render`, then read `index.md`; the report-render skill), and every one of those reads runs the cells, so a warm render should take about two seconds. Two habits get there, and both are cheap enough to be the default rather than an optimisation:
+
+- **Batch the ref reads.** Each `get_refs`/`get_many` round trip to the bucket costs a fixed few hundred milliseconds, so resolve every ref the report needs in one `get_refs` and pull the files in one `get_many`, then read them from the temp dir (the pattern is in the mi-ni reports reference). Seven refs loaded one at a time is most of a render.
+- **`@memo` every figure and every slow computation.** `mini.lit.memo` stacks above `@themed(...)` on the plot function and pickles the result under `.mini/lit-cache/`, so a warm render serves the figure from disk. Anything that should invalidate the cache is either code the function reaches (its body, project helpers it calls, `ex.CONST` module attributes, plain module-level values, NumPy array globals) or one of its arguments, so pass the data the figure draws and the alt text as arguments. A bare `@memo` over a plot function that reads module-level arrays is safe, and the cache warns when a function reads something it cannot fingerprint (a module-level dict of arrays, a project-typed object): move that value into the argument list. Large arguments cost a fingerprint per render (a 30 MB metrics dict is about half a second), so hand a figure the slice it draws rather than the whole results object.
+
+A converted report and its unconverted twin weave identical Markdown, so verify a speed-up by diffing `index.md` before and after.
 
 See the `style-fig` skill for figure and results-table conventions, and `docs/README.md` for file-type and publishing rules.

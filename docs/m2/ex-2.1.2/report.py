@@ -50,7 +50,7 @@ from experiment import (
 )
 from experiment import _classify as classify_form
 from experiment import _corpus as corpus_for
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, svg_figure, themed
 from sca.data import colors
@@ -181,6 +181,7 @@ Did the changes move `named_holdout` off zero, and did the two new forms train t
 """
 
 
+@memo
 @themed(
     name="accuracy-factorial",
     alt_text="""
@@ -190,12 +191,12 @@ Did the changes move `named_holdout` off zero, and did the two new forms train t
         Each panel is one eval set: the bar is the mean over three seeds and the dots are the individual seeds. `named_holdout` is the set H1 is about; `open_holdout` asks whether the forced computation carries over to off-palette pairs never seen in training; `alias_rev` checks the reverse-alias supervision. In `control` and `rev`, the open-form sets ask for a surface form those corpora never train on (a name + name prompt), so a low score there means the grammar is simply missing from that corpus, rather than a genuine attempt that fell short.
     """,
 )
-def accuracy_factorial_plot() -> plt.Figure:
+def accuracy_factorial_plot(accs: dict[str, np.ndarray]) -> plt.Figure:
     fig, axes = plt.subplots(1, len(EVAL_SETS), figsize=(12.5, 3.0), sharey=True)
     shades = cond_shades()
     xs = np.arange(len(CONDS))
     for ax, es in zip(axes, EVAL_SETS, strict=True):
-        per_seed = np.array([[acc(metrics, cond, s, es) for s in SEEDS] for cond in CONDS])
+        per_seed = accs[es]  # (conds, seeds)
         ax.bar(xs, per_seed.mean(axis=1), color=[shades[c] for c in CONDS], width=0.62)
         for i in range(len(CONDS)):
             ax.plot([xs[i]] * len(SEEDS), per_seed[i], "o", color="#0008", ms=2.5, zorder=3)
@@ -206,7 +207,9 @@ def accuracy_factorial_plot() -> plt.Figure:
     return fig
 
 
-accuracy_factorial_plot()
+accuracy_factorial_plot(
+    {es: np.array([[acc(metrics, cond, s, es) for s in SEEDS] for cond in CONDS]) for es in EVAL_SETS}
+)
 
 # %%
 
@@ -334,6 +337,7 @@ m_hold = margin_rows("named_holdout", holdout_exs)
 m_seen = margin_rows("named_seen", colors.as_named(_train_pairs, seed=1))
 
 
+@memo
 @themed(
     name="margin-trajectories",
     alt_text="""
@@ -343,7 +347,7 @@ m_seen = margin_rows("named_seen", colors.as_named(_train_pairs, seed=1))
         Margins between predicted and true named colors. Positive means the true name comes out ahead of the other names, and the magnitude says by how much. One line per held-out pair, averaged over seeds and traced across the four conditions; the shaded band is the range of `named_seen` margins, for reference.
     """,
 )
-def margin_trajectories_plot() -> plt.Figure:
+def margin_trajectories_plot(m_seen: np.ndarray, m_hold: np.ndarray, names: list[str]) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(7.4, 4.2))
     xs = np.arange(len(CONDS))
     seen_mean = m_seen.mean(axis=1)  # (conds, n_seen)
@@ -363,10 +367,9 @@ def margin_trajectories_plot() -> plt.Figure:
     for prev, nxt in zip(np.argsort(label_y)[:-1], np.argsort(label_y)[1:], strict=True):
         label_y[nxt] = max(label_y[nxt], label_y[prev] + 1.1)
     for rank, p in enumerate(order):
-        ex = holdout_exs[p]
         ax.plot(xs, mean[:, p], "o-", color=cmap[rank], lw=1.4, ms=3.5)
         ax.annotate(
-            f"{ex.prompt}{ex.answer}",
+            names[p],
             (xs[-1], mean[-1, p]),
             xytext=(xs[-1] + 0.12, label_y[p]),
             textcoords="data",
@@ -383,7 +386,7 @@ def margin_trajectories_plot() -> plt.Figure:
     return fig
 
 
-margin_trajectories_plot()
+margin_trajectories_plot(m_seen, m_hold, [f"{ex.prompt}{ex.answer}" for ex in holdout_exs])
 
 # %%
 
@@ -407,6 +410,7 @@ sched_offsets = cell(metrics, "control", SEEDS[0])["schedule_offsets"]
 sched_r2 = np.mean([margins[f"{label('control', s)}/schedule/r2"] for s in SEEDS], axis=0)
 
 
+@memo
 @themed(
     name="answer-schedule",
     alt_text="""
@@ -416,7 +420,7 @@ sched_r2 = np.mean([margins[f"{label('control', s)}/schedule/r2"] for s in SEEDS
         Probe alignment per color channel of the answer. One panel per transformer layer. Offset 0 is the `#`, digit k sits at offset k + 1 and is emitted from offset k. A line is solid where its digit is not yet in the context (so decoding it is computation) and dotted once it has landed (decoding is copying).
     """,
 )
-def answer_schedule_plot() -> plt.Figure:
+def answer_schedule_plot(sched_offsets: list[int], sched_r2: np.ndarray) -> plt.Figure:
     depths = sched_r2.shape[1]
     fig, axes = plt.subplots(1, depths, figsize=(12.5, 2.9), sharey=True)
     chan_colors = ["#e4572e", "#3aa76d", "#4d9de0"]
@@ -435,7 +439,7 @@ def answer_schedule_plot() -> plt.Figure:
     return fig
 
 
-answer_schedule_plot()
+answer_schedule_plot(sched_offsets, sched_r2)
 
 r"""
 At the final layer, channel k is almost perfectly decodable right at its emission offset (R² ≈ 0.97), and *only* there. One position earlier it is much weaker, and once emission moves on to the next digit, the earlier channels mostly fade from the deep residual stream.
@@ -450,6 +454,7 @@ If the mix really is computed on the named prompts, then a probe trained to read
 TRANSFER_SETS = ["fit", "open_holdout", "named_seen", "named_holdout"]
 
 
+@memo
 @themed(
     name="transfer-probe",
     alt_text="""
@@ -459,12 +464,12 @@ TRANSFER_SETS = ["fit", "open_holdout", "named_seen", "named_holdout"]
         One panel per scored set: the held-back half of the fit set, open holdout, named seen, and named holdout. R² against residual depth, one line per condition (darker means a richer corpus). Depth 0 is left out, since the pre-answer embedding is constant across prompts until attention runs.
     """,
 )
-def transfer_probe_plot() -> plt.Figure:
+def transfer_probe_plot(r2: dict[tuple[str, str], np.ndarray]) -> plt.Figure:
     fig, axes = plt.subplots(1, len(TRANSFER_SETS), figsize=(11.5, 3.0), sharey=True)
     shades = cond_shades()
     for ax, name in zip(axes, TRANSFER_SETS, strict=True):
         for cond in CONDS:
-            rows = np.array([cell(metrics, cond, s)["transfer_r2"][name] for s in SEEDS])
+            rows = r2[name, cond]  # (seeds, depths)
             # Skip depth 0: the raw embedding at the pre-answer position is a constant
             # across prompts (attention hasn't run), so its transfer R² only reflects
             # the fit-vs-eval mean gap — no result is decodable there in any set.
@@ -477,7 +482,13 @@ def transfer_probe_plot() -> plt.Figure:
     return fig
 
 
-transfer_probe_plot()
+transfer_probe_plot(
+    {
+        (name, cond): np.array([cell(metrics, cond, s)["transfer_r2"][name] for s in SEEDS])
+        for name in TRANSFER_SETS
+        for cond in CONDS
+    }
+)
 
 r"""
 Partial computation shows up everywhere, `control` included. The held-out named prompts carry about as much linearly-decodable result as the ceiling of the fit set (≈ 0.6 at the deep layers). The `open` conditions lift the mid-depth transfer a little, which fits the idea that the arithmetic is doing real work on these prompts, and their *final*-layer R² drops on the named sets, where the job of the last layer has become committing to a surface form. The main point, though, is that "computed but not emitted" was already true in `control`: making the computation stronger (`open`) or the readout available (`rev`) still does not join the two up.

@@ -2,6 +2,7 @@
 
 import json
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
@@ -10,7 +11,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import experiment as ex
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import AxesGrid, AxesRow, figure_html, light_dark, themed
 
@@ -31,15 +32,16 @@ INK = {
 # One ink per operator family, as (light, dark) pairs.
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def load_jsons(refs: Sequence[str]) -> dict[str, dict | None]:
+    """Each published JSON result as a dict, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: resolving refs one at a time pays the bucket's per-call latency each time.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
     with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+        paths = store.get_many([(a, Path(d) / f"{i}.json") for i, a in enumerate(have.values())])
+        return dict.fromkeys(refs) | {r: json.loads(p.read_text()) for r, p in zip(have, paths, strict=True)}
 
 
 def span2(v: np.ndarray, fmt: str = ".3f") -> str:
@@ -260,10 +262,10 @@ def trial_mark(ax, x: float, y: float, row: Row, ringed: bool) -> None:
         ax.scatter(x, y, marker="o", s=120, facecolors="none", edgecolors=ink(row.family), linewidths=1.2, zorder=5)
 
 
-metrics = load_json(ex.METRICS_REF)
+loaded = load_jsons([ex.METRICS_REF, ex.EX223_METRICS_REF])
+metrics, prod = loaded[ex.METRICS_REF], loaded[ex.EX223_METRICS_REF]
 if metrics is None:
     stop("_Results are not published yet; the result cells render once they are._")
-prod = load_json(ex.EX223_METRICS_REF)
 if prod is None:
     stop("ex-2.2.3's metrics are missing from the store")
 res: Results = Results(metrics, prod)
@@ -518,6 +520,7 @@ landscape_rows = rows["recipe-short"]
 landscape_xlim, landscape_ylim = (-0.01, 0.3), (-0.02, 1.0)
 
 
+@memo
 @themed(
     name="landscape",
     alt_text="""
@@ -564,6 +567,7 @@ t00_landscape_conds = ("recipe-short", "t00")
 t00_landscape_props = {"recipe-short": prop, "t00": prop_t00}
 
 
+@memo
 @themed(
     name="landscape-t00",
     alt_text="""
@@ -604,6 +608,7 @@ shaped_ps = sorted({r.p for r in shaped_rows})
 linear_as = sorted({r.a for r in linear_rows})
 
 
+@memo
 @themed(
     name="marginals",
     alt_text="""
@@ -662,6 +667,7 @@ landing_by_name = {
 landing_x = np.arange(len(SLICE_NAMES))
 
 
+@memo
 @themed(
     name="landing",
     alt_text="""
@@ -714,6 +720,7 @@ write_by_name = {
 }
 
 
+@memo
 @themed(
     name="write-cost",
     alt_text="""

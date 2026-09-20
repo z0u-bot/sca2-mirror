@@ -49,6 +49,23 @@ if loaded is None:
 curves = loaded  # re-export under a new name; see below
 ```
 
+A report that reads several refs (its own metrics and arrays, an earlier experiment's for comparison) resolves them all in one `get_refs` and pulls the files in one `get_many` — the bucket's per-call latency is a few hundred milliseconds, so one round trip per ref makes the render slow to read as Markdown, which is how a report is mostly consumed:
+
+```py
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists."""
+    store = project_store()
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch([METRICS_REF, ARRAYS_REF, EX223_METRICS_REF], Path(_tmp))
+    loaded = load_results(files)     # typed loaders reading files[REF], so stop() narrowing still works
+```
+
+Pair it with `@memo` on every figure (the `style-py` skill, "Fast renders") and a warm render is about two seconds.
+
 `stop()` halts execution from that point on: later cells don't run, and later prose renders with the names it can't resolve shown as pending marks. So consume the data only through names defined at or after the guard (its re-export, or stats derived there), never through a name that might still be `None`.
 
 Ref names are stringly typed: the experiment `set_ref`s them and the report `get_ref`s them, so declare them once in `experiment.py` and import them from the report (`from experiment import METRICS_REF` — a literate script puts its own directory first on `sys.path`). Sweep constants the report reiterates (widths, seeds) can ride along in the same import. Namespace refs by milestone (`reports/m2/ex-2.1.1/metrics`) so experiments with similar numbering can't collide across milestones.

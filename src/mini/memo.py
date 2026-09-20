@@ -37,7 +37,17 @@ import cloudpickle
 
 from mini.runs import SETTLED, RunState, _atomic_write, _merge_json
 
-__all__ = ["task_key", "task_key_parts", "RecordStore", "LocalRecordStore", "MemoStore", "PollCache", "META_KEY"]
+__all__ = [
+    "task_key",
+    "task_key_parts",
+    "module_values",
+    "reachable_values",
+    "RecordStore",
+    "LocalRecordStore",
+    "MemoStore",
+    "PollCache",
+    "META_KEY",
+]
 
 log = logging.getLogger(__name__)
 
@@ -102,6 +112,85 @@ def _attr_chain_refs(fn: Callable) -> list[Any]:
     return refs
 
 
+def _module_value_refs(fn: Callable) -> list[tuple[str, Any]]:
+    """Plain values reached through attribute chains rooted at a project module (``ex.GATE``), as ``(dotted name, value)``.
+
+    The chain walk in :func:`_attr_chain_refs` keeps only the code it lands on; this one keeps the values, for :func:`module_values`. Rooted at a *project* module only: a chain into the stdlib or a library (``sys.argv``, ``np.pi``) is either machine state or a constant the source fingerprint already treats as opaque.
+    """
+    code = getattr(fn, "__code__", None)
+    g = getattr(fn, "__globals__", {})
+    if code is None:
+        return []
+    refs: list[tuple[str, Any]] = []
+    for c in _nested_codes(code):
+        chain: Any = None
+        dotted = ""
+        for ins in dis.get_instructions(c):
+            if ins.opname == "LOAD_GLOBAL" and isinstance(g.get(ins.argval), types.ModuleType):
+                chain, dotted = g[ins.argval], g[ins.argval].__name__
+            elif ins.opname == "LOAD_ATTR" and isinstance(chain, types.ModuleType):
+                owner, chain, dotted = chain, getattr(chain, ins.argval, None), f"{dotted}.{ins.argval}"
+                if isinstance(chain, types.ModuleType):
+                    continue  # ``ex.ex223.GATE``: keep walking into the sibling module
+                if chain is not None and not callable(chain) and _is_project_source(owner):
+                    refs.append((dotted, chain))
+                chain = None
+            else:
+                chain = None
+    return refs
+
+
+def reachable_values(fn: Callable, encode: Callable[[Any], str | None]) -> tuple[dict[str, str], dict[str, Any]]:
+    """Every plain value *fn* reads, transitively over the project code it calls, split into what *encode* can fingerprint and what it cannot.
+
+    Returns ``(tracked, untracked)``: ``{"experiment.GATE": "0.02", "arrays": "..."}`` and ``{"models": <the dict>}`` — the second keyed by the name the code uses, for the caller to warn about what matters to it. Values are bare globals, closure cells, and attribute chains rooted at a project module (``ex.GATE``).
+
+    Evidence :func:`task_key_parts` leaves out, in two ways. A constant read as a module attribute is not in the code fingerprint at all, because the chain walk was built to reach *code* (``utils.helper``); adding it to task evidence would change the fingerprint of every task that reads a sibling's constants, and a spurious re-run there is a training run. And a bare global with no stable JSON encoding — a NumPy array, a dict of them — is skipped silently, since for a task that is usually a lookup table the source already spells out. So this is a separate walk, for a cache whose spurious miss costs seconds and whose caller can encode more: ``mini.lit``'s figure cache folds the tracked values in and warns about the rest.
+    """
+    tracked: dict[str, str] = {}
+    untracked: dict[str, Any] = {}
+    done: set[int] = set()  # by identity: a ``functools.wraps`` wrapper shares its target's qualname
+
+    def note(name: str, value: Any) -> None:
+        if isinstance(value, (types.ModuleType, type)) or callable(value):
+            return
+        if (js := encode(value)) is not None:
+            tracked[name] = js
+        else:
+            untracked[name] = value
+
+    def walk(obj: Any, *, root: bool = False) -> None:
+        for f in _project_functions(obj, any_source=root):
+            if id(f) in done:
+                continue
+            done.add(id(f))
+            for dotted, value in _module_value_refs(f):
+                note(dotted, value)
+            for name, ref in _named_refs(f):
+                if name is not None:
+                    note(name, ref)
+                walk(ref)
+
+    walk(fn, root=True)  # the root is walked wherever it lives: a library wrapper's closure holds the project code
+    return tracked, untracked
+
+
+def _project_functions(obj: Any, *, any_source: bool = False) -> list[types.FunctionType]:
+    """*obj* as the project functions it stands for: itself, the function under a bound method, or a class's methods."""
+    if isinstance(obj, types.MethodType):
+        obj = obj.__func__
+    if isinstance(obj, type):
+        members = [m.__func__ if isinstance(m, (staticmethod, classmethod)) else m for m in vars(obj).values()]
+        return [m for m in members if isinstance(m, types.FunctionType) and (any_source or _is_project_source(m))]
+    return [obj] if isinstance(obj, types.FunctionType) and (any_source or _is_project_source(obj)) else []
+
+
+def module_values(fn: Callable) -> dict[str, str]:
+    """The plain values *fn* reads off project modules, transitively: ``{"experiment.GATE": canonical json}`` — see :func:`reachable_values`."""
+    tracked, _ = reachable_values(fn, lambda v: _value_json(v, default=_builtin_name))
+    return {k: v for k, v in tracked.items() if "." in k}
+
+
 def _collect_class(cls: type, seen: dict[str, str]) -> None:
     """Collect a class's source, then traverse its methods' *references*.
 
@@ -126,15 +215,22 @@ def _collect_class(cls: type, seen: dict[str, str]) -> None:
     _collect_deferred(_import_time_chain(cls), seen)
 
 
-def _value_json(obj: Any) -> str | None:
+def _value_json(obj: Any, *, default: Callable[[Any], Any] | None = None) -> str | None:
     """A stable JSON encoding of a plain value, or ``None`` if it has none.
 
-    No ``default=`` fallback here: an exotic object's ``repr`` can embed a memory address, which would make the fingerprint differ every process — worse than not tracking the value at all. Stable-or-skip.
+    No ``repr`` fallback here: an exotic object's ``repr`` can embed a memory address, which would make the fingerprint differ every process — worse than not tracking the value at all. Stable-or-skip. A *default* may name what it knows and must raise ``TypeError`` for the rest.
     """
     try:
-        return json.dumps(_canonical(obj), sort_keys=True)
+        return json.dumps(_canonical(obj), sort_keys=True, default=default)
     except TypeError, ValueError:
         return None
+
+
+def _builtin_name(obj: Any) -> list[str]:
+    """A builtin (``max`` as an op's channel rule) keys by name: it has no source to fingerprint and its repr is stable."""
+    if isinstance(obj, types.BuiltinFunctionType):
+        return ["builtin", f"{obj.__module__}.{obj.__qualname__}"]
+    raise TypeError(f"no stable encoding for {type(obj).__name__}")
 
 
 def _named_refs(fn: Callable) -> list[tuple[str | None, Any]]:

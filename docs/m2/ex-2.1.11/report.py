@@ -3,6 +3,7 @@
 import json
 import tempfile
 import zlib
+from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import cast
 
@@ -12,53 +13,71 @@ import numpy as np
 # The document's directory is on sys.path while it runs, so the design constants come
 # from the experiment module rather than a copy of them in the prose.
 import experiment as ex
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import AxesGrid, figure_html, light_dark, themed
 
 
-def load_results() -> tuple[dict, dict[str, np.ndarray]] | None:
-    """Resolve this experiment's metrics and arrays from the store, or None if unpublished."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's fixed per-call latency is a couple of seconds, so resolving eight refs one at a time is most of a render.
+    """
     store = project_store()
-    arts = store.get_refs([ex.METRICS_REF, ex.ARRAYS_REF])
-    m_art, a_art = arts[ex.METRICS_REF], arts[ex.ARRAYS_REF]
-    if m_art is None or a_art is None:
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+def read_npz(path: Path | None, keep: Callable[[str], bool] = lambda k: True) -> dict[str, np.ndarray] | None:
+    if path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        m_path, a_path = store.get_many([(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz")])
-        with np.load(a_path) as z:
-            arrays = {k: z[k] for k in z.files}
-        metrics = json.loads(m_path.read_text())
-    return metrics, arrays
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files if keep(k)}
 
 
-def load_prior() -> dict | None:
+def load_results(files: dict[str, Path | None]) -> tuple[dict, dict[str, np.ndarray]] | None:
+    """Metrics and arrays for this experiment, or None if unpublished."""
+    metrics, arrays = read_json(files[ex.METRICS_REF]), read_npz(files[ex.ARRAYS_REF])
+    return None if metrics is None or arrays is None else (metrics, arrays)
+
+
+def load_prior(files: dict[str, Path | None]) -> dict | None:
     """The published inputs to the calibration stage, or None if any is unreachable.
 
     Ex-2.1.10's metrics, arrays and probe tables (the nine-seed floors, the trade, the τ map), ex-2.1.9's metrics (the latch calibration), and ex-2.1.8's metrics (the across-point correlation).
     """
-    store = project_store()
-    refs = [
-        ex.EX2110_METRICS_REF,
-        ex.EX2110_ARRAYS_REF,
-        ex.EX2110_PROBES_REF,
-        ex.EX219_METRICS_REF,
-        ex.EX218_METRICS_REF,
-    ]
-    arts = store.get_refs(refs)
-    found = [a for r in refs if (a := arts[r]) is not None]
-    if len(found) < len(refs):
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        paths = store.get_many([(a, Path(d) / f"{i}.bin") for i, a in enumerate(found)])
-        m10 = json.loads(paths[0].read_text())
-        with np.load(paths[1]) as z:
-            a10 = {k: z[k] for k in z.files if "/alpha" in k or "/w_line" in k}
-        with np.load(paths[2]) as z:
-            probes = {k: z[k] for k in z.files}
-        m9 = json.loads(paths[3].read_text())
-        m8 = json.loads(paths[4].read_text())
-    return {"m10": m10, "a10": a10, "probes": probes, "m9": m9, "m8": m8}
+    prior = {
+        "m10": read_json(files[ex.EX2110_METRICS_REF]),
+        "a10": read_npz(files[ex.EX2110_ARRAYS_REF], lambda k: "/alpha" in k or "/w_line" in k),
+        "probes": read_npz(files[ex.EX2110_PROBES_REF]),
+        "m9": read_json(files[ex.EX219_METRICS_REF]),
+        "m8": read_json(files[ex.EX218_METRICS_REF]),
+    }
+    return None if any(v is None for v in prior.values()) else prior
+
+
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch(
+        [
+            ex.EX2110_METRICS_REF,
+            ex.EX2110_ARRAYS_REF,
+            ex.EX2110_PROBES_REF,
+            ex.EX219_METRICS_REF,
+            ex.EX218_METRICS_REF,
+            ex.METRICS_REF,
+            ex.ARRAYS_REF,
+            ex.SURVEY_REF,
+        ],
+        Path(_tmp),
+    )
+    prior_ = load_prior(files)
+    res_ = load_results(files)
+    sv_ = read_json(files[ex.SURVEY_REF])
 
 
 # Shared helpers for the calibration cells: the ex-2.1.10 statistics,
@@ -224,7 +243,6 @@ The margin statistics are tight compared to the effects worth chasing; the τ la
 These floors carry a caveat: they are measured in the graded regime, at τ = 0.1. At τ ≲ 0.03 the pull latches from run to run, the statistics become bimodal, and no per-run standard deviation describes them. So the survey keeps τ above that regime and uses a per-run latch veto instead.
 """
 
-prior_ = load_prior()
 if prior_ is None:
     stop("_The published inputs aren't reachable from here; the calibration cells need them._")
 prior: dict = prior_
@@ -313,6 +331,7 @@ for c_ in conds_:
     pts_[c_] = (m_, r_)
 
 
+@memo
 @themed(
     name="trade",
     alt_text="""
@@ -422,6 +441,7 @@ lead_ = np.array(
 )  # (τ, L1)
 
 
+@memo
 @themed(
     name="tau-range",
     alt_text="""
@@ -479,6 +499,7 @@ anti_hold_ = ex.ANTI_HOLD_RATIO * ex.SCORING_LAMBDA * flat_
 anti_peak_ = ex.ANTI_PEAK_RATIO * ex.SCORING_LAMBDA * flat_
 
 
+@memo
 @themed(
     name="doses",
     alt_text="""
@@ -733,7 +754,6 @@ The ablation stage's runs took 0.7 to 3.6 minutes of L4 each, training and eval 
 Nine conditions, three seeds each. Each subsection reads one arm against `ref` on the five decision statistics, and the rule it feeds was fixed before the run.
 """
 
-res_ = load_results()
 if res_ is None:
     stop("_The ablation results aren't published yet; the stage-2 cells need them._")
 ab_metrics, ab_arrays = res_
@@ -801,6 +821,7 @@ pi_by_cond_ = {
 traj_flat_ = {k: traj_of(ab_cells, k, "m_line") for k in ("ref", "flat-anchor", "lam0")}
 
 
+@memo
 @themed(
     name="flat-anchor",
     alt_text="""
@@ -953,6 +974,7 @@ traj_short_keys_ = ("m_line", "val_loss")
 traj_short_ = {k: {c: traj_of(ab_cells, c, k) for c in ("ref", "short")} for k in traj_short_keys_}
 
 
+@memo
 @themed(
     name="short",
     alt_text="""
@@ -1090,6 +1112,7 @@ For rule 8, the trap runs the opposite way to the usual one. The margin peaks ne
 n_a_, n_b_ = ex.N_TRIALS_BY_DIM[4], ex.N_TRIALS_BY_DIM[3]
 
 
+@memo
 @themed(
     name="amendment-flow",
     alt_text=f"""
@@ -1214,6 +1237,7 @@ two_by_two_runs_ = {
 }
 
 
+@memo
 @themed(
     name="two-by-two",
     alt_text="""
@@ -1277,6 +1301,7 @@ traj25_keys_ = ("m_line", "val_loss")
 traj25_ = {k: {c: traj_of(ab_cells, c, k) for c in ("ref", "short", "short25")} for k in traj25_keys_}
 
 
+@memo
 @themed(
     name="short25",
     alt_text="""
@@ -1335,18 +1360,6 @@ Two of the ablations paid for themselves in survey cost rather than in dimension
 """
 
 
-def load_survey() -> dict | None:
-    """Resolve the published survey from the store, or None if unpublished."""
-    store = project_store()
-    art = store.get_refs([ex.SURVEY_REF])[ex.SURVEY_REF]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (p,) = store.get_many([(art, Path(d) / "survey.json")])
-        return json.loads(p.read_text())
-
-
-sv_ = load_survey()
 if sv_ is None:
     stop("_The survey isn't published yet; the landscape cells need it._")
 sv_scored: dict[int, dict] = {int(t): s for t, s in sv_["scored"].items()}
@@ -1507,6 +1520,7 @@ sv_feas_ = [t for t, s in sv_scored.items() if s["feasible"]]
 sv_infeas_ = [t for t, s in sv_scored.items() if not s["feasible"]]
 
 
+@memo
 @themed(
     name="marginals",
     alt_text="""
@@ -1580,6 +1594,7 @@ sv_plane_pts_ = {
 }
 
 
+@memo
 @themed(
     name="plane",
     alt_text="""
@@ -1637,6 +1652,7 @@ def sv_first_fail_(s: dict) -> str:
     return next(k for k in ("latch", "task", "grading", "containment", "contrast") if not s["checks"][k])
 
 
+@memo
 @themed(
     name="lam-marginal",
     alt_text="""

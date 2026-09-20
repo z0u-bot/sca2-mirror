@@ -4,6 +4,7 @@ import json
 import math
 import tempfile
 import textwrap
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -15,7 +16,7 @@ from matplotlib.axes import Axes
 # on sys.path while it runs). The prose quotes the frozen gates, and that module carries the
 # same numbers with each gate's wording in its docstring.
 import experiment as ex
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, smooth_step_band, smooth_step_marks, themed
 from sca.data.colors import redness
@@ -38,37 +39,45 @@ from sca.data.ops import (
 RESULTS_TO_COME = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's fixed per-call latency is a couple of seconds, so resolving seven refs one at a time is most of a render.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+EX227_METRICS_REF = "reports/m2/ex-2.2.7/metrics"
+EX228_METRICS_REF = "reports/m2/ex-2.2.8/metrics"
+REFS = [
+    ex.CALIBRATION_REF,
+    ex.METRICS_REF,
+    ex.GEOMETRY_REF,
+    ex.ex223.METRICS_REF,
+    ex.ex223.GEOMETRY_REF,
+    EX227_METRICS_REF,
+    EX228_METRICS_REF,
+]
+
+with tempfile.TemporaryDirectory() as _tmp:
+    loaded = {r: read_json(f) for r, f in fetch(REFS, Path(_tmp)).items()}
+calibration = loaded[ex.CALIBRATION_REF]
 
 
 def calibration_runs() -> list[dict]:
     """The control seeds trained before the freeze, one per point looked at (corpus size × epochs × depth),
     ordered by step count and then depth.
     """
-    cal = load_json(ex.CALIBRATION_REF)
-    if cal is None:
+    if calibration is None:
         return []
-    return sorted(cal["runs"], key=lambda r: (calibration_steps(r), r.get("n_layer", ex.N_LAYER)))
+    return sorted(calibration["runs"], key=lambda r: (calibration_steps(r), r.get("n_layer", ex.N_LAYER)))
 
 
 def calibration_steps(run: dict) -> int:
@@ -161,14 +170,13 @@ def calibration_verdict() -> str:
 class Results:
     """Every published result the report reads, with one accessor per shape the cells need.
 
-    `metrics` and `arrays` are this experiment's. `ex223` is the reference's metrics (the recipe's twenty seeds
+    `metrics` is this experiment's (the per-line arrays under `ARRAYS_REF` are published but no cell reads them). `ex223` is the reference's metrics (the recipe's twenty seeds
     on the six-op grammar, whose placement statistics are printed beside every read in H2). `ex228` carries
     the per-run spread of the non-red deficit under `projection` at those twenty seeds, which is the σ the
     bands in H3 and H5 use. `ex227` carries the embedding-component table of the pilot, for H4's ceiling.
     """
 
     metrics: dict
-    arrays: dict[str, np.ndarray]
     geometry: dict
     ex223: dict
     ex223_geometry: dict
@@ -213,10 +221,6 @@ class Results:
         """Clean minus intervened expected exact match on one group: H3's selectivity read on `nonred`."""
         return self.score(cond, op, operator, "deficit", group)
 
-    def arr(self, cond: str, kind: str, name: str) -> np.ndarray:
-        """One per-run array stacked over seeds: `kind` is `eval` or `score`, `name` is `{op}/{array}`."""
-        return np.stack([self.arrays[f"{r['label']}/{kind}/{name}"] for r in self.runs(cond)])
-
     def component(self, cond: str, word: str, table: str = "rows") -> np.ndarray:
         """The axis component of one token's row, per seed, on the embedding (`rows`) or the readout."""
         return np.array([r[table][word] for r in self.runs(cond) if r[table] is not None], float)
@@ -256,18 +260,13 @@ class Results:
 
 def load_results() -> Results | None:
     """Everything the results cells read, or None before the full stage has been published."""
-    metrics = load_json(ex.METRICS_REF)
+    metrics = loaded[ex.METRICS_REF]
     if metrics is None:
         return None
-    arrays = load_npz(ex.ARRAYS_REF)
-    geometry = load_json(ex.GEOMETRY_REF)
-    ex223 = load_json(ex.ex223.METRICS_REF)
-    ex223_geometry = load_json(ex.ex223.GEOMETRY_REF)
-    ex227 = load_json("reports/m2/ex-2.2.7/metrics")
-    ex228 = load_json("reports/m2/ex-2.2.8/metrics")
-    assert arrays is not None and geometry is not None and ex223 is not None and ex223_geometry is not None
+    geometry, ex223, ex223_geometry, ex227, ex228 = (loaded[r] for r in REFS[2:])
+    assert geometry is not None and ex223 is not None and ex223_geometry is not None
     assert ex227 is not None and ex228 is not None
-    return Results(metrics, arrays, geometry, ex223, ex223_geometry, ex227, ex228)
+    return Results(metrics, geometry, ex223, ex223_geometry, ex227, ex228)
 
 
 def band(sd: float, n_a: int, n_b: int) -> float:
@@ -444,6 +443,13 @@ def h1_figure(res: Results) -> str:
     ceil = {op: float(res.read("control", op, "ceiling").mean()) for op in ex.OP_NAMES}
     ctrl = {op: float(eem["control", op].mean()) for op in ex.OP_NAMES}
 
+    return h1_draw(conds, eem, ceil, ctrl)
+
+
+@memo
+def h1_draw(
+    conds: list[str], eem: dict[tuple[str, str], np.ndarray], ceil: dict[str, float], ctrl: dict[str, float]
+) -> str:
     @themed(
         name="h1-eem-per-op",
         alt_text="""
@@ -611,6 +617,21 @@ def h2_figure(res: Results) -> str:
     refs = {k: res.ref_stat(k) for k in keys}
     titles = {k: g[0] for k, g in gates.items()} | {"retention": "retention"}
 
+    peak = {c: res.stat(c, "m_line_peak") for c in conds} | {"reference": res.ref_stat("m_line_peak")}
+    return h2_draw(conds, keys, vals, refs, peak, titles)
+
+
+@memo
+def h2_draw(
+    conds: list[str],
+    keys: list[str],
+    vals: dict[tuple[str, str], np.ndarray],
+    refs: dict[str, np.ndarray],
+    peak: dict[str, np.ndarray],
+    titles: dict[str, str],
+) -> str:
+    gates = h2_gates()
+
     @themed(
         name="h2-placement",
         alt_text="""
@@ -628,8 +649,7 @@ def h2_figure(res: Results) -> str:
             for i, c in enumerate(names):
                 v = refs[k] if c == "reference" else vals[c, k]
                 if k == "retention":
-                    peak = res.ref_stat("m_line_peak") if c == "reference" else res.stat(c, "m_line_peak")
-                    v = v[peak >= ex.RETENTION_FLOOR]
+                    v = v[peak[c] >= ex.RETENTION_FLOOR]
                 if len(v):
                     dots(ax, i, v, c, rng=rng)
             if k == "alpha_op1":
@@ -655,6 +675,11 @@ def h2_profile_figure(res: Results) -> str:
     prof = {c: np.asarray(res.stat(c, "pi6", ex.PRIMARY_OP), float)[:, 1:, :].mean(axis=1) for c in conds}  # (seeds, 6)
     roles = ["op1", "op", "op2", "=", "answer", "⏎"]
 
+    return h2_profile_draw(conds, prof, roles)
+
+
+@memo
+def h2_profile_draw(conds: list[str], prof: dict[str, np.ndarray], roles: list[str]) -> str:
     @themed(
         name="h2-softmin-profile",
         alt_text="""
@@ -796,6 +821,13 @@ def h3_figure(res: Results) -> str:
     kept = {(c, op): res.kept(c, op, "projection") for c in conds for op in ex.OP_NAMES}
     deficit = {(c, op): res.deficit(c, op, "projection") for c in conds for op in ex.OP_NAMES}
 
+    return h3_draw(conds, kept, deficit)
+
+
+@memo
+def h3_draw(
+    conds: list[str], kept: dict[tuple[str, str], np.ndarray], deficit: dict[tuple[str, str], np.ndarray]
+) -> str:
     @themed(
         name="h3-removal-selectivity",
         alt_text="""
@@ -915,6 +947,7 @@ def h3_distance_table(res: Results) -> str:
     )
 
 
+@memo
 def distance_floor() -> dict[str, float]:
     """Per op, on its removal lines: the expected distance from the true answer distribution to the line's rounded
     answer, in the unit cube. The value a model with the true distribution would score on `expected_dist`.
@@ -1017,6 +1050,17 @@ def h4_figure(res: Results) -> str:
     ceiling = np.stack([np.abs(res.ex227_component(ex.EX227_CEILING, w)) for w in words], 1)
     d = {c: res.deficit(c, ex.PRIMARY_OP, "projection") for c in ("handover", "handover-tied")}
 
+    return h4_draw(words, labels, series, ceiling, d)
+
+
+@memo
+def h4_draw(
+    words: list[str],
+    labels: list[str],
+    series: dict[tuple[str, str], np.ndarray],
+    ceiling: np.ndarray,
+    d: dict[str, np.ndarray],
+) -> str:
     @themed(
         name="h4-syntax-component",
         alt_text="""
@@ -1137,6 +1181,11 @@ def h5_figure(res: Results) -> str:
     conds = ("handover", "handover-slot")
     d = {(c, o): res.deficit(c, ex.PRIMARY_OP, o) for c in conds for o in ("projection", "operands")}
 
+    return h5_draw(conds, d)
+
+
+@memo
+def h5_draw(conds: tuple[str, ...], d: dict[tuple[str, str], np.ndarray]) -> str:
     @themed(
         name="h5-per-seed-deficit",
         alt_text="""
@@ -1553,6 +1602,7 @@ def to_zero_move(op, a, b) -> float:
     return float(np.linalg.norm(np.subtract(op(*zeroed(a, b)), op(a, b))) / TOP)
 
 
+@memo
 def removal_counts() -> dict[str, tuple[int, int, int]]:
     """Per op: (red probe lines, removal lines, non-red lines with a red answer), on the op's probe set as
     ex-2.2.3 draws it.
@@ -1567,6 +1617,7 @@ def removal_counts() -> dict[str, tuple[int, int, int]]:
     return out
 
 
+@memo
 def slot_counts() -> dict[str, dict[str, tuple[int, int]]]:
     """For the order-sensitive ops: (red lines, removal lines) with the red operand at op1 and at op2, on the
     both-slot probe set.
@@ -1585,6 +1636,7 @@ def slot_counts() -> dict[str, dict[str, tuple[int, int]]]:
     return out
 
 
+@memo
 def eps_check() -> tuple[int, int]:
     """Removal lines for a red op2 under `sat-hsv`, as the per-slot table counts them, with the red operand's
     R set to zero and to one grid level: the epsilon the review asked about.
@@ -1600,6 +1652,7 @@ def eps_check() -> tuple[int, int]:
     return far(0), far(1)
 
 
+@memo
 def refop_facts() -> tuple[float, float, float]:
     """`hsvmix` as a reference op: its on-grid share of unordered pairs, on-grid partners per color, and the
     expected-exact-match ceiling of its probe set (the chance that two draws from the true answer agree).
@@ -1612,6 +1665,7 @@ def refop_facts() -> tuple[float, float, float]:
     return on_grid(op), float(partners), float(ceiling)
 
 
+@memo
 def refop_md() -> str:
     counts = removal_counts()
     rows = []
@@ -1638,6 +1692,7 @@ def coverage(lines_per_op: float) -> tuple[float, float]:
     return 1 - math.exp(-lines_per_op / pool_ordered), 1 - math.exp(-lines_per_op / pool_pairs)
 
 
+@memo
 def table_md() -> str:
     rows = []
     for op in ex.TABLE:
@@ -1661,6 +1716,7 @@ def conds_md() -> str:
     return head + "\n".join(rows)
 
 
+@memo
 def relevance_md() -> str:
     """Op-relevance for the two reference ops under table A+, counted over ordered pairs."""
     ordered = lines()

@@ -1,6 +1,7 @@
 """Tests for ``mini.lit``: parsing, weaving, incremental re-runs, the memo, and the page."""
 
 import importlib
+import sys
 import textwrap
 from pathlib import Path
 
@@ -354,6 +355,41 @@ class TestMemo:
         assert "(6, 6, 0)" in Runner(p).weave().markdown
         p.write_text(p.read_text().replace("x * 2", "x * 3"))
         assert "(9, 9, 1)" in Runner(p).weave().markdown
+
+    def test_miss_on_a_design_constant_read_off_a_module(self, tmp_path):
+        """A report reads its gates as ``ex.GATE``; editing one must redraw what quotes it, though the task fingerprint alone would not see it."""
+        design = write(tmp_path, "GATE = 0.02\n", name="design.py")
+        p = write(
+            tmp_path,
+            "import design\nfrom mini.lit import memo\ncalls = []\n@memo\ndef f():\n    calls.append(1)\n    return design.GATE\nf(), len(calls)\n",
+        )
+        assert "(0.02, 1)" in Runner(p).weave().markdown
+        set_cache_dir(tmp_path / "cache")
+        assert "(0.02, 0)" in Runner(p).weave().markdown
+        design.write_text("GATE = 0.03\n")
+        set_cache_dir(tmp_path / "cache")
+        sys.modules.pop("design")  # a fresh process would not hold the old module
+        assert "(0.03, 1)" in Runner(p).weave().markdown
+
+    def test_array_globals_are_evidence_and_opaque_ones_warn(self, tmp_path, caplog):
+        """A figure that reads a module-level array must redraw when the array changes; one that reads something the cache cannot fingerprint is told to take it as an argument."""
+        src = "import numpy as np\nfrom mini.lit import memo\nA = np.arange(3)\ncalls = []\n@memo\ndef f():\n    calls.append(1)\n    return int(A.sum())\nf(), len(calls)\n"
+        p = write(tmp_path, src)
+        assert "(3, 1)" in Runner(p).weave().markdown
+        set_cache_dir(tmp_path / "cache")
+        assert "(3, 0)" in Runner(p).weave().markdown
+        p.write_text(src.replace("arange(3)", "arange(4)"))
+        set_cache_dir(tmp_path / "cache")
+        assert "(6, 1)" in Runner(p).weave().markdown
+
+        q = write(
+            tmp_path,
+            "from mini.lit import memo\nclass Box: ...\nB = Box()\n@memo\ndef g():\n    return 1\n    B\ng()\n",
+            name="opaque.py",
+        )
+        with caplog.at_level("WARNING", logger="mini.lit.caching"):
+            Runner(q).weave()
+        assert "g reads B (Box)" in caplog.text
 
     def test_array_inputs_key_by_content(self):
         np = pytest.importorskip("numpy")
