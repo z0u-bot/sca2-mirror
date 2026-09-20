@@ -915,8 +915,8 @@ ret = retention_stats(res)
 
 @themed(
     name="retention",
-    caption="**Line alignment over training, and two retention ratios.** Left: every seed's line alignment against epoch, one thin line per seed, for the three handover conditions; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
-    alt_text="Three panels. Left, alignment trajectories: handover seeds rise to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
+    caption="**Line alignment over training, and two retention ratios.** Left: line alignment against epoch for the three handover conditions, one faint line per seed with the seed mean drawn over them; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
+    alt_text="Three panels. Left, alignment trajectories with faint per-seed lines under a bold mean: handover rises to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
 )
 def plot_ret() -> plt.Figure:
     rng = np.random.default_rng(0)
@@ -924,9 +924,12 @@ def plot_ret() -> plt.Figure:
     ax = axes[0]
     conds = ("handover", "handover-slot", "handover-tied")
     for cond in conds:
-        for i, r in enumerate(res.by_cond(cond)):
-            t = res.traj[r["label"]]["traj"]
-            ax.plot(t["epoch"], t["m_line"], "-", color=ink(cond), lw=0.7, alpha=0.5, label=cond if i == 0 else None)
+        trajs = [res.traj[r["label"]]["traj"] for r in res.by_cond(cond)]
+        ep = np.array(trajs[0]["epoch"])
+        ml = np.array([np.interp(ep, t["epoch"], t["m_line"]) for t in trajs])
+        for row in ml:
+            ax.plot(ep, row, "-", color=ink(cond), lw=0.5, alpha=0.18, zorder=1)
+        ax.plot(ep, ml.mean(axis=0), "-", color=ink(cond), lw=1.6, label=cond, zorder=3)
     a0 = float(np.mean([anneal_start(res, r["label"]) for r in res.by_cond("handover")]))
     ax.axvspan(
         a0,
