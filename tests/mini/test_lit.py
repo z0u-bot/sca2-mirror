@@ -1,6 +1,7 @@
 """Tests for ``mini.lit``: parsing, weaving, incremental re-runs, the memo, and the page."""
 
 import importlib
+import os
 import sys
 import textwrap
 from pathlib import Path
@@ -377,6 +378,9 @@ class TestMemo:
         set_cache_dir(tmp_path / "cache")
         assert "(0.02, 0)" in Runner(p).weave().markdown
         design.write_text("GATE = 0.03\n")
+        # The rewrite kept design.py's size and landed in the same whole second, so Python's cached
+        # bytecode still validates and the re-import would hand back the old GATE. Date it forward.
+        os.utime(design, (later := design.stat().st_mtime + 2, later))
         set_cache_dir(tmp_path / "cache")
         sys.modules.pop("design")  # a fresh process would not hold the old module
         assert "(0.03, 1)" in Runner(p).weave().markdown
