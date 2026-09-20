@@ -581,7 +581,7 @@ def plot_guess(op: str) -> plt.Figure:
 
 
 figure_html(
-    "".join(figure_html(themed(plot_guess, name=f"guess-{op}")(op), caption=f"`{op}`") for op in OPS),
+    "".join(themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op) for op in OPS),
     caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer and a stub between them. Marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
@@ -610,7 +610,7 @@ def plot_cloud(op: str) -> plt.Figure:
 
 
 figure_html(
-    "".join(figure_html(themed(plot_cloud, name=f"cloud-{op}")(op), caption=f"`{op}`") for op in OPS),
+    "".join(themed(plot_cloud, name=f"cloud-{op}", caption=f"`{op}`")(op) for op in OPS),
     caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right. Wheel view of the RGB cube. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
     aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
 )
@@ -668,7 +668,7 @@ def plot_decoded(op: str) -> plt.Figure:
 
 
 figure_html(
-    "".join(figure_html(themed(plot_decoded, name=f"decoded-{op}")(op), caption=f"`{op}`") for op in OPS),
+    "".join(themed(plot_decoded, name=f"decoded-{op}", caption=f"`{op}`")(op) for op in OPS),
     caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with an open ring at the clean decode of the same line and a stub between them, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer. Wheel view of the RGB cube. Slice 0 is the embedding, and each later slice is the stream after one more block.",
     aria_label="Cube panels of probe-decoded colors across five slices, projected marks with rings at the clean decode. The operand marks start on their rings at red and slide further from them with each slice, toward orange on one side and pink on the other; the answer marks stop short of rings that spread toward the rim.",
 )
