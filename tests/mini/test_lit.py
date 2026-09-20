@@ -21,6 +21,13 @@ def write(tmp_path: Path, text: str, name: str = "doc.py") -> Path:
     return p
 
 
+def header(response, name: str) -> str:
+    """*response*'s header, failing the test if the server left it out — which every assertion below would rather say plainly than pass ``None`` on."""
+    value = response.getheader(name)
+    assert value is not None, f"the response carries no {name}"
+    return value
+
+
 class TestParse:
     def test_header_and_string_prose(self, tmp_path):
         doc = parse(
@@ -572,7 +579,7 @@ class TestServe:
                 r = conn.getresponse()
                 body = r.read()
                 assert r.status == 200
-                assert len(body) == int(r.getheader("Content-Length"))
+                assert len(body) == int(header(r, "Content-Length"))
                 assert r.version == 11 and not r.will_close  # the next request reuses this socket
         finally:
             conn.close()
@@ -609,7 +616,7 @@ class TestServe:
             conn.request("GET", "/index.html")
             r = conn.getresponse()
             r.read()
-            etag = r.getheader("ETag")
+            etag = header(r, "ETag")
             conn.request("GET", "/index.html", headers={"If-None-Match": etag})
             r = conn.getresponse()
             assert r.status == 304 and r.read() == b""
@@ -631,7 +638,7 @@ class TestServe:
             conn.request("GET", "/_assets/fig.png")
             r = conn.getresponse()
             (tmp_path / "out" / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(10))
-            assert len(r.read()) == int(r.getheader("Content-Length"))
+            assert len(r.read()) == int(header(r, "Content-Length"))
         finally:
             conn.close()
             server.shutdown()
