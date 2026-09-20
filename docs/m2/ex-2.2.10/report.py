@@ -2,6 +2,7 @@
 
 import colorsys
 import itertools
+from collections.abc import Sequence
 import json
 import tempfile
 from collections import Counter
@@ -667,17 +668,21 @@ guess_pairs = answer_pairs(res)
 VIEWS: tuple[ViewName, ...] = ("wheel", "solid")
 
 
-def view_grid() -> tuple[plt.Figure, dict[tuple[ViewName, int, str], Axes]]:
-    """The figure the two removal-line figures share: one sub-figure per red slot, so the gap between
-    them is wider than the gap within, with a row per view and a column per pass. Only the top row
-    carries titles; the bottom row is the same panel seen from the side.
+def view_grid[G, C](
+    groups: Sequence[G], cols: Sequence[C], *, figsize: tuple[float, float], stacked: bool = False
+) -> tuple[plt.Figure, dict[tuple[ViewName, G, C], Axes]]:
+    """The figure the removal-line figures share: one sub-figure per group, so the gap between groups is
+    wider than the gap within (side by side, or *stacked*), with a row per view and a column per *cols*.
+    Only the top row of a group carries titles; the row under it is the same panel seen from the side.
     """
-    fig = plt.figure(figsize=(8.4, 4.6), layout="constrained")
+    fig = plt.figure(figsize=figsize, layout="constrained")
+    shape = (len(groups), 1) if stacked else (1, len(groups))
+    subs = fig.subfigures(*shape, squeeze=False, hspace=0.06, wspace=0.08).ravel()
     axes = {}
-    for (slot, _g), sub in zip(SLOTS, fig.subfigures(1, len(SLOTS), wspace=0.08), strict=True):
-        grid = sub.subplots(len(VIEWS), len(PASSES))
-        for (i, view), (j, pas) in itertools.product(enumerate(VIEWS), enumerate(PASSES)):
-            axes[view, slot, pas] = grid[i, j]
+    for group, sub in zip(groups, subs, strict=True):
+        grid = sub.subplots(len(VIEWS), len(cols))
+        for (i, view), (j, col) in itertools.product(enumerate(VIEWS), enumerate(cols)):
+            axes[view, group, col] = grid[i, j]
     return fig, axes
 
 
@@ -687,7 +692,7 @@ def title(ax: Axes, view: ViewName, text: str) -> None:
 
 
 def plot_guess(op: str) -> plt.Figure:
-    fig, axes = view_grid()
+    fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
     for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
         ax = axes[view, slot, pas]
         pairs = guess_pairs[op, slot, pas]
@@ -713,7 +718,7 @@ def plot_guess(op: str) -> plt.Figure:
 
 figure_html(
     "".join(themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op) for op in OPS),
-    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer; marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
+    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, and sized by how many answers made that move; the clean panels show where the true answers lie, and a projected mark whose color matches its place is an answer that still matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
 
@@ -728,7 +733,7 @@ cloud_mass = answer_mass(res)
 
 def plot_cloud(op: str) -> plt.Figure:
     rng = np.random.default_rng(1)
-    fig, axes = view_grid()
+    fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
     for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
         ax = axes[view, slot, pas]
         m = cloud_mass[op, slot, pas]
@@ -784,24 +789,49 @@ Fitting on the non-red lines keeps the axis out of the probes. A probe fit on li
 decoded = decoded_colors(res)
 
 
+READS = ("operand", "answer")
+
+
+def slice_name(sl: int) -> str:
+    """Slice 0 is the embedding; each later slice is the stream after that many blocks."""
+    return "emb" if sl == 0 else f"slice {sl}"
+
+
 def plot_decoded(op: str) -> plt.Figure:
     n_sl = len(ex.SLICES)
-    fig, axes = plt.subplots(2, n_sl, figsize=(1.75 * n_sl, 3.9), layout="constrained")
-    for r, what in enumerate(("operand", "answer")):
+    fig, axes = view_grid(READS, ex.SLICES, figsize=(1.75 * n_sl, 7.6), stacked=True)
+    for view, what, sl in itertools.product(VIEWS, READS, ex.SLICES):
+        ax = axes[view, what, sl]
         truth = decoded[op, f"{what}_truth"]
-        for s in range(n_sl):
-            ax = axes[r, s]
-            d = np.clip(decoded[op, "projection", what][s], -0.2, 1.2)
-            ring = np.clip(decoded[op, "clean", what][s], -0.2, 1.2)
-            plot_rgb_cube(ax, d, truth, truth=ring, s=5, view="wheel")
-            ax.set_title(f"{'red operand' if what == 'operand' else 'answer at ='}, slice {s}", fontsize=7)
+        d = np.clip(decoded[op, "projection", what][sl], -0.2, 1.2)
+        ring = np.clip(decoded[op, "clean", what][sl], -0.2, 1.2)
+        if what == "operand":
+            # A few dozen lines that all start at red: one stub each is the legible picture. No rings,
+            # since a ring at red under a red stub adds nothing.
+            plot_rgb_cube(ax, d, truth, truth=ring, rings=False, s=5, view=view, labels=True)
+        else:
+            # Hundreds of lines all round the wheel: light marks, and the moves as a flow. The weights
+            # are flat (one line per move); the lattice is finer than the answer figures' since the
+            # moves are shorter.
+            plot_rgb_cube(ax, d, truth, s=2, view=view, labels=True)
+            flow_arrows(
+                ax,
+                ring,
+                d,
+                np.ones(len(d)),
+                view=view,
+                sigma=0.15,
+                step=0.25,
+                min_move=0.05 if view == "wheel" else 0.08,
+            )
+        title(ax, view, f"{'red operand' if what == 'operand' else 'answer at ='}, {slice_name(sl)}")
     return fig
 
 
 figure_html(
     "".join(themed(plot_decoded, name=f"decoded-{op}", caption=f"`{op}`")(op) for op in OPS),
-    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with an open ring at the clean decode of the same line and a stub between them, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer. Wheel view of the RGB cube. Slice 0 is the embedding, and each later slice is the stream after one more block.",
-    aria_label="Cube panels of probe-decoded colors across five slices, projected marks with rings at the clean decode. The operand marks start on their rings at red and slide further from them with each slice, toward orange on one side and pink on the other; the answer marks stop short of rings that spread toward the rim.",
+    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with a stub from the clean decode of the same line, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer; there are too many lines for rings and stubs, so the moves from the clean decodes to the projected ones are drawn as a smoothed flow, on the same terms as the greedy-answer figure. Each read is shown in the wheel view and, under it, the solid view, as in the answer figures. *emb* is the embedding, and slice *n* is the stream after *n* blocks.",
+    aria_label="Cube panels of probe-decoded colors across five slices, in wheel and solid views. The operand marks start at red and slide further from it with each slice, toward orange on one side and pink on the other, at nearly constant lightness; the answer flow points away from red for the reddish answers and gently inward elsewhere.",
 )
 
 # %%
@@ -814,7 +844,7 @@ for op in OPS:
     for k, v in r2.items():
         probe_rows.append([f"`{op}`, {k}", *(f"{x:.2f}" for x in v)])
 table_html(
-    ["Op and site", *(f"slice {s}" for s in ex.SLICES)],
+    ["Op and site", *(slice_name(s) for s in ex.SLICES)],
     probe_rows,
     "**Probe fit on the red lines, R² per slice, mean over seeds.** Each probe is a ridge fit on the clean stream of the non-red lines, and is read here on the clean stream of the red lines. `op1@op1` reads op1 at position 0, `op2@op2` reads op2 at position 2, and `ans@=` reads the raw answer from the rule at `=`. The negative fit of the answer probe at slice 0 is expected: at the embedding, `=` has nothing of the line in it.",
 )
@@ -834,7 +864,7 @@ for op in OPS:
         truth = decoded[op, f"{what}_truth"]
         ht = hsv(truth)
         for sl in (1, last):
-            cells = [f"`{op}`, {name}, slice {sl}"]
+            cells = [f"`{op}`, {name}, {slice_name(sl)}"]
             for pas in PASSES:
                 d = decoded[op, pas, what][sl]
                 h = hsv(d)
