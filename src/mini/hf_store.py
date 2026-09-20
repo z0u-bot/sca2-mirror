@@ -16,20 +16,101 @@ Blobs are warm-cached into a local :class:`~mini.store.LocalStore` so a re-read 
 
 from __future__ import annotations
 
+import logging
 import os
+import random
 import shutil
 import tempfile
 import threading
+import time
 from pathlib import Path
-from typing import Any, Iterable, Iterator, cast
+from typing import Any, Callable, Iterable, Iterator, cast
 
 from mini.store import Artifact, BlobStat, LocalStore, Store, _cas_key, _hash_file, _tree_sha, artifact_shas
 
 __all__ = ["HFStore"]
 
+log = logging.getLogger(__name__)
+
 # Buckets need ``*.xethub.hf.co`` (byte transfer) and, for serving, ``*.cdn.hf.co``
 # on the network egress allow-list; metadata-only calls to ``huggingface.co`` work
 # without them but every transfer hangs on a 403. See eng/operations.md.
+
+
+# -- transient bucket failures ------------------------------------------------
+#
+# A bucket call answers 500 now and then, and the cost lands on whatever was running:
+# in the ex-2.2.9 run on 2026-09-16 the ``/batch`` endpoint returned one twice in
+# twenty minutes — once four minutes into a scoring step, once in the last step of
+# the DAG — and both cleared on a ``bin/mini retry``, at the price of a driver
+# relaunch and someone noticing.
+#
+# ``huggingface_hub`` already retries its own metadata POSTs (``http_backoff``: five
+# attempts on 408/429/5xx and on transport errors, waiting 1s and doubling to a cap
+# of 8s), so a blip of a few seconds never reaches us. Two gaps are left, and this is
+# the second, wider ring around them: an incident that outlasts that ~23s ceiling,
+# and the Xet byte transfer under ``add``/``download``, which carries no retry of its
+# own. Three further attempts, each waiting longer than the inner budget, take what
+# the store rides out from ~23s to something over two minutes.
+#
+# Retrying is safe here because every wrapped call is idempotent: a CAS write is
+# keyed by the content hash, a ref write replays the same payload, a publish copy
+# names a fixed destination, a delete of an absent path is a no-op, and the rest are
+# reads. So a duplicate attempt cannot leave the bucket in a state the first one
+# wouldn't have.
+
+_RETRY_WAITS = (10.0, 20.0, 40.0)
+"""Seconds to wait before each retry — so four attempts in all, the last beginning ~70s in."""
+
+# 422 is the odd one out in an otherwise "4xx is final" rule, and it is measured rather
+# than guessed. Two *processes* that commit the same Xet hash at the same moment race
+# in the bucket's dedup and one of them comes back 422; against the dev bucket, ten
+# concurrent writes of distinct content were all clean, concurrent writes of identical
+# content failed about half the time, and every failure cleared on the next attempt.
+# Threads in one process share a Xet session and never raced. A content-addressed CAS
+# makes that collision ordinary — two workers whose ``has`` probes both miss on the
+# same bytes then both write them — so it is a real sweep hazard, and it is what makes
+# ``pytest -m hf`` flaky under xdist. The cost if a payload is ever malformed for real
+# is ~70s of retries before an error that was always going to arrive.
+_RETRY_STATUSES = frozenset({422, *range(500, 600)})
+"""HTTP statuses worth another attempt."""
+
+
+def _sleep_before_retry(seconds: float) -> None:
+    """Wait, with ±25% jitter so a sweep's workers don't all come back at the same instant."""
+    time.sleep(seconds * random.uniform(0.75, 1.25))
+
+
+def _is_transient(exc: BaseException) -> bool:
+    """Is this a server-side or transport failure that another attempt might clear?
+
+    A 4xx usually says the request itself is wrong — a token without write access, a bucket that isn't there — so retrying only delays an error that was already final. 5xx, transport failures, and one measured 4xx come back.
+    """
+    import httpx
+    from huggingface_hub.errors import HfHubHTTPError
+
+    if isinstance(exc, httpx.TimeoutException | httpx.NetworkError | httpx.RemoteProtocolError):
+        return True
+    if isinstance(exc, HfHubHTTPError):
+        response = getattr(exc, "response", None)
+        return response is not None and response.status_code in _RETRY_STATUSES
+    return False
+
+
+def _retrying[T](what: str, call: Callable[[], T]) -> T:
+    """Run *call*, coming back through a transient bucket failure and giving up on anything else.
+
+    *call* must be idempotent — see the note above. *what* names the operation in the warning, which is the only trace a retry leaves: a run that comes back on attempt two looks identical to one that never stumbled.
+    """
+    for wait in _RETRY_WAITS:
+        try:
+            return call()
+        except Exception as e:
+            if not _is_transient(e):
+                raise
+            log.warning("%s failed (%s); retrying in ~%.0fs", what, e, wait)
+            _sleep_before_retry(wait)
+    return call()
 
 
 class HFStore(Store):
@@ -83,6 +164,10 @@ class HFStore(Store):
             )
         return self.bucket
 
+    def _batch(self, bucket: str, **ops: Any) -> None:
+        """One ``batch_bucket_files`` commit — every bucket mutation goes through here, so they all get the retry ring."""
+        _retrying(f"bucket write to {bucket}", lambda: self.api.batch_bucket_files(bucket, **ops))
+
     # -- existence / cache ----------------------------------------------------
 
     def _paths_info(self, paths: list[str]) -> dict[str, Any]:
@@ -95,7 +180,12 @@ class HFStore(Store):
         if not paths:
             return {}
         try:
-            return {info.path: info for info in self.api.get_bucket_paths_info(self._cas, paths)}
+            # The retry wraps the *consumption*: get_bucket_paths_info is a generator,
+            # so the request only goes out as the dict is built.
+            return _retrying(
+                f"paths-info on {self._cas}",
+                lambda: {info.path: info for info in self.api.get_bucket_paths_info(self._cas, paths)},
+            )
         except EntryNotFoundError, RepositoryNotFoundError:
             return {}
 
@@ -114,7 +204,7 @@ class HFStore(Store):
     def _write_blob(self, sha256: str, src: Path) -> None:
         # Reached only on a cache+remote miss (the base ``put`` checks ``has``
         # first); Xet still dedups the chunks if the bytes happen to exist.
-        self.api.batch_bucket_files(self._cas, add=[(str(src), _cas_key(sha256))])
+        self._batch(self._cas, add=[(str(src), _cas_key(sha256))])
         self._cache_blob(sha256, src)
 
     def _pull_blobs(self, sha256s: Iterable[str]) -> None:
@@ -138,8 +228,12 @@ class HFStore(Store):
             blob.parent.mkdir(parents=True, exist_ok=True)
             pulls.append((blob, blob.with_name(f"{sha}.tmp.{os.getpid()}.{threading.get_ident()}")))
         try:
-            self.api.download_bucket_files(
-                self._cas, files=[(infos[_cas_key(s)], str(tmp)) for s, (_, tmp) in zip(missing, pulls, strict=True)]
+            # A retried download rewrites the same temp files, which the atomic
+            # rename below and the ``finally`` sweep already account for.
+            files = [(infos[_cas_key(s)], str(tmp)) for s, (_, tmp) in zip(missing, pulls, strict=True)]
+            _retrying(
+                f"download of {len(files)} blob(s) from {self._cas}",
+                lambda: self.api.download_bucket_files(self._cas, files=files),
             )
             for blob, tmp in pulls:
                 tmp.replace(blob)
@@ -175,14 +269,14 @@ class HFStore(Store):
                 add.append((str(p), _cas_key(sha)))
             self._cache_blob(sha, p)
         if add:
-            self.api.batch_bucket_files(self._cas, add=add)  # one round trip for the set
+            self._batch(self._cas, add=add)  # one round trip for the set
         kids = tuple(children)
         return Artifact(sha256=_tree_sha(kids), size=sum(c.size for c in kids), name=name, kind="tree", children=kids)
 
     # -- refs -----------------------------------------------------------------
 
     def _write_ref(self, name: str, payload: str) -> None:
-        self.api.batch_bucket_files(self._cas, add=[(payload.encode(), f"refs/{name}.json")])
+        self._batch(self._cas, add=[(payload.encode(), f"refs/{name}.json")])
 
     def _read_ref(self, name: str) -> str | None:
         return self._read_refs([name])[name]
@@ -214,7 +308,10 @@ class HFStore(Store):
             return out
         with tempfile.TemporaryDirectory() as d:  # cleaned up, unlike a bare mkdtemp
             files = [(info, str(Path(d) / f"{i}.json")) for i, (info, _) in enumerate(pull.values())]
-            self.api.download_bucket_files(self._cas, files=files)
+            _retrying(
+                f"download of {len(files)} ref(s) from {self._cas}",
+                lambda: self.api.download_bucket_files(self._cas, files=files),
+            )
             for (path, (_, cached)), (_, tmp) in zip(pull.items(), files, strict=True):
                 payload = Path(tmp).read_text()
                 out[paths[path]] = payload
@@ -237,14 +334,16 @@ class HFStore(Store):
     def _publish_to_bucket(self, art: Artifact, path: str) -> str:
         """The single-store default: expose a CAS blob in-bucket under ``published/``."""
         bucket = self._cas
-        info = list(self.api.get_bucket_paths_info(bucket, [_cas_key(art.sha256)]))
+        info = _retrying(
+            f"paths-info on {bucket}", lambda: list(self.api.get_bucket_paths_info(bucket, [_cas_key(art.sha256)]))
+        )
         if not info:
             raise FileNotFoundError(f"{art.sha256[:12]}… is not in the store — put() it before publish()")
         # Server-side copy *by xet hash*: a metadata op, no bytes moved. The
         # extensioned destination is what makes the resolve URL serve a real
         # Content-Type (a bare cas/<sha> has none).
         dest = f"published/{path}"
-        self.api.batch_bucket_files(bucket, copy=[("bucket", bucket, info[0].xet_hash, dest)])
+        self._batch(bucket, copy=[("bucket", bucket, info[0].xet_hash, dest)])
         return f"https://huggingface.co/buckets/{bucket}/resolve/{dest}"
 
     def _publish_to_repo(self, art: Artifact, path: str) -> str:
@@ -293,7 +392,7 @@ class HFStore(Store):
     def delete_blobs(self, sha256s: Iterable[str]) -> None:
         shas = list(sha256s)
         for i in range(0, len(shas), 500):  # one commit per chunk, not per blob
-            self.api.batch_bucket_files(self._cas, delete=[_cas_key(s) for s in shas[i : i + 500]])
+            self._batch(self._cas, delete=[_cas_key(s) for s in shas[i : i + 500]])
         # Purge the warm cache too: a stale local copy would make ``has`` claim
         # the bucket still holds bytes it no longer does, and a later ``put`` of
         # the same content would silently skip the re-upload.
@@ -391,5 +490,8 @@ class HFStore(Store):
             return None
         with tempfile.TemporaryDirectory() as d:
             out = Path(d) / "file"
-            self.api.download_bucket_files(self._cas, files=[(infos[path], str(out))])
+            _retrying(
+                f"download of {path} from {self._cas}",
+                lambda: self.api.download_bucket_files(self._cas, files=[(infos[path], str(out))]),
+            )
             return out.read_text("utf-8")
