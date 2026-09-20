@@ -155,6 +155,26 @@ figcaption {
   text-align: center;
 }
 
+/* A themed figure (mini.vis.figures.themed) carries both renders of the plot, and the
+ * page shows one: an explicit theme on the body element wins, and the OS preference
+ * applies only where the body states none. The print rules in docs/report.css pin the
+ * light one. */
+.mini-themed-figure .mini-themed-img-dark { display: none; }
+.mini-themed-figure .mini-themed-img-light { display: block; }
+body[data-theme="dark"] .mini-themed-figure,
+body.dark .mini-themed-figure,
+body.dark-theme .mini-themed-figure {
+  .mini-themed-img-dark { display: block; }
+  .mini-themed-img-light { display: none; }
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+    .mini-themed-figure {
+    .mini-themed-img-dark { display: block; }
+    .mini-themed-img-light { display: none; }
+  }
+}
+
 /* Admonitions (pymdownx blocks) and details. */
 .admonition, details {
   margin-block: 1.5em;

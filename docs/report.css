@@ -11,17 +11,6 @@
  * figures, captions, tables, admonitions and footnotes on screen, so the rules here
  * are the report-specific pieces and the print ones). */
 
-/* Captions on authored figures — a table / other HTML-SVG body wrapped by
- * mini.vis.figure_html with class="report-figure" — get the same muted italic look
- * `themed` bakes into image captions, so every report caption reads alike. */
-figure.report-figure > figcaption {
-  margin-top: 0.6em;
-  font-size: 0.9em;
-  font-style: italic;
-  opacity: 0.75;
-  text-wrap: balance;
-}
-
 /* Colour swatch: a small square tinted via the `--sw` custom property, so each
  * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill.
  * The base `.sw`, `.sw-dot` and `.sw-open` rules live in mini.lit's sheet. */
@@ -33,7 +22,7 @@ figure.report-figure > figcaption {
  * a single `--sw`, so the square tracks the same pair a `light_dark` figure uses. The two
  * hexes ride in separate properties because the element's own `style=` would outrank any
  * rule that tried to reassign `--sw` directly. Theme detection mirrors the themed-figure
- * CSS in mini.vis.figures: an explicit theme on the body element wins, and the OS preference
+ * rules in mini.lit's sheet: an explicit theme on the body element wins, and the OS preference
  * applies only where the body states none. (No literal body tag in this comment: the
  * export injects its chips after the first one it finds.) */
 .sw-themed {
@@ -210,12 +199,12 @@ main.lit details:not(:open) {
     display: table-header-group;
   }
 
-  /* Figures are always the light variant. The themed-figure CSS (mini.vis.figures) picks
-   * the pair by the page theme; paper has one. */
-  figure[class*="mini-themed-figure"] .mini-themed-img-light {
+  /* Figures are always the light variant. The themed-figure rules in mini.lit's sheet
+   * pick the pair by the page theme; paper has one. */
+  .mini-themed-figure .mini-themed-img-light {
     display: block !important;
   }
-  figure[class*="mini-themed-figure"] .mini-themed-img-dark {
+  .mini-themed-figure .mini-themed-img-dark {
     display: none !important;
   }
 

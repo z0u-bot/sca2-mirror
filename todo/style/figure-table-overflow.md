@@ -37,7 +37,7 @@ Examples of current structure, which we can change:
 
 ```html
 <div class="output block">
-  <figure class="mini-themed-figure-08d4a808c42a"> <!-- Every themed figure inlines its own styles, which isn't great. -->
+  <figure class="mini-themed-figure"> <!-- Styled by rules in mini.lit's sheet since 2026-09-20; each figure used to inline its own. -->
     <img class="mini-themed-img-light" ...>
     <img class="mini-themed-img-dark" ...>
     <figcaption>

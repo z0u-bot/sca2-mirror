@@ -213,7 +213,6 @@ def themed_figure_html(
     Each ``<img>`` carries explicit ``width``/``height`` attributes: the figure's *physical* size (PNG pixels × 96 CSS px/in ÷ save dpi), not its pixel count. Without them the browser displays 1 image px per CSS px, so the render dpi would leak into layout — a 192 dpi figure would paint at twice its figsize, and text sized to match the page would not. Pinning the CSS size makes the extra pixels crispness on high-dpr screens instead of extra inches, and lets the browser reserve the right space before the image loads.
     """
     import base64
-    import hashlib
     import html
     from io import BytesIO
 
@@ -271,70 +270,13 @@ def themed_figure_html(
         else "max-width: 100%; height: auto;"
     )
     escaped_style = html.escape(style)
-    # Derived from the asset name (not random) so re-exporting an unchanged report
-    # produces byte-identical HTML — a random suffix here would churn the report on
-    # every run even though the figures themselves are unchanged.
-    class_suffix = hashlib.sha256(asset_name.encode()).hexdigest()[:12]
-    figure_class = f"mini-themed-figure-{class_suffix}"
-    no_explicit_theme_selector = (
-        'body:not([data-theme="dark"]):not([data-theme="light"])'
-        ":not(.dark):not(.dark-theme):not(.light):not(.light-theme)"
-    )
-    css = dedent(f"""
-        <style>
-        .{figure_class} {{
-            .mini-themed-img-dark {{
-                display: none;
-            }}
-
-            .mini-themed-img-light {{
-                display: block;
-            }}
-        }}
-
-        body[data-theme='dark'],
-        body.dark,
-        body.dark-theme {{
-            .{figure_class} {{
-                .mini-themed-img-dark {{
-                    display: block;
-                }}
-
-                .mini-themed-img-light {{
-                    display: none;
-                }}
-            }}
-        }}
-
-        @media (prefers-color-scheme: dark) {{
-            {no_explicit_theme_selector} {{
-                .{figure_class} {{
-                    .mini-themed-img-dark {{
-                        display: block;
-                    }}
-
-                    .mini-themed-img-light {{
-                        display: none;
-                    }}
-                }}
-            }}
-        }}
-
-        .{figure_class} > figcaption {{
-            margin-top: 0.6em;
-            font-size: 0.9em;
-            font-style: italic;
-            opacity: 0.75;
-            text-wrap: balance;
-        }}
-        </style>
-        """)
+    # One stable class: the light/dark switch and the caption are rules in mini.lit's
+    # sheet (lit.css), which every page that shows a figure carries.
+    figure_class = "mini-themed-figure"
     light_w, light_h = _css_size(light_png)
     dark_w, dark_h = _css_size(dark_png)
     imgs = dedent(f"""
         <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" width="{light_w}" height="{light_h}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" width="{dark_w}" height="{dark_h}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         """)
-    figure = figure_html(imgs, caption=caption, class_=figure_class)
-
-    return f"{css}{figure}"
+    return figure_html(imgs, caption=caption, class_=figure_class)
