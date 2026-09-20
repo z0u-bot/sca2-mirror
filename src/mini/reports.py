@@ -119,10 +119,11 @@ class Publisher:
     strict: bool = True
     # Whether the returned URL carries a ``?v=<content hash>``. A stable filename is the
     # point of the naming scheme, but it means an edited figure keeps its URL, so a
-    # browser goes on showing the copy it already has (the live server sends no
-    # ``Cache-Control``, leaving the freshness heuristic to guess, and it guesses stale).
-    # Stamping the hash makes changed bytes a new URL and unchanged bytes the same one —
-    # so the cache still does its job between edits. Off for an export: a published
+    # browser may go on showing the copy it already has. The live server now sends
+    # ``Cache-Control: no-store``, so this is belt and braces there; it still covers a
+    # page saved or proxied somewhere that header doesn't reach. Stamping the hash makes
+    # changed bytes a new URL and unchanged bytes the same one — so the cache still does
+    # its job between edits. Off for an export: a published
     # bundle already gets a fresh URL per revision (the ``<base href>`` carries the
     # commit sha), and a query string there would only churn the HTML.
     versioned: bool = False

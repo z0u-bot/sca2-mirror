@@ -486,3 +486,74 @@ class TestSiblingImports:
         assert "a" in Runner(ws[0]).weave().markdown
         assert "b" in Runner(ws[1]).weave().markdown
         assert "a" in Runner(ws[0]).weave().markdown  # and back again: the earlier directory moves to the front
+
+
+class TestServe:
+    """The live server's transport: what a browser (and whatever proxies for it) sees."""
+
+    def _serve(self, tmp_path):
+        import threading
+        from functools import partial as bind
+
+        from mini.lit.serve import _Handler, _Server, _Site
+
+        out = tmp_path / "out"
+        (out / "_assets").mkdir(parents=True)
+        (out / "index.html").write_text("<p>hi</p>")
+        (out / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(200_000))
+        site = _Site(out)
+        handler = type("Handler", (_Handler,), {"site": site})
+        server = _Server(("127.0.0.1", 0), bind(handler, directory=str(out)))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, site
+
+    def test_one_connection_serves_the_whole_page(self, tmp_path):
+        """Keep-alive, and every body as long as its ``Content-Length`` says.
+
+        A report asks for dozens of figures at once. Under HTTP/1.0 each is its own connection, and a connection lost in that burst reaches the browser as ``ERR_CONTENT_LENGTH_MISMATCH``.
+        """
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            for path in ("/", "/_assets/fig.png?v=deadbeef", "/index.html"):
+                conn.request("GET", path)
+                r = conn.getresponse()
+                body = r.read()
+                assert r.status == 200
+                assert len(body) == int(r.getheader("Content-Length"))
+                assert r.version == 11 and not r.will_close  # the next request reuses this socket
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_a_replaced_file_mid_request_is_still_whole(self, tmp_path):
+        """A build lands while the page is loading: the browser gets one version or the other, never a short body."""
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/_assets/fig.png")
+            r = conn.getresponse()
+            (tmp_path / "out" / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(10))
+            assert len(r.read()) == int(r.getheader("Content-Length"))
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_the_version_poll_answers_when_a_build_lands(self, tmp_path):
+        import http.client
+        import threading
+
+        server, site = self._serve(tmp_path)
+        try:
+            threading.Timer(0.2, lambda: site.publish(lambda reload: "<p>next</p>" + reload)).start()
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/__version?after=0")
+            r = conn.getresponse()
+            assert r.read() == b"1"
+        finally:
+            conn.close()
+            server.shutdown()

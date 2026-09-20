@@ -74,19 +74,49 @@ class _Site:
 class _Handler(SimpleHTTPRequestHandler):
     site: _Site
 
+    # Speak HTTP/1.1, so a connection is reused across requests. The default is HTTP/1.0,
+    # one connection per request and closed after each; a report page asks for forty-odd
+    # figures at once, so a reload opens forty-odd connections in a burst. Whatever sits
+    # between the browser and here — VS Code's port forwarding in a dev container, an SSH
+    # tunnel — then has to re-dial for every one, and a connection lost in that burst
+    # reaches the browser as a body shorter than the ``Content-Length`` said
+    # (``ERR_CONTENT_LENGTH_MISMATCH``). With keep-alive the whole page comes down a
+    # handful of sockets.
+    protocol_version = "HTTP/1.1"
+    # Drop an idle keep-alive connection rather than hold its thread forever. Comfortably
+    # past the long poll below, so a waiting page is never cut off mid-wait.
+    timeout = 90
+
     def do_GET(self) -> None:  # noqa: N802
         if self.path.startswith("/__version"):
             after = int(self.path.rpartition("=")[2] or 0)
-            body = str(self.site.wait_past(after, timeout=25)).encode()
-            self.send_response(HTTPStatus.OK)
-            self.send_header("Content-Type", "text/plain")
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
+            self._send(str(self.site.wait_past(after, timeout=25)).encode(), "text/plain")
             return
         if self.path in ("/", ""):
             self.path = "/index.html"
-        super().do_GET()
+        path = Path(self.translate_path(self.path))
+        if not path.is_file():
+            super().do_GET()  # a directory listing, or the 404
+            return
+        # Read the file, then send it, rather than stat-then-stream as the base class
+        # does: the bytes we measure are the bytes we write, so the length can't disagree
+        # with the body even if a build replaces the file underneath us mid-request.
+        try:
+            body = path.read_bytes()
+        except OSError:
+            self.send_error(HTTPStatus.NOT_FOUND, "File not found")
+            return
+        self._send(body, self.guess_type(str(path)))
+
+    def _send(self, body: bytes, ctype: str) -> None:
+        self.send_response(HTTPStatus.OK)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        try:
+            self.wfile.write(body)
+        except OSError:  # the page went away mid-send; this connection is no longer framed
+            self.close_connection = True
 
     def end_headers(self) -> None:
         self.send_header("Cache-Control", "no-store")
@@ -94,6 +124,12 @@ class _Handler(SimpleHTTPRequestHandler):
 
     def log_message(self, format: str, *args: object) -> None:  # quiet
         pass
+
+
+class _Server(ThreadingHTTPServer):
+    # A page-load burst arrives faster than connections are accepted, and the default
+    # backlog of 5 drops the overflow.
+    request_queue_size = 128
 
 
 class _Builder:
@@ -178,7 +214,7 @@ def serve(
     site.publish(lambda reload: placeholder + reload)
     threading.Thread(target=_watch, args=(doc, _Builder(doc, site), poll), daemon=True).start()
     handler = type("Handler", (_Handler,), {"site": site})
-    server = ThreadingHTTPServer((host, port), bind(handler, directory=str(out)))
+    server = _Server((host, port), bind(handler, directory=str(out)))
     print(f"Serving {doc.name} at http://localhost:{port}  (Ctrl-C to stop)", flush=True)
     try:
         server.serve_forever()
