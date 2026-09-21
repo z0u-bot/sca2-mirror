@@ -1,5 +1,6 @@
 """The export's PDF print: stable bytes, and a quiet exit without a browser."""
 
+import re
 from pathlib import Path
 
 import pikepdf
@@ -22,6 +23,22 @@ def browser():
             pytest.skip(f"no Chromium: {e}")
         yield browser
         browser.close()
+
+
+@pytest.fixture
+def chromium():
+    """Skip unless a Chromium launches, for a test that lets :func:`print_bundle` open its own (two sync Playwright contexts cannot share a thread)."""
+    from playwright.sync_api import Error, sync_playwright
+
+    with sync_playwright() as pw:
+        try:
+            pw.chromium.launch(executable_path=report_print.chromium_path()).close()
+        except Error as e:
+            pytest.skip(f"no Chromium: {e}")
+
+
+def _never(route) -> None:
+    """A route handler that neither fulfils nor aborts: the request stays pending for the life of the page."""
 
 
 def test_two_prints_of_one_page_are_byte_equal(browser, tmp_path: Path):
@@ -49,6 +66,44 @@ def test_print_bundle_skips_without_a_browser(tmp_path: Path, monkeypatch, caplo
     assert not (bundle / "report.pdf").exists()
     assert not (tmp_path / ".render-bundle").exists()  # the serve root is cleaned up on the way out
     assert [r.message[:29] for r in caplog.records] == ["report PDF skipped: no Chromi"]
+
+
+_FIGURED = '<html><body><main class="lit"><h1>Hi</h1><img src="https://cdn.test/never.png"></main></body></html>'
+
+
+def test_wait_for_figures_gives_up_on_an_image_that_never_arrives(browser, tmp_path: Path, caplog):
+    """A figure the CDN never delivers must not hold the print forever: the wait is bounded, the image is named, and the page still prints."""
+    page = browser.new_page()
+    page.route(re.compile(r"^https://"), _never)
+    page.set_content(_FIGURED, wait_until="domcontentloaded")
+    assert report_print.wait_for_figures(page, timeout=0.3) == ["https://cdn.test/never.png"]
+    assert "1 figure(s) had not arrived after 0s; printing without them: https://cdn.test/never.png" in caplog.text
+    report_print.print_page(page, tmp_path / "out.pdf", settle=0)
+    page.close()
+    with pikepdf.open(tmp_path / "out.pdf") as pdf:
+        assert len(pdf.pages) == 1
+
+
+def test_print_bundle_prints_a_page_whose_figure_never_arrives(chromium, tmp_path: Path, monkeypatch, caplog):
+    """The site build prints thirty reports in a row; one stalled figure costs its wait and nothing more."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "index.html").write_text(_FIGURED)
+    monkeypatch.setattr(report_print, "route_remote", lambda page: page.route(re.compile(r"^https://"), _never))
+    out = report_print.print_bundle(bundle, tmp_path / "report.pdf", figures=0.3, settle=0)
+    assert out == tmp_path / "report.pdf" and out.is_file()
+    assert "printing without them: https://cdn.test/never.png" in caplog.text
+
+
+def test_print_bundle_skips_a_page_that_never_arrives(chromium, tmp_path: Path, monkeypatch, caplog):
+    """Navigation is bounded like every other wait: a page that does not come is skipped with a log line, never an exception."""
+    bundle = tmp_path / "bundle"
+    bundle.mkdir()
+    (bundle / "index.html").write_text(_PAGE)
+    monkeypatch.setattr(report_print, "route_remote", lambda page: page.route("**/index.html", _never))
+    assert report_print.print_bundle(bundle, tmp_path / "report.pdf", timeout=0.3, settle=0) is None
+    assert not (tmp_path / "report.pdf").exists()
+    assert "report PDF skipped: no main.lit on the page after 0s" in caplog.text
 
 
 _SECTIONED = (

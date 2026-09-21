@@ -22,12 +22,12 @@ def commit(work: Path, message: str) -> None:
     git("-c", "user.name=dev", "-c", "user.email=dev@example.invalid", "commit", "-q", "-m", message, cwd=work)
 
 
-MEMOS: list[tuple[str, str | None]] = []
-"""What each fake build was handed as its memo: (checkout, the memo's manifest or None)."""
+MEMOS: list[tuple[str, tuple[str | None, ...]]] = []
+"""What each fake build was handed as its memos: (checkout, each memo's manifest or None)."""
 
 
-def build(worktree: Path, site_url: str | None, memo: Path | None) -> Path:
-    """A stand-in for `./go site`: names the checkout it ran in and the URL it was given, the two things the real one varies on, and records the memo it was handed."""
+def build(worktree: Path, site_url: str | None, memos: tuple[Path, ...]) -> Path:
+    """A stand-in for `./go site`: names the checkout it ran in and the URL it was given, the two things the real one varies on, and records the memos it was handed."""
     who = (worktree / "WHO").read_text()
     if who == "pr-34":
         raise RuntimeError("this branch doesn't build")
@@ -36,7 +36,7 @@ def build(worktree: Path, site_url: str | None, memo: Path | None) -> Path:
     (site / "index.html").write_text(f"<h1>{who}</h1><a href='{site_url or 'https://z0u.github.io/sca2/'}'>index</a>")
     (site / "pdfs.json").write_text(f'{{"{who}": "printed"}}')
     (site / ".nojekyll").write_text("")
-    MEMOS.append((who, (memo / "pdfs.json").read_text() if memo and (memo / "pdfs.json").is_file() else None))
+    MEMOS.append((who, tuple((m / "pdfs.json").read_text() if (m / "pdfs.json").is_file() else None for m in memos)))
     return site
 
 
@@ -155,14 +155,17 @@ def test_a_repeat_run_pushes_nothing(clone: Path, remote: Path):
 
 
 def test_each_build_reads_its_own_part_of_the_previous_deploy(clone: Path, remote: Path):
-    """Production's memo is the served root and a preview's is its own directory. The first deploy here replaces a `gh-pages` without manifests, so the second run is the one that finds them."""
+    """Production's memo is the served root; a preview's is its own directory, with the root behind it to borrow from. The first deploy here replaces a `gh-pages` without manifests, so each build is handed paths with nothing in them, and the second run is the one that finds them."""
     MEMOS.clear()
     deploy_site.reconcile(clone, slug=SLUG, builder=build, api=FakeGitHub())
-    assert MEMOS == [("main", None), ("pr-12", None)]
+    assert MEMOS == [("main", (None,)), ("pr-12", (None, None))]
 
     MEMOS.clear()
     deploy_site.reconcile(clone, slug=SLUG, builder=build, api=FakeGitHub())
-    assert MEMOS == [("main", '{"main": "printed"}'), ("pr-12", '{"pr-12": "printed"}')]
+    assert MEMOS == [
+        ("main", ('{"main": "printed"}',)),
+        ("pr-12", ('{"pr-12": "printed"}', '{"main": "printed"}')),
+    ]
     assert len(git("worktree", "list", cwd=clone).splitlines()) == 1, "the previous deploy's worktree was left behind"
 
 
