@@ -495,6 +495,24 @@ def test_the_pdf_memo_prints_a_page_once(tmp_path: Path):
     assert printer.calls == ["<p>v1</p>", "<p>v2</p>", "<p>v2</p>"]
 
 
+def test_the_pdf_memo_records_each_print_as_it_lands(tmp_path: Path):
+    """A build that stops partway keeps its prints: the manifest is written after each one, carrying the previous entries until `save` prunes them."""
+    printer = _Printer()
+    memo = build_site.PdfMemo(tmp_path, stamp="t", printer=printer)
+    memo.pdf("old", "<p>x</p>", serve_from=tmp_path)
+    memo.save()
+
+    memo = build_site.PdfMemo(tmp_path, stamp="t", printer=printer)
+    memo.pdf("new", "<p>y</p>", serve_from=tmp_path)  # no save(): the build stops here
+    assert json.loads((tmp_path / "pdfs.json").read_text()) == {
+        "old": memo.key("<p>x</p>"),
+        "new": memo.key("<p>y</p>"),
+    }
+
+    build_site.PdfMemo(tmp_path, stamp="t", printer=printer).pdf("new", "<p>y</p>", serve_from=tmp_path)
+    assert printer.calls == ["<p>x</p>", "<p>y</p>"], "the print from the interrupted build was not reused"
+
+
 def test_the_pdf_memo_forgets_a_report_the_build_no_longer_has(tmp_path: Path):
     memo = build_site.PdfMemo(tmp_path, stamp="t", printer=_Printer())
     memo.pdf("old", "<p>x</p>", serve_from=tmp_path)
