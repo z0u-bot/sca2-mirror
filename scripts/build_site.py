@@ -342,7 +342,7 @@ class PdfMemo:
 
     A report's PDF is a function of the page the build prints from, which already carries the pinned bundle's HTML (naming its figures by immutable, revision-pinned URLs), the current ``report.css``, and every resolved link, plus the print tooling (:func:`mini.report_print.print_stamp`). So the memo keys each report on a hash of those two, kept in ``pdfs.json`` beside the PDFs under ``root``: the same key means the same file, and the report is not printed again. A prose edit reprints one report, a stylesheet edit reprints every report on that branch, and a tooling bump reprints everything once.
 
-    ``root`` is ``$MINI_PDF_MEMO`` when set, which is how the deploy hands a build the previous ``gh-pages`` commit's copy of the site (production's for ``main``, its own preview's for a PR), or ``.mini/pdfs/`` for a local preview. Fresh prints land there too, and :meth:`save` writes the manifest, so the site's own copy is the next build's memo.
+    ``root`` is ``$MINI_PDF_MEMO`` when set, which is how the deploy hands a build the previous ``gh-pages`` commit's copy of the site (production's for ``main``, its own preview's for a PR), or ``.mini/pdfs/`` for a local preview. Fresh prints land there too, and the manifest is written as each one lands and again by :meth:`save`, so the site's own copy is the next build's memo, and a local build that stops partway (a tooling change reprints every report, and the sweep is minutes long) keeps what it printed.
     """
 
     root: Path
@@ -372,20 +372,26 @@ class PdfMemo:
         """The PDF of *printable* for report *key*: reused from the memo, or printed now. ``None`` when there is no browser to print with."""
         out = self.root / key / PDF_LEAF
         want = self.key(printable)
-        if self.previous.get(key) == want and out.is_file():
-            print(f"  {key}: PDF unchanged")
-        else:
+        fresh = self.previous.get(key) != want or not out.is_file()
+        if fresh:
             out.parent.mkdir(parents=True, exist_ok=True)
             print(f"  {key}: printing PDF (headless Chromium; a few seconds)")
             if self.printer(serve_from, out, printable) is None:
                 return None
+        else:
+            print(f"  {key}: PDF unchanged")
         self.current[key] = want
+        if fresh:
+            self._write(self.previous | self.current)  # the previous entries stay until save() prunes them
         return out
 
     def save(self) -> None:
         """Write the manifest of what this build printed or reused; entries for reports the build no longer has are dropped."""
+        self._write(self.current)
+
+    def _write(self, manifest: dict[str, str]) -> None:
         self.root.mkdir(parents=True, exist_ok=True)
-        (self.root / self.MANIFEST).write_text(json.dumps(self.current, indent=2, sort_keys=True) + "\n", "utf-8")
+        (self.root / self.MANIFEST).write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n", "utf-8")
 
 
 _ASSET_REF = re.compile(r"""(?<=["'(])_assets/""")

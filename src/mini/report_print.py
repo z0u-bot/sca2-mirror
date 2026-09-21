@@ -32,6 +32,7 @@ __all__ = [
     "print_bundle",
     "print_stamp",
     "print_page",
+    "wait_for_figures",
     "route_remote",
     "ink_extents",
     "normalize_pdf",
@@ -158,12 +159,13 @@ def _fetch(url: str, headers: dict[str, str]) -> tuple[str, bytes]:
 Fetch = Callable[[str, dict[str, str]], tuple[str, bytes]]
 
 
-def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch = _fetch) -> None:
+def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch | None = None) -> None:
     """Serve *page*'s ``https://`` requests from a cache that Python fills, rather than the browser's own network.
 
     The page's stylesheet links KaTeX and the fonts from CDNs. A headless Chromium in a proxied sandbox rejects the proxy's certificate and gets neither, so the math printed as its source; Python trusts the certificate (``SSL_CERT_FILE``), so it fetches instead, once per URL, into :func:`cache_dir`. The request's own headers go along, since Google Fonts picks the font format by user agent. A fetch that fails is aborted, with one warning per host, and the print goes on without it: the PDF is a convenience beside the page. Once a host has failed, its later requests are aborted without a fetch, so a page that pulls a whole frontend from one CDN waits out one timeout rather than one per file.
     """
     root = cache if cache is not None else cache_dir()
+    fetch = fetch or _fetch
     unreachable: set[str] = set()
 
     def handle(route: Any) -> None:
@@ -317,12 +319,40 @@ def _inline_dests(pdf: Any) -> None:
                 annot.Dest = target
 
 
+def wait_for_figures(page: Any, timeout: float) -> list[str]:
+    """Wait up to *timeout* seconds for *page*'s ``load`` event, which fires once every image has arrived; returns the URLs of the images still missing.
+
+    A report's figures are its subresources, and in the site build they come from a CDN through :func:`route_remote`'s one-at-a-time fetch, so a figure-heavy report on a slow link can take a while. The wait is bounded and never raises: what has not arrived by the deadline is named in a warning and the print goes on without it, the same trade the rest of the print makes (a PDF is a convenience beside the page). An image that failed outright counts as arrived, since :func:`route_remote` has already warned about its host.
+    """
+    from playwright.sync_api import Error as PlaywrightError
+
+    try:
+        page.wait_for_load_state("load", timeout=timeout * 1000)
+    except PlaywrightError:
+        pass
+    missing = [str(src) for src in page.evaluate("[...document.images].filter(i => !i.complete).map(i => i.src)")]
+    if missing:
+        log.warning(
+            "print: %d figure(s) had not arrived after %.0fs; printing without them: %s",
+            len(missing),
+            timeout,
+            ", ".join(missing),
+        )
+    return missing
+
+
 def print_bundle(
-    bundle: Path, out: Path, *, html: str | None = None, timeout: float = 8.0, settle: float = 3.0
+    bundle: Path,
+    out: Path,
+    *,
+    html: str | None = None,
+    timeout: float = 8.0,
+    figures: float = 60.0,
+    settle: float = 3.0,
 ) -> Path | None:
     """Print an export bundle to *out*; ``None`` (with a log line) when no browser is available.
 
-    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Waits up to *timeout* seconds for the content (``main.lit``) to appear, then *settle* seconds for figures and fonts. A missing Playwright or Chromium is reported with the install commands and never raises: a publish must not fail on the PDF.
+    *html*, if given, is printed in place of the bundle's page (see :func:`served_bundle`). Every wait is bounded, and none of them raises: up to *timeout* seconds for the page itself and then for the content (``main.lit``) to appear, up to *figures* seconds for the images (:func:`wait_for_figures`), then *settle* seconds for fonts and the deferred figures. A page that does not arrive is skipped with a log line, like a missing Playwright or Chromium (reported with the install commands): a publish must not fail on the PDF, and a site build with thirty reports to print must not fall over on one of them.
     """
     try:
         from playwright.sync_api import Error as PlaywrightError, sync_playwright
@@ -344,8 +374,10 @@ def print_bundle(
             # navigator.language; pin one so nothing on the page has to guess.
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
             route_remote(page)
-            page.goto(url)
             try:
+                # The page comes from loopback, so it is quick; its figures may not be,
+                # and they are waited for separately, with a bound of their own.
+                page.goto(url, wait_until="domcontentloaded", timeout=timeout * 1000)
                 page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
             except PlaywrightError as e:
                 # A page from before mini.lit (a stale marimo export, say) never shows one.
@@ -353,6 +385,7 @@ def print_bundle(
                     "report PDF skipped: no main.lit on the page after %.0fs (%s)", timeout, str(e).splitlines()[0]
                 )
                 return None
+            wait_for_figures(page, figures)
             if page.locator(".arithmatex").count() and not page.locator(".katex").count():
                 log.warning("print: the page has math but KaTeX did not render it; the PDF shows the source")
             return print_page(page, out, settle=settle)
