@@ -123,7 +123,7 @@ _MM = 72 / 25.4  # points per mm
 
 
 def test_fit_prints_one_page_per_section_and_clips_each_to_its_ink(browser, tmp_path: Path):
-    """The long section overflows the stylesheet's page; the print grows the sheet until it fits, then cuts every page to what is on it."""
+    """The long section overflows the stylesheet's page; the print grows the sheet until it fits, then cuts every page to what is on it, no shorter than the reader's screen."""
     out = tmp_path / "fit.pdf"
     page = browser.new_page()
     page.set_content(_SECTIONED)
@@ -131,9 +131,13 @@ def test_fit_prints_one_page_per_section_and_clips_each_to_its_ink(browser, tmp_
     page.close()
     with pikepdf.open(out) as pdf:
         heights = [float(p.MediaBox[3]) - float(p.MediaBox[1]) for p in pdf.pages]
+        width = float(pdf.pages[0].MediaBox[2]) - float(pdf.pages[0].MediaBox[0])
     assert len(heights) == 3  # title page + two sections, none broken across pages
     assert heights[1] > 120 * _MM  # the long section needed more than the stylesheet's page
-    assert heights[0] < 60 * _MM and heights[2] < 60 * _MM  # the short ones were cut back to their content
+    floor = (
+        report_print.MIN_PAGE_ASPECT * width
+    )  # the short ones were cut back, to the screen's height rather than their content
+    assert heights[0] == pytest.approx(floor) and heights[2] == pytest.approx(floor)
 
 
 def test_fit_leaves_a_page_without_a_sized_page_rule_alone(browser, tmp_path: Path):

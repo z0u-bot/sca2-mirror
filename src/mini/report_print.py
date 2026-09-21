@@ -46,6 +46,9 @@ log = logging.getLogger(__name__)
 # grows a page toward it until every section fits on one.
 MAX_PAGE_MM = 5080
 
+# The shortest a clipped page may be, as height over width: the reMarkable 2 screen (1872 × 1404 px). A page shorter than the screen is letterboxed there, so a short section costs nothing to pad, and the reader's vertical swipe then behaves the same on every page.
+MIN_PAGE_ASPECT = 1872 / 1404
+
 _MM_PER = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "px": 25.4 / 96}
 
 # The ``size`` of the last ``@page`` rule that sets one, wherever it sits (nested in
@@ -281,7 +284,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
 
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
-    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A blank page is left as it is.
+    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A page is never clipped shorter than :data:`MIN_PAGE_ASPECT` times its width. A blank page is left as it is.
 
     In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
@@ -297,7 +300,8 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
                 continue
             top, bottom = extent
             x0, y0, x1, y1 = (float(v) for v in page.MediaBox)  # PDF y runs up: y1 is the top edge
-            page.MediaBox = page.CropBox = [x0, max(y0, y1 - bottom - top), x1, y1]
+            height = max(bottom + top, MIN_PAGE_ASPECT * (x1 - x0))
+            page.MediaBox = page.CropBox = [x0, max(y0, y1 - height), x1, y1]
         pdf.save(path, deterministic_id=True)
 
 
