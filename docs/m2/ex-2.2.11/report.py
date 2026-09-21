@@ -148,6 +148,7 @@ def read_json(path: Path | None) -> dict | None:
 
 
 EX228_METRICS_REF = "reports/m2/ex-2.2.8/metrics"
+EX2210_METRICS_REF = "reports/m2/ex-2.2.10/metrics"
 REFS = [
     ex.METRICS_REF,
     ex.TRAJ_REF,
@@ -155,6 +156,7 @@ REFS = [
     ex.EX229_TRAJ_REF,
     ex.ex229.ex223.METRICS_REF,
     EX228_METRICS_REF,
+    EX2210_METRICS_REF,
 ]
 
 with tempfile.TemporaryDirectory() as _tmp:
@@ -171,7 +173,8 @@ class Results:
     `metrics` and `traj` are this experiment's. `ex229` and `ex229_traj` are ex-2.2.9's, whose `handover`
     is the before column of every placement read. `ex223` is the recipe's twenty seeds on the six-op grammar,
     the point the gates were set at. `ex228` carries the per-run spread of the non-red deficit under
-    `projection` at those seeds, the σ every deficit band uses.
+    `projection` at those seeds, the σ every deficit band uses. `ex2210` is ex-2.2.10's rescoring of
+    ex-2.2.9's seeds, read only by the post-hoc note on the `hue-hsv` miss.
     """
 
     metrics: dict
@@ -180,6 +183,7 @@ class Results:
     ex229_traj: dict
     ex223: dict
     ex228: dict
+    ex2210: dict
 
     def runs(self, cond: str, metrics: dict | None = None) -> list[dict]:
         """The eval records of a condition, in seed order; *metrics* selects another experiment's."""
@@ -270,14 +274,19 @@ class Results:
         """Ex-2.2.9's value of a placement statistic, per seed of the same condition."""
         return np.array([r[key] for r in self.runs(cond, self.ex229)], float)
 
+    def old_kept(self, cond: str, op: str, group: str) -> np.ndarray:
+        """The kept share under `projection` on a line group, per seed, as ex-2.2.10 scored ex-2.2.9's runs."""
+        runs = [r for r in self.ex2210["scores"] if r["condition"] == cond]
+        return np.array([r["ops"][op]["kept"][group] for r in runs], float)
+
 
 def load_results() -> Results | None:
     metrics, traj = loaded[ex.METRICS_REF], loaded[ex.TRAJ_REF]
     if metrics is None or traj is None:
         return None
-    ex229, ex229_traj, ex223, ex228 = (loaded[r] for r in REFS[2:])
-    assert ex229 is not None and ex229_traj is not None and ex223 is not None and ex228 is not None
-    return Results(metrics, traj, ex229, ex229_traj, ex223, ex228)
+    rest = [loaded[r] for r in REFS[2:]]
+    assert all(r is not None for r in rest)
+    return Results(metrics, traj, *[r for r in rest if r is not None])
 
 
 # --- Shared drawing and table helpers ---------------------------------------------------------
@@ -368,7 +377,17 @@ def dots(
     color, m = ink(cond), marker(cond)
     jit = rng.uniform(-width, width, len(v))
     ax.plot([x, x], [v.min(), v.max()], "-", color=color, lw=1.0, alpha=0.5, zorder=2, solid_capstyle="butt")
-    ax.plot(x + jit, v, "o", ms=2.2, color=color, alpha=0.45, zorder=3, mew=0, mfc="none" if open_ else color)
+    ax.plot(
+        x + jit,
+        v,
+        "o",
+        ms=2.2,
+        color=color,
+        alpha=0.45,
+        zorder=3,
+        mew=0.6 if open_ else 0,
+        mfc="none" if open_ else color,
+    )
     ax.plot(
         x,
         v.mean(),
@@ -532,10 +551,10 @@ GATES = {
     "r2_sim": ("grading r²", ex.GRADE_R2_RATIO * ex.REF_R2_SIM, None),
     "contrast": ("contrast", ex.CONTRAST_GATE, ex.CONTRAST_PARTIAL),
 }
-"""H2's three gates: key → (label, gate, partial level). All read upward."""
+# H2's three gates: key → (label, gate, partial level). All read upward.
 
 CHECKS = {"lead_emb": ("lead", ex.LEAD_GATE), "latch_pi": ("latch (max)", ex.LATCH_PI)}
-"""The two manipulation checks: lead reads upward on the seed mean, latch downward on the worst seed."""
+# The two manipulation checks: lead reads upward on the seed mean, latch downward on the worst seed."""
 
 
 def retention(res: Results, cond: str, metrics: dict | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -608,7 +627,7 @@ def h2_cell(res: Results, cond: str, key: str, metrics: dict | None = None) -> s
         return f"{v.max():.2f}"
     if key == "retention":
         ret, q = retention(res, cond, metrics)
-        return span2(ret[q], 2)
+        return span2(ret[q])
     if key == "level":
         return span2(res.anneal(cond, "m_line_final", metrics))
     if key == "eol":
@@ -673,7 +692,7 @@ def h2_traj_draw(conds: list[str], curves: dict, before: dict, anneal: dict[str,
     @themed(
         name="h2-trajectories",
         alt_text="""
-            Three line panels side by side, one per anchored condition, with epoch along the bottom and the margin on the mix lines up the side. In each, twenty or nine faint lines rise steeply in the first ten epochs, plateau with some wobble, and drift down slightly through the middle of training; the bold seed mean runs through them, a dashed line shows ex-2.2.9's seed mean on the same condition, and the last tenth of training is shaded as the anneal window, where the curves stay flat.
+            Three line panels side by side, one per anchored condition, with epoch along the bottom and the margin on the mix lines up the side. In each, twenty or nine faint lines rise steeply in the first ten epochs, and plateau with some wobble, drifting down slightly through the middle of training on the candidate and holding level on the two references; the bold seed mean runs through them, a dashed line shows ex-2.2.9's seed mean on the same condition, and the last tenth of training is shaded as the anneal window, where the curves stay flat.
         """,
         caption="""
             **The margin on the `mix` lines through training, per anchored condition.** One panel per condition; each hairline is one seed, the bold line the seed mean, and the dashed line the seed mean of the same condition in ex-2.2.9. The shaded band is the anneal window, from the epoch at which the anchor weight first drops under its plateau to the end of training. Retention is the ratio of the curve's last point to its value at the left edge of the band.
@@ -819,7 +838,7 @@ def h3_verdict(res: Results) -> tuple[str, str]:
     removal = (
         f"Removal: under `projection`, `handover` keeps at most {st['kept'][worst]:.0%} of its clean expected exact match on the removal lines (`{worst}`), inside the {ex.RED_KEPT_GATE:.0%} gate on every op."
         if st["removal"] == "pass"
-        else f"Removal: on {', '.join(f'`{o}`' for o in st['removal_misses'])} `handover` keeps more than {ex.RED_KEPT_GATE:.0%} of its clean expected exact match on the removal lines (the most on `{worst}`, at {st['kept'][worst]:.0%})."
+        else f"Removal: `handover` keeps more than {ex.RED_KEPT_GATE:.0%} of its clean expected exact match on the removal lines of {', '.join(f'`{o}` ({st["kept"][o]:.0%})' for o in st['removal_misses'])}, and at most {max(v for o, v in st['kept'].items() if o not in st['removal_misses']):.0%} on the other ops."
     )
     sel = f"Selectivity {'holds' if st['selectivity'] == 'pass' else 'is ' + st['selectivity']}: the non-red `mix` deficit is {st['deficit']:.3f} against the {ex.NONRED_DEFICIT_GATE:g} gate (band {st['deficit_band']:.3f})."
     if st["removal"] == "pass" and st["selectivity"] == "pass":
@@ -831,8 +850,8 @@ def h3_verdict(res: Results) -> tuple[str, str]:
     return status, f"{removal} {sel}"
 
 
+# The saturation-and-value lines are reported by op and by the slot the red operand sits in.
 SV_SLOTS = [(op, slot) for op in ex.ORDER_SENSITIVE for slot in ("op1", "op2")]
-"""The saturation-and-value lines are reported by op and by the slot the red operand sits in."""
 
 
 def h3_figure(res: Results) -> str:
@@ -849,7 +868,7 @@ def h3_draw(conds: list[str], kept: dict, kept_zero: dict, deficit: dict, sv: di
     @themed(
         name="h3-removal-selectivity",
         alt_text="""
-            Three dot panels stacked. The top two have the eleven ops along the bottom. In the top panel, the share of clean accuracy kept on the removal lines, every condition's filled marks sit under the dashed gate line at one fifth on every op; the open circles, the same read on the old to-zero lines, sit above the line on the three HSV ops. In the middle panel, the deficit on the non-red lines, the marks sit near zero on every op, under the dashed gate. The bottom panel has the three order-sensitive ops split by slot along the bottom, and shows the share kept on the saturation-and-value lines, around a half on most and lower where the answer needs both attributes, with the three conditions close together.
+            Three dot panels stacked. The top two have the eleven ops along the bottom. In the top panel, the share of clean accuracy kept on the removal lines, handover sits under the dashed gate line at one fifth on every op but hue-hsv, where it strays just above; handover-tied sits above the line on most channel-wise ops, and the open circles, the same read on the old to-zero lines, sit above it on the three HSV ops. In the middle panel, the deficit on the non-red lines, the marks sit near zero on every op, well under the dashed gate. The bottom panel has the three order-sensitive ops split by slot along the bottom, and shows the share kept on the saturation-and-value lines, between a third and three quarters, with handover at or below both references on every slot.
         """,
         caption=f"""
             **Removal, selectivity, and the saturation-and-value lines under `projection`, per op and anchored condition.** Top: the share of the clean expected exact match the model keeps on each op's removal lines, with the removal lines chosen by hue (filled marks, one per condition) and, for `handover`, by ex-2.2.9's to-zero rule (open circles). The dashed line is the {ex.RED_KEPT_GATE:.0%} gate and the hatched region above it the miss. Middle: the deficit in expected exact match on each op's non-red lines, dashed at the {ex.NONRED_DEFICIT_GATE:g} gate and dotted at the {ex.NONRED_DEFICIT_PARTIAL:g} partial level; the gate is read on `mix` only. Bottom: the share kept on the saturation-and-value lines of the three order-sensitive ops, split by the slot the red operand sits in; a slot with no such lines is left empty. Each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range.
@@ -964,6 +983,31 @@ def h3_sv_table(res: Results) -> str:
     )
 
 
+def sv_shortfalls(res: Results) -> list[tuple[str, str, str, float, float]]:
+    """(op, slot, reference, gap, band) for each slot and reference where `handover` keeps less of its clean
+    expected exact match on the saturation-and-value lines than the reference does, by more than the band
+    on the pooled per-seed spread.
+    """
+    out = []
+    for op, slot in SV_SLOTS:
+        if not res.n_lines("handover", op, f"sv_{slot}"):
+            continue
+        h = res.kept("handover", op, group=f"sv_{slot}")
+        for c in ("handover-slot", "handover-tied"):
+            r = res.kept(c, op, group=f"sv_{slot}")
+            b = band(pooled_sd(h, r), len(h), len(r))
+            gap = float(r.mean() - h.mean())
+            if gap > b:
+                out.append((op, slot, c, gap, b))
+    return out
+
+
+# REVIEW: two wordings narrowed in the saturation-and-value sentence. "the three conditions sit within a
+# band of each other" became "no reference keeps more than `handover` by more than the band", because
+# `sv_shortfalls` only tests that one direction and only against `handover`. And "shows on every checkpoint
+# alike" became "the same on all three anchored checkpoints": every condition scored here is anchored, so the
+# read cannot speak for a checkpoint outside that set. Verify: `sv_shortfalls` and the columns of the
+# saturation-and-value table.
 def h3_prose(res: Results) -> str:
     st = h3_status(res)
     kept, zero = st["kept"], st["kept_zero"]
@@ -974,28 +1018,27 @@ def h3_prose(res: Results) -> str:
     others = {op: float(res.deficit("handover", op).mean()) for op in ex.OP_NAMES}
     hi = max(others, key=lambda op: others[op])
     zero_above = st["zero_misses"]
-    sv = {
-        (c, op, slot): float(res.kept(c, op, group=f"sv_{slot}").mean())
-        for c in ANCHORED
-        for op, slot in SV_SLOTS
-        if res.n_lines("handover", op, f"sv_{slot}")
-    }
-    sv_gap = max(
-        abs(sv["handover", op, slot] - sv[c, op, slot])
-        for c in ("handover-slot", "handover-tied")
-        for op, slot in SV_SLOTS
-        if ("handover", op, slot) in sv
-    )
-    if above:
-        removal = f"Taking the axis out removes *red* on {len(inside)} of the {len(kept)} ops: on their removal lines `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`. On {', '.join(f'`{op}`' for op in above)} it keeps {', '.join(f'{kept[op]:.0%}' for op in above)}, above the {ex.RED_KEPT_GATE:.0%} gate."
+    sv_low = sv_shortfalls(res)
+    n_slots = sum(1 for op, slot in SV_SLOTS if res.n_lines("handover", op, f"sv_{slot}"))
+    if sv_low:
+        op, slot, c, gap, b = max(sv_low, key=lambda t: t[3])
+        sv_line = f"On the saturation-and-value lines, `handover` keeps less than a reference on {len({(op, slot) for op, slot, *_ in sv_low})} of the {n_slots} slots by more than the band; on the other slots no reference keeps more than `handover` by more than the band. The largest gap is on `{op}` with red at {slot}: {gap:.2f} under `{c}` (band {b:.2f}). So part of what the projection takes from the saturation and value of a red color belongs to this checkpoint: the references hold more of it off the axis. The rest is the same on all three anchored checkpoints, so it belongs to the operator."
     else:
-        removal = f"Taking the axis out removes *red* on every op: on the removal lines chosen by hue, `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`."
-    old = (
-        f"On the same runs, the old to-zero lines put {', '.join(f'`{op}`' for op in zero_above)} above the gate ({', '.join(f'{zero[op]:.0%}' for op in zero_above)}), so the miss in ex-2.2.9 comes back at fresh seeds whenever the lines are picked the old way, and goes away when they are picked by hue."
-        if zero_above
-        else "On the same runs, the old to-zero lines also clear the gate on every op."
-    )
-    return f"{removal} {old}\n\nOn the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference. No op's non-red deficit exceeds {others[hi]:.3f} (`{hi}`).\n\nOn the saturation-and-value lines, the three conditions keep about the same shares: the widest gap between `handover` and either reference on any op and slot is {sv_gap:.2f}. So what the projection takes from the saturation and value of a red color, it takes on every checkpoint alike, and the cost belongs to the operator rather than to the readout or the labeller."
+        sv_line = f"On the saturation-and-value lines the three conditions sit within a band of each other on every one of the {n_slots} slots. So the projection takes the same amount from the saturation and value of a red color on every checkpoint, and that cost belongs to the operator rather than to the readout or the labeller."
+    if above:
+        removal = f"Taking the axis out removes *red* on {len(inside)} of the {len(kept)} ops. On their removal lines, `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`. On {', '.join(f'`{op}`' for op in above)} it keeps {', '.join(f'{kept[op]:.0%} (seeds from {res.kept("handover", op).min():.0%} to {res.kept("handover", op).max():.0%})' for op in above)}, above the {ex.RED_KEPT_GATE:.0%} gate."
+    else:
+        removal = f"Taking the axis out removes *red* on every op. On the removal lines chosen by hue, `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`."
+    cleared = [op for op in zero_above if op not in above]
+    if not zero_above:
+        old = "On the same runs, the old to-zero lines also clear the gate on every op."
+    else:
+        old = f"On the same runs, the old to-zero lines put {', '.join(f'`{op}`' for op in zero_above)} above the gate ({', '.join(f'{zero[op]:.0%}' for op in zero_above)}). So the miss in ex-2.2.9 comes back at fresh seeds whenever the lines are picked the old way."
+        if cleared and above:
+            old += f" Picking them by hue clears {', '.join(f'`{op}`' for op in cleared)} and leaves {', '.join(f'`{op}`' for op in above)} above the line."
+        elif cleared:
+            old += " Picking them by hue clears every op."
+    return f"{removal} {old}\n\nOn the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference. The largest non-red deficit on any op is {others[hi]:.3f}, on `{hi}`.\n\n{sv_line}"
 
 
 # --- H4: the two reference comparisons ------------------------------------------------------------
@@ -1057,7 +1100,7 @@ def h4_draw(labels: list[str], series: dict, d: dict[str, np.ndarray]) -> str:
     @themed(
         name="h4-syntax-component",
         alt_text="""
-            Two panels. Left, a dot chart of the axis component on each syntax word's row, with the tied condition's embedding rows sitting higher than the untied condition's on the equals sign and the newline, and the untied condition's readout rows sitting where the tied embedding rows do. Right, the non-red deficit under projection for handover and handover-slot, as columns of seed dots at about the same height, with a dotted line marking the tail level.
+            Two panels. Left, a dot chart of the axis component on each syntax word's row: the tied condition's embedding rows sit around 0.15 on every word and higher still on the equals sign and the newline, the untied condition's embedding rows sit near zero except on the newline, and its readout rows sit in between. Right, the non-red deficit under projection for handover and handover-slot, as columns of seed dots at about the same height, far under the dotted tail level.
         """,
         caption=f"""
             **The *red* axis on the syntax tokens, and what the whole-line label costs.** Left: the absolute axis component of each syntax word's row (the op words, `=`, and `⏎`), seed mean with the seed range as a bar, for `handover-tied`'s embedding rows, `handover`'s embedding rows, and `handover`'s readout rows (the open marks). Right: the deficit in expected exact match on the non-red `mix` lines under `projection`, one small dot per seed and the seed mean as the larger mark, with the {ex.TAIL:g} tail level dotted.
@@ -1130,7 +1173,7 @@ def h4_prose(res: Results) -> str:
     st = h4_status(res)
     comp = {w: float(np.abs(res.component("handover", w)).mean()) for w in ex.SYNTAX_WORDS}
     eol, rest = comp[EOL], max(v for w, v in comp.items() if w != EOL)
-    return f"Both comparisons come out as they did before. Averaged over the op words, `=`, and `⏎`, the axis component of the embedding rows is {st['component'][0]:.3f} on `handover` and {st['component'][1]:.3f} on `handover-tied`, a gap {'over' if st['component_holds'] else 'under'} the band of {st['component'][2]:.3f}, while `handover`'s readout rows carry {st['readout']:.3f}: the component moved to the readout. As before, `⏎` is the one word the untied table leaves a component on, at {eol:.3f} where every other syntax word is under {rest:.2f}. Under `projection` the non-red `mix` deficit is {st['deficit'][0]:.3f} on `handover` and {st['deficit'][1]:.3f} on `handover-slot`, {'within' if st['mean_holds'] else 'outside'} a band of {st['deficit'][2]:.3f}, and {st['tail'][0]} seeds of `handover` sit above {ex.TAIL:g} against {st['tail'][1]} of `handover-slot`."
+    return f"Both comparisons come out as they did before. Averaged over the op words, `=`, and `⏎`, the axis component of the embedding rows is {st['component'][0]:.3f} on `handover` and {st['component'][1]:.3f} on `handover-tied`, a gap {'over' if st['component_holds'] else 'under'} the band of {st['component'][2]:.3f}, while `handover`'s readout rows carry {st['readout']:.3f}: the component moved to the readout. As before, `⏎` is the one word the untied table leaves a component on, at {eol:.3f} where no other syntax word reaches {rest:.2f}. Under `projection` the non-red `mix` deficit is {st['deficit'][0]:.3f} on `handover` and {st['deficit'][1]:.3f} on `handover-slot`, {'within' if st['mean_holds'] else 'outside'} a band of {st['deficit'][2]:.3f}, and {st['tail'][0]} seeds of `handover` sit above {ex.TAIL:g} against {st['tail'][1]} of `handover-slot`."
 
 
 # --- Decision and findings ------------------------------------------------------------------------
@@ -1147,7 +1190,7 @@ def decision_misses(res: Results) -> list[str]:
         if h2[k][0] != "pass":
             misses.append(f"H2 {name} ({h2[k][0]})")
     if h3["removal"] != "pass":
-        misses.append("H3 removal (miss)")
+        misses.append("H3 removal")
     if h3["selectivity"] != "pass":
         misses.append(f"H3 selectivity ({h3['selectivity']})")
     return misses
@@ -1181,9 +1224,16 @@ def decision(res: Results) -> tuple[bool, str]:
     who = []
     joined = " ".join(misses)
     if "H3 removal" in joined:
-        who.append(
-            attribution("removal", not removal_misses(res, "handover-slot"), not removal_misses(res, "handover-tied"))
-        )
+        # REVIEW: the references are read on the ops `handover` missed, not on all eleven. Read over every op, the
+        # sentence said each reference was above the gate somewhere, which is not what the miss asks. Verify: the
+        # removal table's rows for the missed ops against the gate, per reference.
+        missed = removal_misses(res, "handover")
+        clears = {
+            c: all(float(res.kept(c, op).mean()) <= ex.RED_KEPT_GATE for op in missed)
+            for c in ("handover-slot", "handover-tied")
+        }
+        where = "removal on " + ", ".join(f"`{op}`" for op in missed)
+        who.append(attribution(where, clears["handover-slot"], clears["handover-tied"]))
     if "H3 selectivity" in joined:
         who.append(
             attribution(
@@ -1198,6 +1248,60 @@ def decision(res: Results) -> tuple[bool, str]:
         + " ".join(who)
         + note,
     )
+
+
+# --- Exploratory, post hoc ------------------------------------------------------------------------
+
+
+def posthoc_old_seeds_md(res: Results) -> str:
+    """The kept share of the missed op at the seeds of ex-2.2.9, as ex-2.2.10 scored them, beside this run."""
+    misses = removal_misses(res, "handover")
+    if not misses:
+        return ""
+    out = []
+    for op in misses:
+        slot = "op2" if op == "hue-hsv" else "op1"
+        old, new = res.old_kept("handover", op, f"removal_{slot}"), res.kept("handover", op)
+        gap, b = float(new.mean() - old.mean()), band(pooled_sd(old, new), len(old), len(new))
+        out.append(
+            f"On `{op}`, when ex-2.2.10 rescored the {len(old)} seeds from ex-2.2.9, they kept {old.mean():.2f} on these lines (seeds from {old.min():.2f} to {old.max():.2f}). The {len(new)} fresh seeds keep {new.mean():.2f} (from {new.min():.2f} to {new.max():.2f}). The two seed sets differ by {gap:.2f}, against a band of {b:.2f}, and the {ex.RED_KEPT_GATE:g} gate sits inside both spreads."
+        )
+    return "\n\n".join(out)
+
+
+def posthoc_references_md(res: Results) -> str:
+    """How much more the two references keep on the removal lines than `handover` does, by op group."""
+    gaps = {}
+    for c in ("handover-tied", "handover-slot"):
+        for op in ex.OP_NAMES:
+            h, r = res.kept("handover", op), res.kept(c, op)
+            gaps[c, op] = (float(r.mean() - h.mean()), band(pooled_sd(h, r), len(h), len(r)))
+    channel = [op for op in ex.OP_NAMES if op not in ex.ORDER_SENSITIVE]
+    tied_ch = [gaps["handover-tied", op][0] for op in channel]
+    tied_past = sum(g > b for g, b in (gaps["handover-tied", op] for op in channel))
+    hsv_past = [op for op in ex.ORDER_SENSITIVE if gaps["handover-tied", op][0] > gaps["handover-tied", op][1]]
+    slot_op = max(ex.OP_NAMES, key=lambda op: gaps["handover-slot", op][0])
+    slot_past = sum(g > b for g, b in (gaps["handover-slot", op] for op in ex.OP_NAMES))
+    hsv = (
+        "on the three HSV ops the two keep the same share to within a band"
+        if not hsv_past
+        else f"on {', '.join(f'`{op}`' for op in hsv_past)} it also keeps more"
+    )
+    return (
+        f"On the removal lines of every channel-wise op, `handover-tied` keeps more than `handover`, by {min(tied_ch):.2f} to {max(tied_ch):.2f}. That gap is past the band on {tied_past} of the {len(channel)} ops, and {hsv}. "
+        f"`handover-slot` keeps a little more than `handover` on every op, the most on `{slot_op}` ({gaps['handover-slot', slot_op][0]:.2f}), past the band on {slot_past} of the {len(ex.OP_NAMES)}."
+    )
+
+
+def posthoc_drift(res: Results) -> dict[str, tuple[float, float, float]]:
+    """(epoch of the peak, peak, drop from the peak to the end) of the seed-mean alignment per condition."""
+    out = {}
+    for c in ANCHORED:
+        ep, ys = res.curves(c)
+        m = np.nanmean(ys, axis=0)
+        i = int(np.nanargmax(m))
+        out[c] = (float(ep[i]), float(m[i]), float(m[i] - m[-1]))
+    return out
 
 
 FINDINGS = [
@@ -1249,7 +1353,13 @@ r"""
 
 /// tip |
 <!-- tl;dr -->
-Ex-2.2.9 enabled every change from the scouting round at once, and we did not adopt the result. Two gates missed: removal, on the three ops that take one HSV attribute from their second operand, and one seed that held the anchor a little less well by the end. Ex-2.2.10 traced both misses to how we were measuring. So this is the same experiment at fresh seeds, with three measurements fixed in advance: removal lines picked by hue, retention measured across the anneal, and the op1 alignment reported beside its references rather than gated.
+Ex-2.2.9 enabled every change from the scouting round at once, and we did not adopt the result. Two gates missed. One was removal, on the three ops that take one HSV attribute from their second operand. The other was a single seed that held the anchor a little less well by the end. Ex-2.2.10 traced both misses to how we were measuring.
+
+This is the same experiment at fresh seeds, with three measurements fixed in advance:
+removal lines picked by hue,
+retention measured across the anneal,
+and the op1 alignment reported beside its references rather than gated.
+*Red* lands, stays through the anneal, and comes out cleanly on ten of the eleven ops. On `hue-hsv` it does not come out far enough, so the handover is not adopted as it stands.
 ///
 
 """
@@ -1316,7 +1426,7 @@ We use the vocabulary of ex-2.2.9, and its [glossary](../ex-2.2.9/report.py#glos
 <dt>Retention</dt>
 <dd>Whether the placement holds across the anneal of the anchor weight. It is the final alignment as a share of the alignment at the start of the anneal. Ex-2.2.9 divided by the peak over the run instead.</dd>
 <dt>Level</dt>
-<dd>The alignment at the end of training, on the <code>mix</code> lines. Every later measurement is taken on it, and it is the number that the drift before the anneal moves.</dd>
+<dd>The alignment at the end of training, on the <code>mix</code> lines. Every later measurement is taken on it, and it is the number that the drift before the anneal moves. Level, retention, and the trajectory figure read the alignment the training loop records, on one probe line per color; the gated margin is the same statistic read after training on the full <code>mix</code> walk. The two sit on different scales, so a level near 0.7 and a margin near 0.4 describe one run.</dd>
 </dl>
 """
 
@@ -1445,6 +1555,8 @@ rf"""
 
 {verdict_md("pass" if adopted else "miss", decision_line)}
 
+<!-- REVIEW: the attribution sentence in the box is now read on the missed ops only; see the note in `decision`. -->
+
 The rule is ex-2.2.9's with the removal lines changed. Retention stays outside it, as it was there: with the new denominator ex-2.2.10 measured it at 0.99 on every condition, so it is expected to clear with room, and a gate the method can predict does not inform a decision. It is a line in H2, and a seed under 0.8 would still stop us.
 
 <!-- REVIEW: the first draft put retention inside the decision rule, since the measurement now asks the question it
@@ -1465,18 +1577,47 @@ The permutation rule reaches six hues. A finer rule rotates the hue of the red o
 ### Checkpoints on the trajectory stride
 
 The first three seeds of each anchored condition keep a checkpoint at every trajectory point. Nothing in this report uses them. The [training-dynamics item](/todo/science/training-dynamics-under-the-retention-drift.md) needs them for a local learning coefficient estimate through the plateau and for the whole-geometry measurement at the same epochs, and this is the cheapest place to store them.
+"""
+
+drift = posthoc_drift(res)
+rf"""
+### The missed op at the old seeds (post hoc)
+
+{posthoc_old_seeds_md(res)}
+
+So the fresh seeds came in higher by about what twenty seeds resolve. A rescoring of old seeds is not a preregistered read, and this says how far the miss is from the noise and nothing more.
+
+### What the references keep on the removal lines (post hoc)
+
+{posthoc_references_md(res)}
+
+So the separate readout is what makes removal clean on the channel-wise ops, and neither of the two changes is behind the share `hue-hsv` keeps.
+
+### The drift before the anneal (post hoc)
+
+On `handover` the seed-mean alignment peaks near epoch {drift["handover"][0]:.0f} and loses {drift["handover"][2]:.2f} by the end of training. On `handover-slot` and `handover-tied` it peaks near epochs {drift["handover-slot"][0]:.0f} and {drift["handover-tied"][0]:.0f}, in or beside the anneal window, and loses under {max(drift["handover-slot"][2], drift["handover-tied"][2]) + 0.005:.2f}.
+
+So the drift ex-2.2.10 saw belongs to the candidate alone, even though each reference differs from it in only one change. The [training-dynamics item](/todo/science/training-dynamics-under-the-retention-drift.md) has the checkpoints to look at it.
 
 ## Discussion
 
-*Written after the results.* What each outcome would mean, set down in advance:
+The handover setup does what ex-2.2.9 said it does, with one exception we can now name. *Red* lands on its axis, stays there through the anneal, and the projection takes it out on ten of the eleven ops without touching the lines that never had *red* in them.
 
-If every gate clears, we adopt the handover and run the anchored-op experiments on it. The two measurements ex-2.2.10 corrected were then only measurements, and the grammar and recipe are what the tl;dr of ex-2.2.9 said they were.
+<!-- REVIEW: "still gets about a quarter of the answers" became "still keeps about a quarter of the accuracy
+it had": the statistic is the share of clean expected exact match retained, not an absolute accuracy. And
+"came in under the gate by about the resolution of the read" became "by less than the read resolves": the old
+seeds sat 0.03 under the 0.20 gate against a band of 0.06. Verify: the removal table and the post-hoc
+old-seeds paragraph. -->
 
-If removal misses on an HSV op under the hue rule, then on those ops the projection takes less of the hue than the counterfactual in ex-2.2.10 suggested, and we would look next at what the stream still holds there. If it misses on a channel-wise op, the miss was never about the rule.
+The exception is `hue-hsv`, the op whose answer takes its hue from the second operand. With the axis taken out, the model still keeps about a quarter of the accuracy it had on the lines that need a red hue there, a little more than the gate allows. We said in advance what that pattern would mean, and this is the first case: a miss on an HSV op under the hue rule. So the rule was part of the story rather than the whole of it.
 
-If retention misses across the anneal, the schedule has a real cost that the old measurement hid behind the drift, and a stepped anneal would be the first thing to try.
+On `hue-hsv` the stream holds some of the hue of the red operand somewhere other than the axis. `handover-tied` keeps the same share on that op and `handover-slot` keeps more, so neither the readout nor the labeller put the hue there. On this one op it seems to belong to the grammar and the recipe together.
 
-The saturation-and-value measurement informs the intervention work rather than this decision. If the references keep the same shares as the candidate, that cost is a property of the operator, and worth stating wherever the projection is used. If they keep more, the handover has moved some of that onto the axis, which the containment item would want to know.
+The seed spread on that op is wide and the gate sits well inside it. At the seeds of ex-2.2.9, the same lines came in under the gate, by less than the read resolves. So the miss is a miss under the rule we froze, and it is also a small effect at the edge of what twenty seeds resolve. It is one op of eleven, on the lines whose answer needs the hue of a red at op2.
+
+What comes next is a choice for the next preregistration. One route is to look at what the stream holds on `hue-hsv`: score the removal lines one at a time and ask what the surviving lines share, which the stored checkpoints and probes make cheap. The other is to run the anchored-op experiments on this setup, with `hue-hsv` recorded as the op where removal is partial, since nothing in D2.2 rests on that op alone.
+
+Either way, two questions ex-2.2.9 left open are closed. Retention measured across the anneal loses nothing on any condition, so the schedule is not where the drift comes from. And the saturation-and-value cost of the projection belongs partly to this checkpoint, which the containment work could take up.
 """
 
 rf"""
