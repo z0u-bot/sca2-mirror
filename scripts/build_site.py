@@ -18,7 +18,7 @@ import subprocess
 import sys
 from concurrent.futures import ThreadPoolExecutor
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
@@ -164,6 +164,8 @@ class LinkResolver:
     source_base: str | None
     site_assets: frozenset[str] = frozenset()
     repo_root: Path | None = None  # used to confirm a link escaping docs/ exists in the repo
+    # Production's URL whatever ``site_base`` is: a PDF links there from every branch (:func:`_printable`).
+    production_base: str | None = None
 
     @classmethod
     def discover(cls) -> "LinkResolver":
@@ -190,11 +192,21 @@ class LinkResolver:
         slug = _repo_slug()
         site_base = os.environ.get("MINI_SITE_URL")
         source_base = os.environ.get("MINI_SOURCE_URL")
+        production_base = None
         if slug:
             owner, repo = slug.split("/", 1)
-            site_base = site_base or f"https://{owner}.github.io/{repo}/"
+            production_base = f"https://{owner}.github.io/{repo}/"
+            site_base = site_base or production_base
             source_base = source_base or f"https://github.com/{slug}/blob/main/"
-        return cls(render_map, source_files, site_base, source_base, site_assets, repo_root=WORKSPACE_ROOT)
+        return cls(
+            render_map,
+            source_files,
+            site_base,
+            source_base,
+            site_assets,
+            repo_root=WORKSPACE_ROOT,
+            production_base=production_base,
+        )
 
     def _in_site(self, out: str, *, out_dir: str, externalizing: bool, frag: str) -> str | None:
         """How a page rendering into ``out_dir`` should link *out*, a site-relative path.
@@ -343,27 +355,41 @@ class PdfMemo:
     A report's PDF is a function of the page the build prints from, which already carries the pinned bundle's HTML (naming its figures by immutable, revision-pinned URLs), the current ``report.css``, and every resolved link, plus the print tooling (:func:`mini.report_print.print_stamp`). So the memo keys each report on a hash of those two, kept in ``pdfs.json`` beside the PDFs under ``root``: the same key means the same file, and the report is not printed again. A prose edit reprints one report, a stylesheet edit reprints every report on that branch, and a tooling bump reprints everything once.
 
     ``root`` is ``$MINI_PDF_MEMO`` when set, which is how the deploy hands a build the previous ``gh-pages`` commit's copy of the site (production's for ``main``, its own preview's for a PR), or ``.mini/pdfs/`` for a local preview. Fresh prints land there too, and the manifest is written as each one lands and again by :meth:`save`, so the site's own copy is the next build's memo, and a local build that stops partway (a tooling change reprints every report, and the sweep is minutes long) keeps what it printed.
+
+    ``fallbacks`` are further memos, read and never written: the rest of ``$MINI_PDF_MEMO``, split on the path separator. A PDF found there under the same key is copied into ``root`` rather than printed. The deploy gives a preview production's memo this way, so a PR prints only the reports it changed: a PDF's links lead to production from every branch (:func:`_printable`), which is what makes an unchanged report's key the same on both. A new PR starts with no memo of its own, and would otherwise print every report.
     """
 
     root: Path
     stamp: str = field(default_factory=print_stamp)
     printer: Printer = _print
+    fallbacks: tuple[Path, ...] = ()
     previous: dict[str, str] = field(init=False)
     current: dict[str, str] = field(init=False, default_factory=dict)
 
     MANIFEST = "pdfs.json"
 
     def __post_init__(self) -> None:
-        manifest = self.root / self.MANIFEST
-        try:
-            self.previous = json.loads(manifest.read_text("utf-8")) if manifest.is_file() else {}
-        except OSError, ValueError:
-            self.previous = {}
+        self.previous = self._read(self.root)
 
     @classmethod
     def open(cls) -> "PdfMemo":
-        root = os.environ.get("MINI_PDF_MEMO")
-        return cls(Path(root) if root else WORKSPACE_ROOT / ".mini" / "pdfs")
+        roots = [Path(root) for root in os.environ.get("MINI_PDF_MEMO", "").split(os.pathsep) if root]
+        return cls(roots[0], fallbacks=tuple(roots[1:])) if roots else cls(WORKSPACE_ROOT / ".mini" / "pdfs")
+
+    @classmethod
+    def _read(cls, root: Path) -> dict[str, str]:
+        manifest = root / cls.MANIFEST
+        try:
+            return json.loads(manifest.read_text("utf-8")) if manifest.is_file() else {}
+        except OSError, ValueError:
+            return {}
+
+    def _borrow(self, key: str, want: str) -> Path | None:
+        """The PDF of *key* in the first fallback memo that printed it from the same page and tooling, if any."""
+        for root in self.fallbacks:
+            if self._read(root).get(key) == want and (found := root / key / PDF_LEAF).is_file():
+                return found
+        return None
 
     def key(self, printable: str) -> str:
         return hashlib.sha256(f"{self.stamp}\n{printable}".encode()).hexdigest()[:32]
@@ -373,13 +399,17 @@ class PdfMemo:
         out = self.root / key / PDF_LEAF
         want = self.key(printable)
         fresh = self.previous.get(key) != want or not out.is_file()
-        if fresh:
+        if not fresh:
+            print(f"  {key}: PDF unchanged")
+        elif (found := self._borrow(key, want)) is not None:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(found, out)
+            print(f"  {key}: PDF unchanged (main's copy)")
+        else:
             out.parent.mkdir(parents=True, exist_ok=True)
             print(f"  {key}: printing PDF (headless Chromium; a few seconds)")
             if self.printer(serve_from, out, printable) is None:
                 return None
-        else:
-            print(f"  {key}: PDF unchanged")
         self.current[key] = want
         if fresh:
             self._write(self.previous | self.current)  # the previous entries stay until save() prunes them
@@ -400,8 +430,10 @@ _ASSET_REF = re.compile(r"""(?<=["'(])_assets/""")
 def _printable(bundle: _Bundle, links: LinkResolver, *, from_dir: str, key: str, report_css: str) -> str:
     """The page as the PDF prints it: author links resolved to the site and GitHub, the current ``report.css`` on top, and nothing the build adds for a browser (banner, lightbox, deferred figures).
 
-    Links are resolved the externalizing way in either mode, so the PDF's links lead to the published site and its bytes are a function of the report alone (relative, they would carry the loopback port the print served from). The page's own ``#fragment`` links stay bare, which is what makes them in-document jumps in the PDF, so the bundle's figures cannot go through a ``<base>``; externalizing, each ``_assets/`` reference is spelled out against the pinned CDN base instead, and the print fetches them through its cache.
+    Links are resolved the externalizing way in either mode, and against production rather than a preview's URL, so the PDF's links lead to the published site and its bytes are a function of the report alone (relative, they would carry the loopback port the print served from; a preview's, the PR number, and a PR could then never reuse production's PDFs through :class:`PdfMemo`). The page's own ``#fragment`` links stay bare, which is what makes them in-document jumps in the PDF, so the bundle's figures cannot go through a ``<base>``; externalizing, each ``_assets/`` reference is spelled out against the pinned CDN base instead, and the print fetches them through its cache.
     """
+    if links.production_base:
+        links = replace(links, site_base=links.production_base)
     html = resolve_html_links(bundle.html or "", links, from_dir=from_dir, out_dir=key, externalizing=True)
     html = set_report_styles(html, report_css)
     if bundle.base_href:
