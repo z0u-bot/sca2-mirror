@@ -1134,7 +1134,10 @@ It may also not survive scale. The row picks up the axis because `⏎` closes ev
 
 Three changes to the design of the re-run, and one read to carry.
 
-**Removal lines by hue.** Define a removal line as a red line whose true answer moves by at least 0.4 under some channel permutation of the red operand. Those are the lines whose answer needs the *hue* of red. On `mix` and the eight other channel-wise ops this is the to-zero set, or close to it. On the three HSV ops it drops the slots that take only saturation or value (`sat-hsv` and `value-hsv` with red at op2), and `hue-hsv` with red at op1 goes with them.
+<!-- REVIEW: the draft said the hue rule is "close to" the to-zero set on every channel-wise op. Counting
+them for the ex-2.2.11 design found it about a third wider on six of them (a permutation moves two channels
+at once). Verify: the removal-line table in ex-2.2.11's method, columns hue and to zero. -->
+**Removal lines by hue.** Define a removal line as a red line whose true answer moves by at least 0.4 under some channel permutation of the red operand. Those are the lines whose answer needs the *hue* of red. On `mix` and `hsvmix` this is the to-zero set; on the six other channel-wise ops it is a wider one, since a permutation moves two channels of the operand where zeroing R moved one, and those ops cleared the old gate with room. On the three HSV ops it drops the slots that take only saturation or value (`sat-hsv` and `value-hsv` with red at op2), and `hue-hsv` with red at op1 goes with them.
 
 The gate stays at *kept* under 0.2, and on the lines that remain every `handover` seed already clears it. The permutation rule reaches six hues; if a finer rotation of the operand in HSV, snapped to the grid, ever disagrees with it, the finer one would be the rule to keep.
 
