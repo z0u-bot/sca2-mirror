@@ -5,7 +5,7 @@ The site is a function of two things: `main`, which production is built from, an
 
 **Why reconcile rather than react.** The arrangement this replaced had three writers of `gh-pages` — a production deploy on push to `main`, a preview deploy per PR event, and a teardown on close — each writing one slice of the branch and leaving the rest alone. Every guard it grew was about the other writers: a lease on the history prune, `force: false` on the deploy, `clean-exclude` on the umbrella directory, and finally a sweep for the previews whose teardown had been overwritten by an in-flight build or never scheduled at all (seven of them by 2026-08-31, two thirds of what the site served). A run that rebuilds everything from current state has no other writers to guard against, and it makes the workflow's single concurrency group safe: a pending run displaced by a newer arrival loses nothing, because the newer run reads the same state, later. `eng/publishing.md` has the longer form.
 
-**What the previous deploy is for.** Each build prints its reports' PDFs (`build_site.PdfMemo`), and the one thing a from-scratch rebuild would waste is those prints: a few seconds each, for every report of every preview, when almost none of them changed. So the run fetches what `gh-pages` serves now and hands each build the matching part of it (the root to production, `pr-preview/pr-<n>/` to that PR) as a memo: a manifest beside the PDFs says what each was printed from, and a report whose page and tooling are unchanged keeps its file. The branch stays one commit deep and is still rewritten whole; it is read before it is replaced.
+**What the previous deploy is for.** Each build prints its reports' PDFs (`build_site.PdfMemo`), and the one thing a from-scratch rebuild would waste is those prints: a few seconds each, for every report of every preview, when almost none of them changed. So the run fetches what `gh-pages` serves now and hands each build the matching part of it (the root to production, `pr-preview/pr-<n>/` to that PR, and the root again for a PR to borrow from) as a memo: a manifest beside the PDFs says what each was printed from, and a report whose page and tooling are unchanged keeps its file, or takes production's. The branch stays one commit deep and is still rewritten whole; it is read before it is replaced.
 
 **What it costs** is rebuilding every preview on every event, at about 30 s each. This repository has a handful of PRs open at a time, so a run is a minute or two. A preview that fails to build is reported (a warning, and a note on the PR) and skipped, so a broken branch never holds back production.
 
@@ -43,8 +43,8 @@ BOT = {
     "GIT_COMMITTER_EMAIL": "41898282+github-actions[bot]@users.noreply.github.com",
 }
 
-Builder = Callable[[Path, str | None, Path | None], Path]
-"""``(worktree, site_url, memo) -> _site``; *memo* is the previous deploy's copy of the part of the site this build makes, or ``None`` on the first."""
+Builder = Callable[[Path, str | None, tuple[Path, ...]], Path]
+"""``(worktree, site_url, memos) -> _site``; *memos* are the previous deploy's copy of the part of the site this build makes, then the parts it may borrow PDFs from (production's, for a preview); empty on the first deploy."""
 """Builds the site from a checkout for the given public URL (`None` for production), and returns the directory it wrote."""
 
 
@@ -116,16 +116,16 @@ def checkout(repo: Path, remote: str, ref: str, dest: Path) -> str:
     return sha
 
 
-def build_with_uv(worktree: Path, site_url: str | None, memo: Path | None) -> Path:
+def build_with_uv(worktree: Path, site_url: str | None, memos: tuple[Path, ...]) -> Path:
     """The real builder: the checkout's own `./go site`, in an environment synced from its own lockfile.
 
-    `--locked` because this doesn't go through `install.sh`, which turns it on under `$CI`: a bare sync would rewrite `uv.lock` to match a `pyproject.toml` that outgrew it, and build against a resolution nobody reviewed. `MINI_SITE_URL` is what keeps a preview's inter-report links and its "← Index" banner inside the preview rather than jumping to production; production leaves it unset and `build_site` derives the URL from the repository. `MINI_PDF_MEMO` hands the build the PDFs its predecessor printed (`build_site.PdfMemo`), so it prints only the reports that changed. The checkout's own Playwright fetches its Chromium build if the workflow's cache holds a different one; with the system libraries installed once by the workflow, that is a download and nothing more.
+    `--locked` because this doesn't go through `install.sh`, which turns it on under `$CI`: a bare sync would rewrite `uv.lock` to match a `pyproject.toml` that outgrew it, and build against a resolution nobody reviewed. `MINI_SITE_URL` is what keeps a preview's inter-report links and its "← Index" banner inside the preview rather than jumping to production; production leaves it unset and `build_site` derives the URL from the repository. `MINI_PDF_MEMO` hands the build the PDFs its predecessor printed, then production's for a preview to borrow from (`build_site.PdfMemo`), so it prints only the reports that changed. The checkout's own Playwright fetches its Chromium build if the workflow's cache holds a different one; with the system libraries installed once by the workflow, that is a download and nothing more.
     """
     env = {key: value for key, value in os.environ.items() if key not in ("MINI_SITE_URL", "MINI_PDF_MEMO")}
     if site_url:
         env["MINI_SITE_URL"] = site_url
-    if memo is not None:
-        env["MINI_PDF_MEMO"] = str(memo)
+    if memos:
+        env["MINI_PDF_MEMO"] = os.pathsep.join(str(memo) for memo in memos)
     subprocess.run(["uv", "sync", "--locked"], cwd=worktree, check=True, env=env)
     subprocess.run(["uv", "run", "playwright", "install", "chromium"], cwd=worktree, check=True, env=env)
     subprocess.run(["./go", "site"], cwd=worktree, check=True, env=env)
@@ -154,12 +154,12 @@ def build_into(
     dest: Path,
     builder: Builder,
     url: str | None,
-    memo: Path | None = None,
+    memos: tuple[Path, ...] = (),
 ) -> str:
     """Check `ref` out, build it, and move the result to `dest`. Returns the sha that was built. The worktree is removed either way."""
     sha = checkout(repo, remote, ref, worktree)
     try:
-        built = builder(worktree, url, memo)
+        built = builder(worktree, url, memos)
         dest.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(built), str(dest))
     finally:
@@ -259,9 +259,11 @@ def reconcile(
     previous: Path | None = None
     try:
         # What the branch serves now, so each build can reuse the PDFs its predecessor
-        # printed: production reads the root, a preview reads its own directory.
+        # printed: production reads the root, a preview reads its own directory and
+        # borrows from the root, so a new PR prints only the reports it changed.
         previous = previous_site(repo, remote, branch, workspace / "previous")
-        main = build_into(repo, remote, "refs/heads/main", workspace / "main", site, builder, None, previous)
+        memos = (previous,) if previous else ()
+        main = build_into(repo, remote, "refs/heads/main", workspace / "main", site, builder, None, memos)
         print(f"main@{main[:7]}: built")
         for pull in pulls:
             key = f"pr-{pull.number}"
@@ -274,7 +276,7 @@ def reconcile(
                     site / UMBRELLA / key,
                     builder,
                     f"{site_url}{UMBRELLA}/{key}/",
-                    previous / UMBRELLA / key if previous else None,
+                    (previous / UMBRELLA / key, *memos) if previous else (),
                 )
                 built[pull.number] = sha
                 print(f"#{pull.number}@{sha[:7]}: built")

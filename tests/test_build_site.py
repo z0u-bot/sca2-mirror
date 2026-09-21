@@ -2,6 +2,7 @@
 
 import pytest
 import json
+import os
 from pathlib import Path
 
 from mini.reports import github_slug
@@ -513,6 +514,38 @@ def test_the_pdf_memo_records_each_print_as_it_lands(tmp_path: Path):
     assert printer.calls == ["<p>x</p>", "<p>y</p>"], "the print from the interrupted build was not reused"
 
 
+def test_the_pdf_memo_borrows_a_pdf_a_fallback_memo_printed_from_the_same_page(tmp_path: Path):
+    """A preview reads production's memo behind its own: a report unchanged since main takes main's PDF; a changed page, or a changed print, is printed."""
+    main, preview = tmp_path / "main", tmp_path / "preview"
+    memo = build_site.PdfMemo(main, stamp="t", printer=_Printer())
+    memo.pdf("same", "<p>x</p>", serve_from=tmp_path)
+    memo.pdf("edited", "<p>y</p>", serve_from=tmp_path)
+    memo.save()
+
+    printer = _Printer()
+    memo = build_site.PdfMemo(preview, stamp="t", printer=printer, fallbacks=(main,))
+    borrowed = memo.pdf("same", "<p>x</p>", serve_from=tmp_path)
+    memo.pdf("edited", "<p>y2</p>", serve_from=tmp_path)
+    memo.save()
+    assert borrowed == preview / "same" / "report.pdf" and borrowed.read_bytes() == b"%PDF of <p>x</p>"
+    assert printer.calls == ["<p>y2</p>"]
+    assert json.loads((preview / "pdfs.json").read_text()) == {
+        "same": memo.key("<p>x</p>"),
+        "edited": memo.key("<p>y2</p>"),
+    }
+    assert (main / "pdfs.json").read_text() == (main / "pdfs.json").read_text(), "the fallback is never written"
+
+    other_tooling = build_site.PdfMemo(tmp_path / "later", stamp="t2", printer=printer, fallbacks=(main,))
+    other_tooling.pdf("same", "<p>x</p>", serve_from=tmp_path)
+    assert printer.calls == ["<p>y2</p>", "<p>x</p>"]
+
+
+def test_the_pdf_memo_opens_the_first_root_to_write_and_the_rest_to_borrow_from(tmp_path: Path, monkeypatch):
+    monkeypatch.setenv("MINI_PDF_MEMO", os.pathsep.join([str(tmp_path / "mine"), str(tmp_path / "theirs")]))
+    memo = build_site.PdfMemo.open()
+    assert (memo.root, memo.fallbacks) == (tmp_path / "mine", (tmp_path / "theirs",))
+
+
 def test_the_pdf_memo_forgets_a_report_the_build_no_longer_has(tmp_path: Path):
     memo = build_site.PdfMemo(tmp_path, stamp="t", printer=_Printer())
     memo.pdf("old", "<p>x</p>", serve_from=tmp_path)
@@ -555,3 +588,17 @@ def test_the_printable_page_names_its_figures_on_the_cdn_and_keeps_its_fragments
     assert '\\"https://hf.co/d/r/resolve/abc/exports/probe/_assets/g.png\\"' in out
     assert 'href="#fn1"' in out
     assert "<base" not in out and "p{}" in out
+
+
+def test_the_printable_page_links_to_production_from_a_preview():
+    """A preview's pages link each other inside the preview, but its PDFs link production: the same bytes on every branch, so a PR can reuse main's PDF of a report it did not touch."""
+    links = build_site.LinkResolver(
+        render_map={"probe/report.py": "probe/index.html", "other/report.py": "other/index.html"},
+        source_files=frozenset(),
+        site_base="https://z0u.github.io/mi-ni/pr-preview/pr-7/",
+        source_base="https://github.com/z0u/mi-ni/blob/main/docs/",
+        production_base="https://z0u.github.io/mi-ni/",
+    )
+    bundle = build_site._Bundle('<html><body><a href="../other/report.py">other</a></body></html>')
+    out = build_site._printable(bundle, links, from_dir="probe", key="probe", report_css="")
+    assert 'href="https://z0u.github.io/mi-ni/other/"' in out
