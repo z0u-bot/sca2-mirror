@@ -42,6 +42,7 @@ Every run comes from a checkpoint a published experiment left in the store. Thre
 
 import json
 import tempfile
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -50,8 +51,8 @@ import numpy as np
 from matplotlib.axes import Axes
 
 import experiment as ex
-from mini.lit import stop
-from mini.store import project_store
+from mini.lit import memo, read_npz, stop
+from mini.store import Artifact, project_store
 from mini.vis import figure_html, light_dark, themed
 
 # The five residual slices: the embedding and the output of each block.
@@ -62,27 +63,23 @@ VARIANT_TITLE = {"full": "as it is", "axis": "e₁ dropped"}
 LAST = ex.N_SLICES - 1
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, tuple[Artifact, Path] | None]:
+    """Each ref's artifact and published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's per-call latency is a couple of seconds, so resolving the refs one at a time is most of a cold render. The artifact rides along because `Results` keys the figure cache by the hashes of what it was built from.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | {r: (a, p) for (r, a), p in zip(have.items(), paths, strict=True)}
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+def read_json(got: tuple[Artifact, Path] | None) -> dict | None:
+    return None if got is None else json.loads(got[1].read_text())
+
+
+def read_arrays(got: tuple[Artifact, Path] | None) -> Mapping[str, np.ndarray] | None:
+    return None if got is None else read_npz(got[1])
 
 
 @dataclass(frozen=True)
@@ -111,7 +108,12 @@ GROUPS: tuple[Group, ...] = tuple(
 @dataclass
 class Results:
     metrics: dict
-    arrays: dict[str, np.ndarray]
+    arrays: Mapping[str, np.ndarray]
+    sources: tuple[Artifact | None, ...]  # what the fields were read from, in field order
+
+    def __memo_key__(self) -> list[str | None]:
+        """The figure cache keys a `Results` by the hashes of its sources rather than digesting every array it holds."""
+        return [a.sha256 if a is not None else None for a in self.sources]
 
     def runs(self, exp: str) -> list[dict]:
         return self.metrics["experiments"][exp]
@@ -147,11 +149,13 @@ class Results:
 
 
 def load_results() -> Results | None:
-    metrics = load_json(ex.METRICS_REF)
-    arrays = load_npz(ex.ARRAYS_REF)
-    if metrics is None or arrays is None:
-        return None
-    return Results(metrics, arrays)
+    with tempfile.TemporaryDirectory() as tmp:
+        got = fetch([ex.METRICS_REF, ex.ARRAYS_REF], Path(tmp))
+        metrics, arrays = read_json(got[ex.METRICS_REF]), read_arrays(got[ex.ARRAYS_REF])
+        if metrics is None or arrays is None:
+            return None
+        sources = tuple(g[0] if g is not None else None for g in (got[ex.METRICS_REF], got[ex.ARRAYS_REF]))
+        return Results(metrics, arrays, sources)
 
 
 # --- Figure style --------------------------------------------------------------------------------
@@ -258,6 +262,7 @@ The lower row of each figure drops e₁, the anchor axis, from the states of eve
 """
 
 
+@memo
 def rsa_figure(res: Results, group: Group, stat: str = "rsa") -> str:
     ylabel = {"rsa": "RSA to controls", "procrustes": "Procrustes disparity to controls"}[stat]
     conds = group.sources
@@ -299,6 +304,7 @@ def rsa_figure(res: Results, group: Group, stat: str = "rsa") -> str:
     return _plot()
 
 
+@memo
 def summary_table(res: Results) -> str:
     """The last block at operand 1, per condition: RSA to controls and within the condition, both variants."""
     rows = []
@@ -377,6 +383,7 @@ The seeds of a light anchor share an axis and otherwise vary as controls do. The
 """
 
 
+@memo
 def within_figure(res: Results) -> str:
     @themed(
         name="within-condition",
@@ -435,6 +442,7 @@ With e₁ dropped, the last block is graded too: the recipe returns to the band,
 """
 
 
+@memo
 def dose_figure(res: Results) -> str:
     group = next(g for g in GROUPS if g.exp == "ex-2.2.3" and g.name == "main")
     conds = sorted(group.sources, key=lambda s: s.lam)
@@ -498,6 +506,7 @@ At the embedding and the first block, the conditions are alike, with the embeddi
 """
 
 
+@memo
 def cube_figure(res: Results) -> str:
     @themed(
         name="cube-rsa",
@@ -558,6 +567,7 @@ Together these say what the `e₁ dropped` rows take away: a coordinate that is 
 """
 
 
+@memo
 def checks_figure(res: Results) -> str:
     stats = {"e1_share": "variance share of e₁", "cos_e1": "|cos(redness, e₁)|"}
 
