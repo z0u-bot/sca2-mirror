@@ -37,6 +37,10 @@ Use these terms consistently across all reports.
 
   One clause of a hypothesis gate. Calling these "conditions" would collide with the design sense above and produces sentences like "every condition a condition misses".
 
+- measurement
+
+  A number taken from a run or a set of runs, together with the rule that produces it: "the removal measurement", "the three measurements ex-2.2.10 changed". Never "read" as a noun. It collides with the verb on the same line ("the read is read on `handover`") and with the reader's own reading, and the human finds it confusing. For "read on" or "read against" as verbs, prefer "scored on", "measured on", or "compared with".
+
 ## Indexing
 
 Math and prose counts from 1; code counts from 0. So the anchored direction is *the first axis* or e₁ in a report and `ANCHOR_AXIS = 0`. Slight preference for "the first basis vector" over "basis vector 1", etc.

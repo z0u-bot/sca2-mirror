@@ -264,4 +264,12 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/geometry-rsa/report.py -->
 
+- [2.2.11. The handover re-run](./m2/ex-2.2.11/report.py)
+
+    Preregistration. Ex-2.2.9's conditions again at seeds it never trained, scored with the three measurements ex-2.2.10 proposed and fixed here first: removal lines chosen by hue (a red line counts when some channel permutation of its red operand moves the answer far), retention measured across the anneal rather than from the run's peak, and the op1 alignment reported beside `handover-slot` and `handover-tied` instead of gated. The slots whose answer takes only red's saturation or value become a second measurement, on the references too, to tell the operator's cost from the checkpoint's. Three seeds per condition keep checkpoints through training for a later training-dynamics measurement.
+
+    <span class="tags">`prereg` `multi-op` `anchoring` `selectivity`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.11/report.py -->
+
 </details>
