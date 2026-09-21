@@ -17,9 +17,10 @@ from mini.store import Artifact, LocalStore, _cas_key
 
 @dataclass(frozen=True)
 class FakeInfo:
-    """Stands in for ``BucketFile``: the only field the store reads back is ``path``."""
+    """Stands in for ``BucketFile``: the store reads back ``path`` and, for refs, ``xet_hash``."""
 
     path: str
+    xet_hash: str | None = None
 
 
 class FakeApi:
@@ -32,7 +33,8 @@ class FakeApi:
         self.downloads = 0  # individual files served
 
     def get_bucket_paths_info(self, cas, paths):  # noqa: ANN001 — mirrors HfApi's signature
-        return [FakeInfo(p) for p in paths if p in self.blobs]
+        # A content hash, as Xet's is: the same bytes get the same hash, so a re-pointed ref gets a new one.
+        return [FakeInfo(p, xet_hash=f"xet-{hash(self.blobs[p]) & 0xFFFF:04x}") for p in paths if p in self.blobs]
 
     def download_bucket_files(self, cas, files):  # noqa: ANN001 — mirrors HfApi's signature
         self.calls += 1
@@ -154,3 +156,24 @@ def test_get_refs_resolves_present_and_absent_in_one_round_trip(tmp_path: Path):
 
     assert store.get_ref("exp/unset") is None  # the single-name path shares the batch machinery
     assert store.get_ref("exp/metrics") == art
+
+
+def test_ref_reads_are_served_locally_until_the_ref_moves(tmp_path: Path):
+    """A ref whose Xet hash is unchanged never downloads again; a re-pointed one downloads once more."""
+    a = Artifact(sha256="a" * 64, size=3, name="m.json")
+    b = Artifact(sha256="b" * 64, size=4, name="m.json")
+    refs = {"refs/exp/metrics.json": json.dumps(a.to_dict()).encode()}
+    store, api = _store(tmp_path, refs)
+
+    assert store.get_ref("exp/metrics") == a
+    assert api.calls == 1
+    fresh = HFStore("ns/bucket", cache=LocalStore(tmp_path / "cache"))  # a new process, same warm cache
+    fresh._api = api
+    assert fresh.get_ref("exp/metrics") == a
+    assert api.calls == 1  # paths-info alone: the payload came from the ref cache
+
+    api.blobs["refs/exp/metrics.json"] = json.dumps(b.to_dict()).encode()  # another run re-points the ref
+    assert fresh.get_ref("exp/metrics") == b
+    assert api.calls == 2
+    assert fresh.get_refs(["exp/metrics", "exp/unset"]) == {"exp/metrics": b, "exp/unset": None}
+    assert api.calls == 2

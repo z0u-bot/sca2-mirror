@@ -2,15 +2,16 @@
 
 import json
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import cast
 
+import experiment as ex
 import matplotlib.pyplot as plt
 import numpy as np
 
-import experiment as ex
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import AxesRow, figure_html, light_dark, themed
 
@@ -30,27 +31,29 @@ INK = {
 # One ink per condition, as (light, dark) pairs; production arms draw pale.
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+REFS = [ex.METRICS_REF, ex.ARRAYS_REF, ex.GEOMETRY_REF, ex.EX223_METRICS_REF, ex.EX223_GEOMETRY_REF]
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's per-call latency is most of a render if the refs are resolved one at a time.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+def read_npz(path: Path | None) -> dict[str, np.ndarray] | None:
+    if path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files}
 
 
 def span2(v: np.ndarray, fmt: str = ".3f") -> str:
@@ -136,12 +139,14 @@ class Results:
         return np.array([r["r2_strict"] for r in src["runs"] if r["condition"] == cond], float)
 
 
-metrics = load_json(ex.METRICS_REF)
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch(REFS, Path(_tmp))
+    metrics = read_json(files[ex.METRICS_REF])
+    arrays_, geometry_ = read_npz(files[ex.ARRAYS_REF]), read_json(files[ex.GEOMETRY_REF])
+    prod_metrics, prod_geometry = read_json(files[ex.EX223_METRICS_REF]), read_json(files[ex.EX223_GEOMETRY_REF])
 if metrics is None:
     stop("_Results are not published yet; the result cells render once they are._")
 assert metrics is not None
-arrays_, geometry_ = load_npz(ex.ARRAYS_REF), load_json(ex.GEOMETRY_REF)
-prod_metrics, prod_geometry = load_json(ex.EX223_METRICS_REF), load_json(ex.EX223_GEOMETRY_REF)
 assert arrays_ and geometry_ and prod_metrics and prod_geometry, "a result is missing from the store"
 res: Results = Results(metrics, arrays_, geometry_, prod_metrics, prod_geometry)
 
@@ -263,6 +268,7 @@ exp_ = {c: np.array([res.round_stat(c, op, "holdout", "expected_em") for op in o
 prod_em = np.array([res.em(res.prod_runs("control-short"), op) for op in ops_])
 
 
+@memo
 @themed(
     name="em-readings",
     alt_text="""
@@ -352,6 +358,7 @@ for c in conds_:
     binned[c] = (np.array(xs), np.array(pm), np.array(sup), np.array(n))
 
 
+@memo
 @themed(
     name="calibration",
     alt_text="""
@@ -482,6 +489,7 @@ answer_target = 2  # the answer target
 x_slices = np.arange(len(SLICE_NAMES))
 
 
+@memo
 @themed(
     name="answer-r2",
     alt_text="""

@@ -1,12 +1,14 @@
 """Tests for ``mini.lit``: parsing, weaving, incremental re-runs, the memo, and the page."""
 
 import importlib
+import os
+import sys
 import textwrap
 from pathlib import Path
 
 import pytest
 
-from mini.lit import Runner, is_literate_script, memo, parse, render
+from mini.lit import LazyNpz, Runner, is_literate_script, memo, parse, read_npz, render
 from mini.lit import set_cache_dir
 from mini.lit.document import Cell, Prose
 from mini.lit.page import page, to_html
@@ -17,6 +19,13 @@ def write(tmp_path: Path, text: str, name: str = "doc.py") -> Path:
     p = tmp_path / name
     p.write_text(textwrap.dedent(text).lstrip())
     return p
+
+
+def header(response, name: str) -> str:
+    """*response*'s header, failing the test if the server left it out — which every assertion below would rather say plainly than pass ``None`` on."""
+    value = response.getheader(name)
+    assert value is not None, f"the response carries no {name}"
+    return value
 
 
 class TestParse:
@@ -355,6 +364,54 @@ class TestMemo:
         p.write_text(p.read_text().replace("x * 2", "x * 3"))
         assert "(9, 9, 1)" in Runner(p).weave().markdown
 
+    def test_memo_key_stands_in_for_the_object(self, tmp_path):
+        """A results object keyed by ``__memo_key__`` hits while the key holds and misses when it moves, whatever its other fields do."""
+        src = (
+            "from dataclasses import dataclass\nfrom mini.lit import memo\nimport numpy as np\ncalls = []\n"
+            "@dataclass(frozen=True)\nclass Results:\n    sha: int\n    big: object\n    def __memo_key__(self):\n        return self.sha\n"
+            "@memo\ndef f(res):\n    calls.append(1)\n    return res.sha\n"
+            "f(Results(1, object())), f(Results(1, np.zeros(3))), f(Results(2, object())), len(calls)\n"
+        )
+        assert "(1, 1, 2, 2)" in Runner(write(tmp_path, src)).weave().markdown
+
+    def test_miss_on_a_design_constant_read_off_a_module(self, tmp_path):
+        """A report reads its gates as ``ex.GATE``; editing one must redraw what quotes it, though the task fingerprint alone would not see it."""
+        design = write(tmp_path, "GATE = 0.02\n", name="design.py")
+        p = write(
+            tmp_path,
+            "import design\nfrom mini.lit import memo\ncalls = []\n@memo\ndef f():\n    calls.append(1)\n    return design.GATE\nf(), len(calls)\n",
+        )
+        assert "(0.02, 1)" in Runner(p).weave().markdown
+        set_cache_dir(tmp_path / "cache")
+        assert "(0.02, 0)" in Runner(p).weave().markdown
+        design.write_text("GATE = 0.03\n")
+        # The rewrite kept design.py's size and landed in the same whole second, so Python's cached
+        # bytecode still validates and the re-import would hand back the old GATE. Date it forward.
+        os.utime(design, (later := design.stat().st_mtime + 2, later))
+        set_cache_dir(tmp_path / "cache")
+        sys.modules.pop("design")  # a fresh process would not hold the old module
+        assert "(0.03, 1)" in Runner(p).weave().markdown
+
+    def test_array_globals_are_evidence_and_opaque_ones_warn(self, tmp_path, caplog):
+        """A figure that reads a module-level array must redraw when the array changes; one that reads something the cache cannot fingerprint is told to take it as an argument."""
+        src = "import numpy as np\nfrom mini.lit import memo\nA = np.arange(3)\ncalls = []\n@memo\ndef f():\n    calls.append(1)\n    return int(A.sum())\nf(), len(calls)\n"
+        p = write(tmp_path, src)
+        assert "(3, 1)" in Runner(p).weave().markdown
+        set_cache_dir(tmp_path / "cache")
+        assert "(3, 0)" in Runner(p).weave().markdown
+        p.write_text(src.replace("arange(3)", "arange(4)"))
+        set_cache_dir(tmp_path / "cache")
+        assert "(6, 1)" in Runner(p).weave().markdown
+
+        q = write(
+            tmp_path,
+            "from mini.lit import memo\nclass Box: ...\nB = Box()\n@memo\ndef g():\n    return 1 if B else 0\ng()\n",
+            name="opaque.py",
+        )
+        with caplog.at_level("WARNING", logger="mini.lit.caching"):
+            Runner(q).weave()
+        assert "g reads B (Box)" in caplog.text
+
     def test_array_inputs_key_by_content(self):
         np = pytest.importorskip("numpy")
         calls = []
@@ -486,3 +543,151 @@ class TestSiblingImports:
         assert "a" in Runner(ws[0]).weave().markdown
         assert "b" in Runner(ws[1]).weave().markdown
         assert "a" in Runner(ws[0]).weave().markdown  # and back again: the earlier directory moves to the front
+
+
+class TestServe:
+    """The live server's transport: what a browser (and whatever proxies for it) sees."""
+
+    def _serve(self, tmp_path):
+        import threading
+        from functools import partial as bind
+
+        from mini.lit.serve import _Handler, _Server, _Site
+
+        out = tmp_path / "out"
+        (out / "_assets").mkdir(parents=True)
+        (out / "index.html").write_text("<p>hi</p>")
+        (out / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(200_000))
+        site = _Site(out)
+        handler = type("Handler", (_Handler,), {"site": site})
+        server = _Server(("127.0.0.1", 0), bind(handler, directory=str(out)))
+        threading.Thread(target=server.serve_forever, daemon=True).start()
+        return server, site
+
+    def test_one_connection_serves_the_whole_page(self, tmp_path):
+        """Keep-alive, and every body as long as its ``Content-Length`` says.
+
+        A report asks for dozens of figures at once. Under HTTP/1.0 each is its own connection, and a connection lost in that burst reaches the browser as ``ERR_CONTENT_LENGTH_MISMATCH``.
+        """
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            for path in ("/", "/_assets/fig.png?v=deadbeef", "/index.html"):
+                conn.request("GET", path)
+                r = conn.getresponse()
+                body = r.read()
+                assert r.status == 200
+                assert len(body) == int(header(r, "Content-Length"))
+                assert r.version == 11 and not r.will_close  # the next request reuses this socket
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_what_the_browser_may_keep(self, tmp_path):
+        """A stamped figure is immutable, the page is revalidated, the poll and a miss are never kept."""
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            got = {}
+            for path in ("/", "/index.html", "/_assets/fig.png?v=deadbeef", "/_assets/fig.png", "/nope.png"):
+                conn.request("HEAD", path)
+                r = conn.getresponse()
+                r.read()
+                got[path] = r.getheader("Cache-Control")
+            assert got["/"] == got["/index.html"] == "no-cache"
+            assert got["/_assets/fig.png?v=deadbeef"] == "public, max-age=31536000, immutable"
+            assert got["/_assets/fig.png"] == "no-cache"  # unstamped: the URL says nothing about the bytes
+            assert got["/nope.png"] == "no-store"
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_the_page_is_kept_until_a_build_changes_it(self, tmp_path):
+        """A reload with no build behind it answers 304, so the browser keeps the page it parsed (DevTools with it)."""
+        import http.client
+
+        server, site = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/index.html")
+            r = conn.getresponse()
+            r.read()
+            etag = header(r, "ETag")
+            conn.request("GET", "/index.html", headers={"If-None-Match": etag})
+            r = conn.getresponse()
+            assert r.status == 304 and r.read() == b""
+            (tmp_path / "out" / "index.html").write_text("<p>a build landed</p>")
+            conn.request("GET", "/index.html", headers={"If-None-Match": etag})
+            r = conn.getresponse()
+            assert r.status == 200 and r.read() == b"<p>a build landed</p>"
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_a_replaced_file_mid_request_is_still_whole(self, tmp_path):
+        """A build lands while the page is loading: the browser gets one version or the other, never a short body."""
+        import http.client
+
+        server, _ = self._serve(tmp_path)
+        try:
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/_assets/fig.png")
+            r = conn.getresponse()
+            (tmp_path / "out" / "_assets" / "fig.png").write_bytes(b"\x89PNG" + bytes(10))
+            assert len(r.read()) == int(header(r, "Content-Length"))
+        finally:
+            conn.close()
+            server.shutdown()
+
+    def test_the_version_poll_answers_when_a_build_lands(self, tmp_path):
+        import http.client
+        import threading
+
+        server, site = self._serve(tmp_path)
+        try:
+            threading.Timer(0.2, lambda: site.publish(lambda reload: "<p>next</p>" + reload)).start()
+            conn = http.client.HTTPConnection(*server.server_address)
+            conn.request("GET", "/__version?after=0")
+            r = conn.getresponse()
+            assert r.read() == b"1"
+        finally:
+            conn.close()
+            server.shutdown()
+
+
+class TestLazyNpz:
+    @pytest.fixture(autouse=True)
+    def cache(self, tmp_path):
+        set_cache_dir(tmp_path / "cache")
+        yield
+        set_cache_dir(None)
+
+    def test_reads_on_demand_and_keys_by_content(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        path = tmp_path / "a.npz"
+        np.savez_compressed(path, x=np.arange(3), y=np.ones((2, 2)))
+        z = read_npz(path)
+        assert z is not None and read_npz(None) is None
+        assert sorted(z) == ["x", "y"] and len(z) == 2 and "x" in z and "q" not in z
+        assert z["x"].tolist() == [0, 1, 2] and z["x"] is z["x"]  # decompressed once, then kept
+        assert z.__memo_key__() == LazyNpz(path.read_bytes()).__memo_key__()
+        np.savez_compressed(path, x=np.arange(4))
+        assert LazyNpz(path.read_bytes()).__memo_key__() != z.__memo_key__()
+
+    def test_memo_takes_it_as_an_argument(self, tmp_path):
+        np = pytest.importorskip("numpy")
+        path = tmp_path / "a.npz"
+        np.savez_compressed(path, x=np.arange(3))
+        calls = []
+
+        @memo
+        def total(z: LazyNpz) -> int:
+            calls.append(1)
+            return int(z["x"].sum())
+
+        z = LazyNpz(path.read_bytes())
+        assert total(z) == 3 and total(LazyNpz(path.read_bytes())) == 3 and len(calls) == 1

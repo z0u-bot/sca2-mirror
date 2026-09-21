@@ -34,7 +34,7 @@ To *read* a report — prose, headings, tables and figure alt text, assembled in
 
 This weaves the document (`mini.lit`; a `# title:` header at the top of the `.py`) with no browser, writing `index.md` beside `index.html` with the figures under `_assets/`; in the Markdown they appear as `<figure>` HTML with the report's real alt text. The links resolve from the render's own directory, so `Read` follows one straight to the PNG. This is what the `report-structure` agent reads. A published literate report also serves the same woven Markdown beside its page as `<key>/index.md`.
 
-Rendering runs the report's cells (memoized work comes from the cache), so name the reports you want; `--pdf` also prints the page. The export bundle from `./go preview` holds the same document plus provenance, thumbnails, and the PDF. Its `index.html` is several times the size of `index.md`, most of it the inline stylesheet, so reach for it only when you need the page as a page.
+Rendering runs the report's cells (memoized work comes from the cache), so name the reports you want. The timing line (`woven in N ms`) is worth a glance: a warm render should take about two seconds, and one that takes ten is a report loading refs one at a time or drawing figures outside `@memo`, both quick to fix (the `style-py` skill, "Fast renders"); `--pdf` also prints the page. The export bundle from `./go preview` holds the same document plus provenance, thumbnails, and the PDF. Its `index.html` is several times the size of `index.md`, most of it the inline stylesheet, so reach for it only when you need the page as a page.
 
 ## Browser path: for inline/JS figures, full page, or DOM assertions
 

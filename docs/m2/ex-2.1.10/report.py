@@ -11,6 +11,7 @@ Mellowmax pooling found the concept position on its own in ex-2.1.9, but every l
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import cast
 
@@ -20,7 +21,7 @@ import numpy as np
 # The document's directory is on sys.path while it runs, so the conditions and the
 # ref come from the definition module beside this one.
 import experiment as ex
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import AxesGrid, AxesRow, figure_html, light_dark, smooth_step, smooth_step_area, themed
 from sca.colorcube import redness
@@ -28,39 +29,40 @@ from sca.data import named_colors as nc
 from sca.data.colors import N_LEVELS, mix
 
 
-def load_results() -> tuple[dict, dict[str, np.ndarray]] | None:
-    """Resolve metrics and the stacked per-run arrays from the store, or None if unpublished."""
-    store = project_store()
-    arts = store.get_refs([ex.METRICS_REF, ex.ARRAYS_REF])
-    m_art, a_art = arts[ex.METRICS_REF], arts[ex.ARRAYS_REF]
-    if m_art is None or a_art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        m_path, a_path = store.get_many([(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz")])
-        with np.load(a_path) as z:
-            arrays = {k: z[k] for k in z.files}
-        metrics = json.loads(m_path.read_text())
-    return metrics, arrays
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
 
-
-def load_ex219() -> tuple[dict, dict[str, np.ndarray]] | None:
-    """Ex-2.1.9's published results: the carried baselines, the τ calibration,
-    and the reproduction targets.
+    One `get_refs` and one `get_many` for the lot: the bucket's fixed per-call latency is a couple of seconds, so resolving three refs one at a time is most of a render.
     """
     store = project_store()
-    arts = store.get_refs([ex.EX219_METRICS_REF, ex.EX219_ARRAYS_REF])
-    m_art, a_art = arts[ex.EX219_METRICS_REF], arts[ex.EX219_ARRAYS_REF]
-    if m_art is None or a_art is None:
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+def read_npz(path: Path | None) -> dict[str, np.ndarray] | None:
+    if path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        m_path, a_path = store.get_many([(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz")])
-        with np.load(a_path) as z:
-            arrays = {k: z[k] for k in z.files}
-        metrics = json.loads(m_path.read_text())
-    return metrics, arrays
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files}
 
 
-loaded = load_results()
+def load_results(files: dict[str, Path | None]) -> tuple[dict, dict[str, np.ndarray]] | None:
+    """Metrics and the stacked per-run arrays, or None if unpublished."""
+    metrics, arrays = read_json(files[ex.METRICS_REF]), read_npz(files[ex.ARRAYS_REF])
+    return None if metrics is None or arrays is None else (metrics, arrays)
+
+
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch([ex.METRICS_REF, ex.ARRAYS_REF, ex.EX219_ARRAYS_REF], Path(_tmp))
+    loaded = load_results(files)
+    # Ex-2.1.9's published results: the carried baselines, the τ calibration, and the reproduction targets.
+    loaded_219 = read_npz(files[ex.EX219_ARRAYS_REF])
+
 if loaded is None:
     stop("_Results are not published yet; the analysis cells below render once they are._")
 metrics, arrays = loaded
@@ -368,10 +370,9 @@ rf"""
 **The label budget.** Over the closed-pair set the corpus draws from, the op1 labeller labels {p_old:.4f} of lines per visit and the either-slot labeller at the halved rate labels {p_new:.4f}, a {abs(p_new / p_old - 1) * 100:.1f}% difference. The halving does keep the budget, so a margin change is attributable to the labelling rule rather than to more or less total pull. Of the either-slot label mass, {label_shares[0]:.0%} is op1-only, {label_shares[1]:.0%} op2-only and {label_shares[2]:.1%} both-draw. The near-even split between the one-slot groups is what H2's group weighting and H4's latch arithmetic lean on.
 """
 
-loaded_219 = load_ex219()
 if loaded_219 is None:
     stop("_Ex-2.1.9's published results aren't reachable from here; the calibration cells need them._")
-_, arrays219 = loaded_219
+arrays219 = loaded_219
 
 
 def ex219_alpha(cond: str) -> np.ndarray:
@@ -391,6 +392,7 @@ tau_grid = np.geomspace(0.003, 8.0, 70)
 tau_lead = {c: np.array([leading_weight(a, t) for t in tau_grid]) for c, a in ALPHA219.items()}
 
 
+@memo
 @themed(
     name="tau-ladder",
     alt_text="""
@@ -400,7 +402,7 @@ tau_lead = {c: np.array([leading_weight(a, t) for t in tau_grid]) for c, a in AL
         **Where the soft-τ rungs land.** The check the ladder was chosen by (the rungs are not derivable from first principles): the share of softmin weight held by the leading span position, as a function of τ, computed on the stored alignments from ex-2.1.9 under the un-anchored control (**left**) and under `pool-t100` (**right**). Dashed verticals mark the rungs chosen here, and the curves say what each will do. τ = 0.1 keeps a clear leader on the trained profile; τ = 2.5 sits within a few hundredths of uniform (0.25) on both, so it *is* the tiny-bias arm and a τ = ∞ arm would add nothing; τ = 0.5 splits the gap. Had a rung landed on the flat shoulder next to another, we would have moved it.
     """,
 )
-def tau_ladder_plot() -> plt.Figure:
+def tau_ladder_plot(tau_grid: np.ndarray, tau_lead: dict[str, np.ndarray]) -> plt.Figure:
     grey = light_dark("#666", "#999")
     slice_colors = [
         light_dark("#7b3fa0", "#b98ce0"),
@@ -425,7 +427,7 @@ def tau_ladder_plot() -> plt.Figure:
     return fig
 
 
-tau_ladder_plot()
+tau_ladder_plot(tau_grid, tau_lead)
 
 # %%
 
@@ -679,8 +681,13 @@ GROUP_ALT = {
 def profile_fig(cond: str, title: str) -> str:
     pg = pi_group_mean(cond)  # (group, slices, roles)
     seeds = [pi_group(cond, s) for s in range(N_SEEDS[cond])]
-    con = contrast(cond)
+    return profile_draw(cond, title, pg, seeds, contrast(cond), READ)
 
+
+@memo
+def profile_draw(
+    cond: str, title: str, pg: np.ndarray, seeds: list[np.ndarray], con: np.ndarray, read: np.ndarray
+) -> str:
     @themed(
         name=f"group-profiles-{cond}",
         alt_text=GROUP_ALT[cond],
@@ -711,7 +718,7 @@ def profile_fig(cond: str, title: str) -> str:
                 if col == 0:
                     # The stored readability profile reads op1's redness, so it
                     # belongs behind G1 alone; G2's analogue was not measured.
-                    smooth_step(ax, span_x, READ[sl], ramp=0.5, color=read_ink, lw=1.0, ls=(0, (4, 2)))
+                    smooth_step(ax, span_x, read[sl], ramp=0.5, color=read_ink, lw=1.0, ls=(0, (4, 2)))
                 ax.set(ylim=(-0.08, 1.08), xlim=(-0.4, ex.SPAN - 0.6), yticks=[0.0, 0.5, 1.0])
                 ax.spines[:].set_visible(False)
                 ax.grid(axis="y", which="major", c="#888", alpha=0.2)
@@ -795,6 +802,7 @@ TRAJ_GRID = [["op1-labels", "either-t100", "either-t500"], ["either-t2500", "slo
 TRAJ_LEFT = ("op1-labels", "either-t2500")
 
 
+@memo
 @themed(
     name="trajectories",
     alt_text="""
@@ -804,7 +812,13 @@ TRAJ_LEFT = ("op1-labels", "either-t2500")
         **Training dynamics by condition.** Seed means of the two cosines on the anchor axis, on one shared scale: solid is $\bar\alpha$ at op1 (contained at the filled caret ▶, {ex.MEAN_ALIGN_GATE:g}); dashed is m_line (its retention floor of {ex.RETENTION_FLOOR:g} at the open caret ◁). The grey pair is the un-anchored control; the faint lines behind each panel are the m_line trajectories of the other four anchored conditions, for comparison in place. The number in each panel is that condition's retention (final over peak m_line, minimum across seeds; gate ≥ {ex.RETENTION_GATE:g}, scored on the primary). The trajectory instrument reads one line per color, so its level sits above the endpoint statistic's, which averages all 27 partners; retention compares within the curve, where the instrument is constant. Bottom right: the weight schedule every anchored condition trained under — anchor $\lambda_\mathrm{{a}}$ in red, repulsion $\lambda_{{\bar{{\mathrm{{s}}}}}}$ in blue, log scale — shared because the anti-subspace term is fixed at the operating point.
     """,
 )
-def trajectories_plot() -> plt.Figure:
+def trajectories_plot(
+    traj_mean: dict[str, dict[str, np.ndarray]],
+    traj_epochs: np.ndarray,
+    traj_retention: dict[str, float | None],
+    sched: tuple[np.ndarray, np.ndarray, np.ndarray],
+) -> plt.Figure:
+    sched_epochs, sched_anchor, sched_anti = sched
     fig, axd = plt.subplot_mosaic(TRAJ_GRID, figsize=(7.5, 4.2), sharex=True, layout="constrained")
     grey = light_dark("#999", "#777")
     ghost = light_dark("#00000022", "#ffffff2e")
@@ -863,7 +877,7 @@ def trajectories_plot() -> plt.Figure:
     return fig
 
 
-trajectories_plot()
+trajectories_plot(traj_mean, traj_epochs, traj_retention, (sched_epochs, sched_anchor, sched_anti))
 
 # %%
 
@@ -897,6 +911,7 @@ GRADE_CTRL = level_mean(GRADE_RESP["lam0"])
 GRADE_GRID = [CONDS[:3], CONDS[3:]]
 
 
+@memo
 @themed(
     name="grading",
     alt_text="""
@@ -906,14 +921,16 @@ GRADE_GRID = [CONDS[:3], CONDS[3:]]
         **Grading: alignment at op1, per color.** $\alpha_c$, the mean over slices of $\cos(h, \hat v_{{\text{{red}}}})$ at op1, seed mean, against the redness of the color. One mark per color, drawn in that color; the thin dark line is the mean response at each of the 29 distinct redness levels, the flat grey band the same line for the control, and the dashed line `sim¹·⁵` rescaled onto the response by least squares — the shape the $r^2$ statistic scores against. $r^2$ is computed per color, with no binning, so scatter about the conditional-mean line counts against it even where that line tracks the reference; the exploratory section separates the two. H3(c) gates the primary's $r^2$ at no more than {ex.GRADE_R2_DROP:g} below `op1-labels`'s, whose own $r^2$ ({grading_r2(ex.REFERENCE_ARM):.2f}) reproduces ex-2.1.9's `pool-t100` ({ex.EX219_REFERENCE["pool-t100"]["r2"]:g}).
     """,
 )
-def grading_plot() -> plt.Figure:
+def grading_plot(
+    resp: dict[str, np.ndarray], ctrl: tuple[np.ndarray, np.ndarray], r2: dict[str, float], m: dict[str, float]
+) -> plt.Figure:
     fig, axes = plt.subplots(2, 3, figsize=(7.5, 5.0), sharey=True, sharex=True, layout="constrained")
     axes = cast(AxesGrid, axes)
     for row, conds in zip(axes, GRADE_GRID, strict=True):
         for ax, cond in zip(row, conds, strict=True):
-            a = GRADE_RESP[cond]
+            a = resp[cond]
             ax.axhline(0, color=light_dark("#bbb", "#555"), lw=0.8, zorder=0)
-            ax.plot(*GRADE_CTRL, color=light_dark("#999", "#777"), lw=3, alpha=0.5, zorder=1,
+            ax.plot(*ctrl, color=light_dark("#999", "#777"), lw=3, alpha=0.5, zorder=1,
                     solid_capstyle="round")  # fmt: skip
             ax.scatter(ex.REDNESS, a, c=ex.GRID_RGB, s=18, lw=0.4, zorder=3,
                        edgecolors=light_dark("#00000033", "#ffffff55"))  # fmt: skip
@@ -927,7 +944,7 @@ def grading_plot() -> plt.Figure:
             )
             if cond != "lam0":
                 ax.annotate(
-                    f"r² = {grading_r2(cond):.2f}\nm_line = {m_line(cond).mean():.2f}",
+                    f"r² = {r2[cond]:.2f}\nm_line = {m[cond]:.2f}",
                     (0.03, 0.97), xycoords="axes fraction", va="top", fontsize=8,
                     color=light_dark("#444", "#bbb"),
                 )  # fmt: skip
@@ -939,7 +956,9 @@ def grading_plot() -> plt.Figure:
     return fig
 
 
-grading_plot()
+grading_plot(
+    GRADE_RESP, GRADE_CTRL, {c: grading_r2(c) for c in ANCHORED}, {c: float(m_line(c).mean()) for c in ANCHORED}
+)
 
 rf"""
 **H3(c) holds.** The primary grades at $r^2$ = {grading_r2(ex.PRIMARY):.2f} against {grading_r2(ex.REFERENCE_ARM):.2f} for the reference arm, a drop of {grading_r2(ex.REFERENCE_ARM) - grading_r2(ex.PRIMARY):.3f} against the {ex.GRADE_R2_DROP:g} tolerated. So widening the labels cost the response shape essentially nothing at the τ of the primary.
@@ -959,6 +978,7 @@ h4_delta = {c: m_line(c) - h4_ctrl for c in ANCHORED}
 h4_oracle = float(h4_delta[ex.ORACLE_ARM].mean())
 
 
+@memo
 @themed(
     name="h4-dots",
     alt_text="""
@@ -968,7 +988,7 @@ h4_oracle = float(h4_delta[ex.ORACLE_ARM].mean())
         **Control-subtracted m_line by condition.** Small dots are runs (nine on the primary), the tick their mean; the reference arms are greyed. Dashed caret: the H4 gate, {ex.ORACLE_FRAC_GATE:.0%} of the slot oracle's control-subtracted mean ({h4_oracle:.3f}); dotted, the {ex.ORACLE_FRAC_PARTIAL:.0%} partial. The latch account — a pull stuck on op1 serving only the op1-triggered half of the label mass — predicts landing near the partial line.
     """,
 )
-def h4_dots_plot() -> plt.Figure:
+def h4_dots_plot(h4_delta: dict[str, np.ndarray], h4_oracle: float) -> plt.Figure:
     # Reads top-to-bottom: the op1-keyed reference, the sweep, the oracle.
     rows = [ex.ORACLE_ARM, "either-t2500", "either-t500", ex.PRIMARY, ex.REFERENCE_ARM]
     grey = light_dark("#999", "#777")
@@ -995,7 +1015,7 @@ def h4_dots_plot() -> plt.Figure:
     return fig
 
 
-h4_dots_plot()
+h4_dots_plot(h4_delta, h4_oracle)
 
 # %%
 
@@ -1068,6 +1088,7 @@ role_sched_epochs = np.linspace(0.0, float(ex.SCHEDULER.epochs), 601)
 role_anti = ex.anti_subspace_weight(role_sched_epochs)
 
 
+@memo
 @themed(
     name="role-drift",
     alt_text="""
@@ -1077,7 +1098,9 @@ role_anti = ex.anti_subspace_weight(role_sched_epochs)
         **Unweighted drift by role, over training (primary, seed mean).** $\bar\alpha(\ell, t)$ over all 216 colors at the embedding slice (**left**) and the last slice (**right**), one curve per span role; the shaded band is the repulsion weight $\lambda_{\bar{\mathrm{s}}}$ on its own scale, for timing. The trajectory instrument reads one line per color, as in the dynamics figure.
     """,
 )
-def role_drift_plot() -> plt.Figure:
+def role_drift_plot(
+    role_alpha: np.ndarray, role_epochs: np.ndarray, role_sched_epochs: np.ndarray, role_anti: np.ndarray
+) -> plt.Figure:
     role_ink = [
         light_dark("#a02040", "#d06080"),
         light_dark("#2a9d8f", "#5fc9bd"),
@@ -1100,7 +1123,7 @@ def role_drift_plot() -> plt.Figure:
     return fig
 
 
-role_drift_plot()
+role_drift_plot(role_alpha, role_epochs, role_sched_epochs, role_anti)
 
 # %%
 

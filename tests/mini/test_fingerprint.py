@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from mini.memo import task_key, task_key_parts
+from mini.memo import module_values, reachable_values, task_key, task_key_parts
 
 TASK_ATTR = "import helpers\n\ndef task(x):\n    return helpers.helper(x)\n"
 TASK_DEFERRED = "def task(x):\n    from helpers import helper\n\n    return helper(x)\n"
@@ -444,3 +444,68 @@ def test_repr_fallback_warns_about_unstable_inputs(caplog):
     with caplog.at_level("WARNING", logger="mini.memo"):
         task_key(t, (Opaque(),))
     assert any("never be a cache hit" in r.message for r in caplog.records)
+
+
+TASK_MODULE_VALUE = "import design\n\ndef gate():\n    return design.GATE\n\ndef task(x):\n    return x * design.LR + gate() + design.sub.DEPTH\n"
+DESIGN = "import sub\n\nLR = 0.1\nGATE = 0.02\nTABLE = (max, min)\n"
+
+
+def test_module_attribute_values_are_separate_evidence(load_module):
+    """A constant read as a module attribute (``ex.GATE``) is outside the task fingerprint — adding it there would re-run every task that reads a sibling's constants — and available on the side, for a cache that can afford the spurious miss."""
+    load_module("sub", "DEPTH = 4\n", "a")
+    load_module("design", DESIGN, "a")
+    task = load_module("tasks", TASK_MODULE_VALUE, "a").task
+    _, parts = task_key_parts(task, (1,))
+    assert not any("GATE" in d or "LR" in d for d in parts["deps"])
+    values = module_values(task)
+    assert values == {
+        "design.LR": "0.1",
+        "design.GATE": "0.02",
+        "design.sub.DEPTH": "4",
+    }  # transitively, and through a sibling
+    load_module("design", DESIGN.replace("0.02", "0.03"), "b")
+    assert module_values(load_module("tasks", TASK_MODULE_VALUE, "b").task)["design.GATE"] == "0.03"
+
+
+def test_module_values_key_builtins_by_name(load_module):
+    load_module("sub", "DEPTH = 4\n", "a")
+    load_module("design", DESIGN, "a")
+    task = load_module("tasks", "import design\n\ndef task(x):\n    return design.TABLE\n", "a").task
+    assert module_values(task) == {"design.TABLE": '[["builtin", "builtins.max"], ["builtin", "builtins.min"]]'}
+
+
+def test_reachable_values_cross_a_library_wrapper_and_encode_what_the_caller_can(load_module):
+    """``@memo`` over ``@themed(...)`` hands memo a wrapper from ``mini.vis``: the walk starts there regardless and reaches the report's plot function through the closure. Arrays are tracked when the caller's encoder can digest them, and named for a warning when it cannot."""
+    import numpy as np
+
+    from mini.vis import themed
+
+    load_module("sub", "DEPTH = 4\n", "a")
+    load_module("design", DESIGN, "a")
+    src = "import design\nimport numpy as np\nTABLE = np.arange(3)\n\ndef plot():\n    return design.GATE, TABLE\n"
+    plot = load_module("figs", src, "a").plot
+    wrapped = themed(plot, name="fig", alt_text="a figure")
+    tracked, untracked = reachable_values(wrapped, lambda v: None if isinstance(v, np.ndarray) else str(v))
+    assert tracked["design.GATE"] == "0.02"
+    assert list(untracked) == ["TABLE"] and isinstance(untracked["TABLE"], np.ndarray)
+    tracked, untracked = reachable_values(wrapped, lambda v: str(v.tolist()) if isinstance(v, np.ndarray) else str(v))
+    assert tracked["TABLE"] == "[0, 1, 2]" and not untracked
+
+
+def test_reachable_values_skip_the_deferred_annotation_function(load_module):
+    """Python 3.14 gives every annotated class an ``__annotate_func__`` closing over the class namespace; it is not code the task runs, so the class dict must not surface as an untracked value."""
+    src = "class Results:\n    x: int\n\n    def val(self):\n        return 1\n\n\ndef plot(res: Results):\n    return res.val()\n"
+    plot = load_module("figs", src, "a").plot
+    tracked, untracked = reachable_values(plot, str)
+    assert not untracked and "__classdict__" not in tracked
+
+
+def test_reachable_values_do_not_take_an_attribute_for_a_global(load_module):
+    """``self.metrics`` inside a method must not pull a module-level ``metrics`` into the value walk: the dict is large and the read never touches it."""
+    src = (
+        "metrics = {'big': 1}\n\nclass Results:\n    def __init__(self, m):\n        self.metrics = m\n\n    def runs(self):\n        return self.metrics['runs']\n\n"
+        "res = Results({'runs': []})\n\ndef plot():\n    return res.runs()\n"
+    )
+    plot = load_module("figs", src, "a").plot
+    tracked, untracked = reachable_values(plot, str)
+    assert "metrics" not in tracked and not untracked

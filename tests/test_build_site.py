@@ -433,7 +433,9 @@ def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
     (nb := tmp_path / "docs" / "ex-1" / "report.py").parent.mkdir(parents=True)
     nb.write_text("")
     (bundle := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
-    html = set_alternate("<html><head></head><body></body></html>", type=PDF_TYPE, href="report.pdf")
+    html = set_alternate(
+        '<html><head></head><body><main class="lit"></main></body></html>', type=PDF_TYPE, href="report.pdf"
+    )
     html = set_alternate(html, type=MD_TYPE, href="index.md")
     (bundle / "index.html").write_text(html)
     (bundle / "index.md").write_text("# Hi")
@@ -442,6 +444,22 @@ def test_a_local_bundle_lists_every_rendition_the_page_declares(tmp_path: Path):
     read = build_site._read_bundle(nb, store=None, pins={}, externalizing=False)
 
     assert read.renditions == (bundle / "index.md",)
+
+
+def test_a_local_bundle_from_before_lit_is_skipped_with_a_note(tmp_path: Path, monkeypatch):
+    """An export an earlier renderer wrote has no `main.lit`, so the print would wait out its timeout for nothing (and, being a whole notebook frontend, fetch a CDN's worth of files first): the build skips it and says how to refresh it."""
+    monkeypatch.setattr(build_site, "WORKSPACE_ROOT", tmp_path)
+    (tmp_path / "pyproject.toml").write_text("")
+    (nb := tmp_path / "docs" / "ex-1" / "report.py").parent.mkdir(parents=True)
+    nb.write_text("")
+    (bundle := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
+    (bundle / "index.html").write_text("<html><body><marimo-mode>notebook</marimo-mode></body></html>")
+
+    read = build_site._read_bundle(nb, store=None, pins={}, externalizing=False)
+
+    assert read.html is None
+    assert "predates mini.lit" in read.notes[0]
+    assert "./go preview docs/ex-1/report.py" in read.notes[0]
 
 
 class _Printer:

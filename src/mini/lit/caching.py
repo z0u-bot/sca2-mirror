@@ -5,7 +5,7 @@ A cache for the expensive calls a document makes: figures, fits, anything slow.
 
 A memoized function that writes assets through the current :class:`~mini.reports.Publisher` (a ``themed`` figure writes two PNGs) has those files recorded with its value, and the hit is honoured only while they exist — so clearing the output directory re-draws, and a stale cache can never point at a missing image.
 
-Inputs need a stable encoding. Plain data, dataclasses, and NumPy arrays are handled (an array is hashed by its bytes); an object whose ``repr`` carries a memory address makes the call miss every time, and :mod:`mini.memo` logs a warning when that happens.
+Inputs need a stable encoding. Plain data, dataclasses, and NumPy arrays are handled (an array is hashed by its bytes); an object whose ``repr`` carries a memory address makes the call miss every time, and :mod:`mini.memo` logs a warning when that happens. Digesting a large input costs time on every call (about half a second for a 10 MB metrics dict), so a results object assembled from published artifacts can define ``__memo_key__()`` returning those artifacts' hashes, and is then keyed by them instead.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ import pickle
 from pathlib import Path
 from typing import Any, Callable, ParamSpec, TypeVar, overload
 
-from mini.memo import task_key_parts
+from mini.memo import _builtin_name, _is_project_source, _value_json, reachable_values, task_key_parts
 from mini.reports import current_publisher
 
 __all__ = ["memo", "cache_dir", "set_cache_dir"]
@@ -47,8 +47,37 @@ def set_cache_dir(path: Path | str | None) -> None:
     _hot.clear()
 
 
+@functools.cache
+def _values_fp(fn: Callable) -> str:
+    """Evidence on top of the task fingerprint: every plain value *fn* reads, arrays included.
+
+    Two things the task fingerprint leaves out matter here. A report reads its design through ``import experiment as ex`` and then ``ex.GATE``, which that fingerprint does not see; and it keeps its data in module-level arrays, which that fingerprint skips for want of a JSON encoding (:func:`mini.memo.reachable_values` says why both stay out of task records). Here a spurious miss redraws a figure, so both go in, arrays hashed by content like the inputs are: editing a gate re-renders what quotes it, and a figure that reads a global array re-draws when the array changes. What still cannot be encoded — a model, a store — is warned about once, since a figure that reads it would otherwise be served stale.
+    """
+    tracked, untracked = reachable_values(fn, lambda v: _value_json(_prepare(v), default=_builtin_name))
+    # Data the figure could be stale against: a container, or an instance of the project's own classes (a
+    # loaded model, a results bundle). A logger or a store handle read from a helper is neither.
+    untracked = {
+        n: v for n, v in untracked.items() if isinstance(v, (dict, list, tuple, set)) or _is_project_source(type(v))
+    }
+    if untracked:
+        names = ", ".join(f"{n} ({type(v).__name__})" for n, v in sorted(untracked.items()))
+        log.warning(
+            "lit.caching: %s reads %s, which the cache cannot fingerprint; a hit would outlive a change to it. "
+            "Pass it as an argument instead.",
+            getattr(fn, "__qualname__", fn),
+            names,
+        )
+    blob = "\n".join(f"{k}={v}" for k, v in sorted(tracked.items()))
+    return hashlib.sha256(blob.encode()).hexdigest()[:12]
+
+
 def _prepare(o: Any) -> Any:
-    """Replace the inputs :func:`mini.memo.task_key_parts` cannot encode stably with digests it can."""
+    """Replace the inputs :func:`mini.memo.task_key_parts` cannot encode stably with digests it can.
+
+    An object with a ``__memo_key__()`` method is encoded as what it returns and never walked: a results object built from published artifacts answers with their hashes, which key its content the way an ``Artifact`` argument keys a task's, for a few bytes instead of a digest of every array and run it holds.
+    """
+    if (key := getattr(o, "__memo_key__", None)) is not None and callable(key):
+        return ["memo_key", type(o).__qualname__, _prepare(key())]
     mod = type(o).__module__
     if mod.startswith("numpy") and hasattr(o, "tobytes"):
         return ["ndarray", str(o.dtype), list(o.shape), hashlib.sha256(o.tobytes()).hexdigest()[:16]]
@@ -84,7 +113,7 @@ def memo(fn: Callable[P, R] | None = None, /, *, version: str | None = None) -> 
         @functools.wraps(fn)
         def wrapper(*args: P.args, **kwargs: P.kwargs) -> R:
             key, parts = task_key_parts(fn, (_prepare(args), _prepare(kwargs)), version)
-            evidence = f"{parts['code_fp']}:{parts.get('version', '')}"
+            evidence = f"{parts['code_fp']}:{_values_fp(fn)}:{parts.get('version', '')}"
             pub = current_publisher()
             asset_dir = pub.asset_dir if pub is not None else None
 

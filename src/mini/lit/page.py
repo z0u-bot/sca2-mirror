@@ -100,6 +100,16 @@ _KATEX = """
 FONTS = '<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lora:wght@400..700&family=PT+Sans:wght@400;700&family=Fira+Mono:wght@400;500;700&display=swap">'
 
 
+# The content column. What the print waits for, and what tells a page rendered by this
+# module from one an earlier exporter wrote (:func:`is_lit_page`).
+MAIN_OPEN = '<main class="lit">'
+
+
+def is_lit_page(html: str) -> bool:
+    """Whether *html* is a page this module rendered, rather than an export from before ``mini.lit``."""
+    return MAIN_OPEN in html
+
+
 def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = "") -> str:
     """Wrap a rendered body in a complete, self-styled HTML page."""
     katex = _KATEX if 'class="arithmatex"' in body_html else ""
@@ -109,7 +119,7 @@ def page(body_html: str, *, title: str, extra_head: str = "", extra_body: str = 
         '<meta name="viewport" content="width=device-width, initial-scale=1">\n'
         f"<title>{html.escape(title)}</title>\n"
         f"{FONTS}\n<style>\n{stylesheet()}</style>\n{katex}{extra_head}</head>\n"
-        f'<body>\n<main class="lit">\n{body_html}\n</main>\n{extra_body}</body>\n</html>\n'
+        f"<body>\n{MAIN_OPEN}\n{body_html}\n</main>\n{extra_body}</body>\n</html>\n"
     )
 
 

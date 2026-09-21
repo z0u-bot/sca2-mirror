@@ -158,6 +158,8 @@ def figure_html(
 
     The shared seam behind themed figures, subline strips, and captioned tables: it only assembles the element, staying agnostic about how *body* was produced and how it is styled (that is left to CSS or the caller). *caption* is Markdown, rendered here (:func:`_render_caption`) so the fragment stands on its own wherever it is shown; an HTML fragment passes through unchanged.
 
+    A :func:`themed` figure is already a ``<figure>``, so wrap it here only to make sub-figures — several themed figures under one caption (``figure_html(a + b, caption=...)``, which the stylesheet lays side by side). A single themed figure's caption goes to :func:`themed` itself; wrapping one here nests a figure in a figure for nothing.
+
     *aria_label* gives the figure an accessible name for when the body is a group of marks that reads as one picture with no text of its own — e.g. a strip of inline SVGs. It is a plain ``aria-label`` (not ``role="img"``): a figure takes its name from the label without becoming atomic, so any sub-figures and their captions stay navigable. (``role="img"`` would make the subtree presentational and hide them — the reason to avoid it for a captioned group.)
     """
     import html
@@ -213,7 +215,6 @@ def themed_figure_html(
     Each ``<img>`` carries explicit ``width``/``height`` attributes: the figure's *physical* size (PNG pixels × 96 CSS px/in ÷ save dpi), not its pixel count. Without them the browser displays 1 image px per CSS px, so the render dpi would leak into layout — a 192 dpi figure would paint at twice its figsize, and text sized to match the page would not. Pinning the CSS size makes the extra pixels crispness on high-dpr screens instead of extra inches, and lets the browser reserve the right space before the image loads.
     """
     import base64
-    import hashlib
     import html
     from io import BytesIO
 
@@ -271,70 +272,13 @@ def themed_figure_html(
         else "max-width: 100%; height: auto;"
     )
     escaped_style = html.escape(style)
-    # Derived from the asset name (not random) so re-exporting an unchanged report
-    # produces byte-identical HTML — a random suffix here would churn the report on
-    # every run even though the figures themselves are unchanged.
-    class_suffix = hashlib.sha256(asset_name.encode()).hexdigest()[:12]
-    figure_class = f"mini-themed-figure-{class_suffix}"
-    no_explicit_theme_selector = (
-        'body:not([data-theme="dark"]):not([data-theme="light"])'
-        ":not(.dark):not(.dark-theme):not(.light):not(.light-theme)"
-    )
-    css = dedent(f"""
-        <style>
-        .{figure_class} {{
-            .mini-themed-img-dark {{
-                display: none;
-            }}
-
-            .mini-themed-img-light {{
-                display: block;
-            }}
-        }}
-
-        body[data-theme='dark'],
-        body.dark,
-        body.dark-theme {{
-            .{figure_class} {{
-                .mini-themed-img-dark {{
-                    display: block;
-                }}
-
-                .mini-themed-img-light {{
-                    display: none;
-                }}
-            }}
-        }}
-
-        @media (prefers-color-scheme: dark) {{
-            {no_explicit_theme_selector} {{
-                .{figure_class} {{
-                    .mini-themed-img-dark {{
-                        display: block;
-                    }}
-
-                    .mini-themed-img-light {{
-                        display: none;
-                    }}
-                }}
-            }}
-        }}
-
-        .{figure_class} > figcaption {{
-            margin-top: 0.6em;
-            font-size: 0.9em;
-            font-style: italic;
-            opacity: 0.75;
-            text-wrap: balance;
-        }}
-        </style>
-        """)
+    # One stable class: the light/dark switch and the caption are rules in mini.lit's
+    # sheet (lit.css), which every page that shows a figure carries.
+    figure_class = "mini-themed-figure"
     light_w, light_h = _css_size(light_png)
     dark_w, dark_h = _css_size(dark_png)
     imgs = dedent(f"""
         <img class="mini-themed-img-light" src="{light_uri}" alt="{escaped_alt}" width="{light_w}" height="{light_h}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         <img class="mini-themed-img-dark" src="{dark_uri}" alt="{escaped_alt}" width="{dark_w}" height="{dark_h}" style="{escaped_style}" data-asset-name="{escaped_name}" />
         """)
-    figure = figure_html(imgs, caption=caption, class_=figure_class)
-
-    return f"{css}{figure}"
+    return figure_html(imgs, caption=caption, class_=figure_class)

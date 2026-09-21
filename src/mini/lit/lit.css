@@ -16,8 +16,9 @@
   /* The reading measure, and the page's own side inset. Every block in the content
    * column is capped at --measure and centred; the print stylesheet redefines it in
    * absolute units (see docs/report.css). */
-  --measure: 50rem;
+  --measure: 40rem;
   --gutter: 1.5rem;
+  --subfigure-gap: 1.5rem;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -63,6 +64,7 @@ main.lit > * {
  * measure still centres on it. Element selectors, so no report has to opt in. */
 main.lit > :is(figure, table) {
   max-width: none;
+  margin-block: 3rem;
 }
 
 a { color: var(--link); text-decoration: none; }
@@ -138,10 +140,22 @@ blockquote {
 /* Figures: the box runs the full page width (above), and the body centres within it,
  * so anything smaller than the page sits over the reading column. Sub-figures sit side
  * by side and reflow to a stack on a narrow viewport. Captions are muted italic. */
-figure { margin-inline: 0; text-align: center; }
-figure img { margin-inline: auto; display: block; }
-figure:has(> figure) { text-wrap: balance; }
-figure:has(> figure) > figure { display: inline-block; vertical-align: top; margin: 0 0.5em; }
+figure {
+  margin-inline: 0; text-align: center;
+}
+figure img {
+  margin-inline: auto; display: block;
+}
+figure:has(> figure) {
+  display: flex;
+  flex-wrap: wrap;  /* for a browser without `balance` */
+  flex-wrap: balance;
+  justify-content: center;
+  gap: var(--subfigure-gap) 0.5rem;
+}
+figure:has(> figure) > figure {
+  margin: 0;
+}
 /* A caption is prose, so it keeps the reading measure even under a full-width figure.
  * `100%` is the ceiling for a sub-figure, whose own box is narrower than that. */
 figcaption {
@@ -153,6 +167,41 @@ figcaption {
   opacity: 0.75;
   text-wrap: balance;
   text-align: center;
+}
+/* The main caption of a sub-figure group is a flex item: a full row of its own (a
+ * `max-width` would cap the basis and let a sub-figure share the row, so the measure is
+ * padding here), and the row gap above it comes off, so it sits under the figures as
+ * any caption does. */
+figure:has(> figure) > figcaption {
+  flex-basis: 100%;
+  box-sizing: border-box;
+  max-width: none;
+  padding-inline: max(0px, calc((100% - var(--measure)) / 2));
+  margin-top: calc(0.6em - var(--subfigure-gap));
+}
+/* A caption rendered from Markdown arrives in a <p>; its margins would pad the caption. */
+figcaption > :is(:first-child, :last-child) {
+  margin-block: 0;
+}
+
+/* A themed figure (mini.vis.figures.themed) carries both renders of the plot, and the
+ * page shows one: an explicit theme on the body element wins, and the OS preference
+ * applies only where the body states none. The print rules in docs/report.css pin the
+ * light one. */
+.mini-themed-figure .mini-themed-img-dark { display: none; }
+.mini-themed-figure .mini-themed-img-light { display: block; }
+body[data-theme="dark"] .mini-themed-figure,
+body.dark .mini-themed-figure,
+body.dark-theme .mini-themed-figure {
+  .mini-themed-img-dark { display: block; }
+  .mini-themed-img-light { display: none; }
+}
+@media (prefers-color-scheme: dark) {
+  body:not([data-theme="dark"]):not([data-theme="light"]):not(.dark):not(.dark-theme):not(.light):not(.light-theme)
+    .mini-themed-figure {
+    .mini-themed-img-dark { display: block; }
+    .mini-themed-img-light { display: none; }
+  }
 }
 
 /* Admonitions (pymdownx blocks) and details. */

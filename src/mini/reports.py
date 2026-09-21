@@ -119,10 +119,11 @@ class Publisher:
     strict: bool = True
     # Whether the returned URL carries a ``?v=<content hash>``. A stable filename is the
     # point of the naming scheme, but it means an edited figure keeps its URL, so a
-    # browser goes on showing the copy it already has (the live server sends no
-    # ``Cache-Control``, leaving the freshness heuristic to guess, and it guesses stale).
-    # Stamping the hash makes changed bytes a new URL and unchanged bytes the same one —
-    # so the cache still does its job between edits. Off for an export: a published
+    # browser may go on showing the copy it already has. The live server now sends
+    # ``Cache-Control: no-store``, so this is belt and braces there; it still covers a
+    # page saved or proxied somewhere that header doesn't reach. Stamping the hash makes
+    # changed bytes a new URL and unchanged bytes the same one — so the cache still does
+    # its job between edits. Off for an export: a published
     # bundle already gets a fresh URL per revision (the ``<base href>`` carries the
     # commit sha), and a query string there would only churn the HTML.
     versioned: bool = False
@@ -243,12 +244,16 @@ def inputs_touched_at(report: str | Path) -> float:
 
 
 def is_stale(report: str | Path, output: Path) -> bool:
-    """Whether *output* is missing or older than anything *report* is built from (:func:`inputs_touched_at`).
+    """Whether *output* is missing, older than anything *report* is built from (:func:`inputs_touched_at`), or a page from before ``mini.lit``.
 
-    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check.
+    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check. A bundle an earlier exporter wrote is stale whatever its mtime: the site build prints from ``main.lit``, which such a page does not have.
     """
+    from mini.lit.page import is_lit_page
+
     out = Path(output)
-    return not out.exists() or out.stat().st_mtime < inputs_touched_at(report)
+    if not out.exists() or out.stat().st_mtime < inputs_touched_at(report):
+        return True
+    return not is_lit_page(out.read_text("utf-8"))
 
 
 # The pin manifest: export key → the publish-tier commit sha its bundle was last
@@ -952,7 +957,7 @@ _CHIP_CSS = """
 [data-mini-banner],[data-mini-provenance]{
   box-sizing:border-box;line-height:1.4;font-family:system-ui,sans-serif;
   width:min(var(--measure, 50rem), 100% - 2 * var(--gutter, 1.5rem));margin-inline:auto}
-[data-mini-banner]{order:-1;margin-block:1.5rem -1rem;
+[data-mini-banner]{order:-1;margin-block:1rem;
   display:flex;gap:1rem;align-items:center;font-size:.8125rem}
 [data-mini-banner] a{color:inherit;text-decoration:none;opacity:.7}
 [data-mini-banner] a:hover{text-decoration:underline;opacity:1}

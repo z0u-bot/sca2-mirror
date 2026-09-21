@@ -11,6 +11,7 @@ The first intervention on an anchored transformer. We take the D2.1 checkpoints 
 
 import json
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
@@ -43,24 +44,31 @@ ARM_INK = {
 # One ink per arm the figures compare, as (light, dark) pairs for `light_dark`.
 
 
-@memo
-def load_results() -> tuple[dict, dict[str, np.ndarray]] | None:
-    """Resolve metrics and the stacked per-run arrays from the store, or None if unpublished."""
+PROBES_REF = f"reports/m2/{ex.PRIMARY.exp}/probes"
+
+
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists: one `get_refs` and one `get_many` for the lot.
+
+    The loads themselves are not memoized: a ref can move to new data under the same name, which no code fingerprint sees, so the store is asked each render and the cache holds what is computed from the data.
+    """
     store = project_store()
-    arts = store.get_refs([ex.METRICS_REF, ex.ARRAYS_REF])
-    m_art, a_art = arts[ex.METRICS_REF], arts[ex.ARRAYS_REF]
-    if m_art is None or a_art is None:
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def load_results(files: dict[str, Path | None]) -> tuple[dict, dict[str, np.ndarray]] | None:
+    """Metrics and the stacked per-run arrays, or None if unpublished."""
+    m_path, a_path = files[ex.METRICS_REF], files[ex.ARRAYS_REF]
+    if m_path is None or a_path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        m_path, a_path = store.get_many([(m_art, Path(d) / "metrics.json"), (a_art, Path(d) / "arrays.npz")])
-        with np.load(a_path) as z:
-            arrays = {k: z[k] for k in z.files}
-        metrics = json.loads(m_path.read_text())
-    return metrics, arrays
+    with np.load(a_path) as z:
+        return json.loads(m_path.read_text()), {k: z[k] for k in z.files}
 
 
 @memo
-def probe_lines() -> tuple[ex.Lines, np.ndarray]:
+def probe_lines(tokens: np.ndarray, r1: np.ndarray, r2: np.ndarray, redness: np.ndarray) -> tuple[ex.Lines, np.ndarray]:
     """The probe set as the scorer grouped it, and the redness per line.
 
     The op1 column walks the palette in order, so the color token ids can be read off the set itself
@@ -68,14 +76,6 @@ def probe_lines() -> tuple[ex.Lines, np.ndarray]:
     """
     from sca.data.named_colors import GRIDS, grid_palette
 
-    store = project_store()
-    ref = f"reports/m2/{ex.PRIMARY.exp}/probes"
-    art = store.get_refs([ref])[ref]
-    assert art is not None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "probes.npz")])
-        with np.load(path) as z:
-            tokens, r1, r2, redness = z["probe_tokens"], z["r1"], z["r2"], z["redness"]
     names = grid_palette(GRIDS["v216"])
     ids = tokens[:: len(tokens) // len(names), 0]
     tokenizer = SimpleNamespace(stoi=dict(zip(names, ids, strict=True)), vocab_size=int(tokens.max()) + 1)
@@ -95,11 +95,17 @@ def span2(v: np.ndarray, fmt: str = ".3f") -> str:
 
 # Loaded here, ahead of "## Findings" below, since the Findings prose reads the derived
 # statistics; the Marimo notebook could place this cell anywhere and run it by dependency.
-loaded_results = load_results()
+with tempfile.TemporaryDirectory() as _tmp:
+    files = fetch([ex.METRICS_REF, ex.ARRAYS_REF, PROBES_REF], Path(_tmp))
+    loaded_results = load_results(files)
+    probes_path = files[PROBES_REF]
+    assert probes_path is not None, "the probe set is missing from the store"
+    with np.load(probes_path) as _z:
+        probes = {k: _z[k] for k in ("probe_tokens", "r1", "r2", "redness")}
 if loaded_results is None:
     stop("_Results are not published yet; the analysis renders once they are._")
 metrics, arrays = loaded_results
-lines, dose = probe_lines()
+lines, dose = probe_lines(probes["probe_tokens"], probes["r1"], probes["r2"], probes["redness"])
 runs: dict[str, list[dict]] = {
     c.name: [r for r in metrics["runs"] if r["condition"] == c.name] for c in (ex.PRIMARY, ex.CONTROL)
 }
@@ -355,6 +361,7 @@ op_red_write = {name: float(op_rotation(op, np.array([RED_ALPHA]))[0]) for name,
 op_red_land = {name: float(op_landing(op, np.array([RED_ALPHA]))[0]) for name, op in suppression_ops.items()}
 
 
+@memo
 @themed(
     name="operators",
     alt_text="""
@@ -488,6 +495,7 @@ h1_p = per_line("primary", "p_ans")[:, lines.red]  # (seeds, red lines)
 h1_red = stat("primary", "acc", "red")
 
 
+@memo
 @themed(
     name="red-response",
     alt_text="""
@@ -559,6 +567,7 @@ h2_extremes = {
 }
 
 
+@memo
 @themed(
     name="damage-by-redness",
     alt_text="""
@@ -615,6 +624,7 @@ h3_dip = float(max(0.0, (h3_b[:-1] - h3_b[1:]).max()))
 h3_lb = h3_series["shaped"][1].mean(0)
 
 
+@memo
 @themed(
     name="damage-by-bin",
     alt_text="""
@@ -712,6 +722,7 @@ h4_clouds = {
 h4_red_return = h4_clouds["arriving, `embedding` arm"][1:, I_RED, 0]
 
 
+@memo
 @themed(
     name="write-bound-maps",
     alt_text="""
@@ -746,6 +757,7 @@ def write_bound_maps_plot() -> plt.Figure:
     return fig
 
 
+@memo
 @themed(
     name="arriving-clouds",
     alt_text="""
@@ -853,6 +865,7 @@ undes_names = {
 }
 
 
+@memo
 @themed(
     name="undesigned-composition",
     alt_text="""
@@ -935,6 +948,7 @@ posthoc_fit_ink = {
 }
 
 
+@memo
 @themed(
     name="posthoc-tradeoff",
     alt_text="""
@@ -1043,6 +1057,7 @@ e1 = {
 }
 
 
+@memo
 @themed(
     name="strength-sweep",
     alt_text="""
@@ -1076,6 +1091,7 @@ e3_dmg = (per_line("clean", "p_ans") - per_line("primary", "p_ans")).mean(0)
 e3_rgb = GRID_RGB[lines.line_colors[np.arange(lines.n), lines.red_operand]]
 
 
+@memo
 @themed(
     name="damage-by-alignment",
     alt_text="""

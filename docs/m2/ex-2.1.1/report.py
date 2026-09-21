@@ -1,5 +1,6 @@
 # title: Ex 2.1.1: un-anchored color-mixing transformer
 
+import functools
 import json
 import tempfile
 from pathlib import Path
@@ -11,9 +12,9 @@ import numpy as np
 # The document's directory is on sys.path while it runs, so the experiment
 # definition is importable — refs and sweep constants can't drift.
 from experiment import CKPT_REF, CORPUS_SEED, DEPTHS, HOLDOUT_FRAC, METRICS_REF, N_EXAMPLES, SEEDS, WEIGHTS_REF, WIDTHS
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.lit.page import render_fragment
-from mini.store import project_store
+from mini.store import Artifact, project_store
 from mini.vis import figure_html, light_dark, svg_figure, themed
 from sca import baselines as bl
 from sca.data import colors, cube
@@ -138,6 +139,7 @@ Every color is a point on an RGB grid with 16 levels per channel, so 16³ = 4096
 """
 
 
+@memo
 @themed(
     name="color-space-cube",
     alt_text="An orthographic front view of the RGB grid, rotated so the black-to-white diagonal is vertical: black at the bottom, white at the top, hues fanned around the middle, showing the red, green, and magenta faces. Each of the 4096 grid colors is a filled dot, packed densely enough to read as a smooth solid.",
@@ -172,13 +174,13 @@ named = cube.named()
 # Drawn by hand rather than through `plot_rgb_cube`, because the edges and lettered tags
 # need the projected coordinates and the per-vertex depth to order themselves.
 xy = project_cube(named)
-x, y = xy[:, 0], xy[:, 1]
 depth = named @ CUBE_VIEWS["solid"].toward
-dmin, dspan = depth.min(), depth.max() - depth.min()
-cx, cy = x.mean(), y.mean()
 
 
-def lattice_panel(bold, other, examples) -> plt.Figure:
+def lattice_panel(bold, other, examples, xy: np.ndarray, depth: np.ndarray) -> plt.Figure:
+    x, y = xy[:, 0], xy[:, 1]
+    dmin, dspan = depth.min(), depth.max() - depth.min()
+    cx, cy = x.mean(), y.mean()
     fig, ax = plt.subplots(figsize=(4.2, 4.4))
     faint, vedge = light_dark("#0001", "#fff1"), light_dark("#0006", "#fff7")
     ink, halo = light_dark("#111", "#eee"), light_dark("#fff", "#111")
@@ -227,18 +229,19 @@ def lattice_panel(bold, other, examples) -> plt.Figure:
 
 train_alt = "An orthographic front view of the 27 named colors as a lattice in the rotated RGB cube, value vertical with black at the bottom and white at the top. Each named color is a small dot in its true color. The pairs used as named equations in training are bold and colored by the color their two operands mix to; the held-out pairs are drawn faint for context. One training edge is picked out on the cube silhouette with italic letters a and b at its endpoints (white and magenta), the worked example a + b = orchid. The panel has no background fill or axes; front-facing edges are heavier than back and interior ones, so the lattice reads three-dimensionally. Titled 'train'."
 holdout_alt = "The same orthographic front view of the 27 named colors in the rotated RGB cube, same orientation and styling as the train panel. Here the pairs held out for the named-holdout evaluation are bold and colored by their mixed result, with the training pairs drawn faint for context. One held-out edge is picked out on the cube silhouette with italic letters c and d at its endpoints (magenta and blue), the worked example c + d = violet. Titled 'held out for eval'."
-left = themed(
-    lambda: lattice_panel(train_edges, holdout, ("white", "magenta", "ab")),
-    name="named-pair-lattice-train",
-    alt_text=train_alt,
-    caption="Train",
-)()
-right = themed(
-    lambda: lattice_panel(holdout, train_edges, ("magenta", "blue", "cd")),
-    name="named-pair-lattice-holdout",
-    alt_text=holdout_alt,
-    caption="Held out for eval",
-)()
+
+
+@memo
+def lattice_figure(bold, other, examples, name: str, alt_text: str, caption: str) -> str:
+    return themed(
+        lambda: lattice_panel(bold, other, examples, xy, depth), name=name, alt_text=alt_text, caption=caption
+    )()
+
+
+left = lattice_figure(train_edges, holdout, ("white", "magenta", "ab"), "named-pair-lattice-train", train_alt, "Train")
+right = lattice_figure(
+    holdout, train_edges, ("magenta", "blue", "cd"), "named-pair-lattice-holdout", holdout_alt, "Held out for eval"
+)
 # Two sub-figures under one caption: figure_html nests the themed panels in a <figure>
 # that the `figure:has(> figure)` rule in report.css reflows to a stack on a narrow screen.
 figure_html(
@@ -287,11 +290,12 @@ The named-holdout panel is interesting. It can only be solved by combining the a
 """
 
 
+@memo
 @themed(
     name="accuracy-sweep",
     alt_text="Four line charts of completion accuracy (0 to 1) against model width (16, 32, 64), one panel per eval set: named seen, named holdout, hex unseen, and cross unseen. Each panel has one line per depth (2 and 4 layers, darker is deeper), averaged over three seeds, with individual seeds as faint points.",
 )
-def accuracy_sweep() -> plt.Figure:
+def accuracy_sweep(metrics: list[dict]) -> plt.Figure:
     fig, axes = plt.subplots(1, 4, figsize=(11.5, 3.2), sharey=True)
     stops = light_dark([0.6, 0.2], [0.7, 0.4])
     shades = dict(zip(DEPTHS, plt.cm.viridis(stops), strict=True))
@@ -310,7 +314,7 @@ def accuracy_sweep() -> plt.Figure:
     return fig
 
 
-accuracy_sweep()
+accuracy_sweep(metrics)
 
 rf"""
 ## Watching it answer, character by character
@@ -410,12 +414,10 @@ r"""
 None spike except `named_holdout`, the one set this sweep never solves (accuracy 0 above). The model is confident even on those wrong answers: entropy stays low while the true characters arrive as a surprise. What is the model so sure of?
 """
 
-import jax  # noqa: E402
-import jax.numpy as jnp  # noqa: E402
-
 from sca.compute.evaluation import greedy_completions  # noqa: E402
 from sca.compute.model import load_checkpoint  # noqa: E402
 from sca.data.tokenizer import CharTokenizer  # noqa: E402
+from sca.model import LanguageModel  # noqa: E402
 
 store = project_store()
 refs = {s: f"{CKPT_REF}/{label(*arch, s)}" for s in SEEDS}
@@ -423,29 +425,50 @@ resolved = store.get_refs(refs.values())
 arts = {s: a for s, r in refs.items() if (a := resolved[r]) is not None}
 if len(arts) < len(SEEDS):
     stop("The checkpoints aren't in the store yet — re-run the experiment to publish them.")
-models = {}
-with tempfile.TemporaryDirectory() as tmp:
-    store.get_many([(art, Path(tmp) / str(s) / "model") for s, art in arts.items()])
-    for s in arts:
-        model, config, _ = load_checkpoint(Path(tmp) / str(s))
-        models[s] = (model, CharTokenizer(config.tokenizer))
 
 
-def complete(seed: int, prompts: list[str]) -> list[str]:
-    """Greedy completions from the chosen configuration trained with *seed*."""
-    model, tok = models[seed]
+@functools.cache
+def models() -> dict[int, tuple[LanguageModel, CharTokenizer]]:
+    """Every seed's checkpoint, pulled in one batch on first use: a warm render's memo hits never need them."""
+    out = {}
+    with tempfile.TemporaryDirectory() as tmp:
+        store.get_many([(art, Path(tmp) / str(s) / "model") for s, art in arts.items()])
+        for s in arts:
+            model, config, _ = load_checkpoint(Path(tmp) / str(s))
+            out[s] = (model, CharTokenizer(config.tokenizer))
+    return out
+
+
+# The checkpoint handle is the memo key's evidence that the data is the same (it keys by content);
+# the seed picks the loaded model. The model itself has no stable fingerprint.
+@memo
+def completions(ckpt: Artifact, seed: int, prompts: list[str]) -> list[str]:
+    model, tok = models()[seed]
     return greedy_completions(model, tok, prompts, 12)
 
 
-def name_prob(seed: int, prompt: str, word: str) -> float:
-    """P(word | prompt), the product of its per-character probabilities."""
-    model, tok = models[seed]
+@memo
+def word_prob(ckpt: Artifact, seed: int, prompt: str, word: str) -> float:
+    import jax
+    import jax.numpy as jnp
+
+    model, tok = models()[seed]
     p = 1.0
     for i, ch in enumerate(word):
         logits = model(jnp.array(tok.encode([prompt + word[:i]])[0])[None])[0, -1]
         q = jax.nn.softmax(logits)
         p *= float(q[tok.stoi[ch]])
     return p
+
+
+def complete(seed: int, prompts: list[str]) -> list[str]:
+    """Greedy completions from the chosen configuration trained with *seed*."""
+    return completions(arts[seed], seed, prompts)
+
+
+def name_prob(seed: int, prompt: str, word: str) -> float:
+    """P(word | prompt), the product of its per-character probabilities."""
+    return word_prob(arts[seed], seed, prompt, word)
 
 
 p_blue = name_prob(SEEDS[0], "lime + bl", "u")
@@ -543,11 +566,12 @@ recovers, so 1 means the color is fully readable from the stream and 0 means it 
 PROBES = ["operand_rgb", "result_rgb", "result_redness"]
 
 
+@memo
 @themed(
     name="probe-r2",
     alt_text="Three line charts of probe R-squared against residual-stream depth for the four-layer models, one panel per probe target: operand RGB, result RGB, and result redness. One line per width (16, 32, 64; darker is wider), averaged over seeds. R-squared for the operand rises within the first layers; the result targets rise later in depth.",
 )
-def probe_r2() -> plt.Figure:
+def probe_r2(metrics: list[dict]) -> plt.Figure:
     fig, axes = plt.subplots(1, 3, figsize=(9.8, 3.2), sharey=True)
     shades = width_shades()
     d = max(DEPTHS)
@@ -563,7 +587,7 @@ def probe_r2() -> plt.Figure:
     return fig
 
 
-probe_r2()
+probe_r2(metrics)
 
 r"""
 Rising R² for the *result* means the mix becomes partly readable before the answer starts. It plateaus well below the operand R², though, even in conditions whose hex accuracy is perfect. Probing every answer position, per channel, would map that spread-out schedule (to do).
@@ -620,17 +644,16 @@ def redness_cosines(w: int, d: int) -> np.ndarray:
     return np.array([np.abs((unit[i] * unit[j]).sum(axis=1)) for i in range(3) for j in range(i + 1, 3)])
 
 
+@memo
 @themed(
     name="probe-direction-agreement",
     alt_text="Line chart of the absolute cosine similarity between redness probe directions fitted on different seeds, against residual-stream depth, one line per width for the four-layer models. A dashed horizontal line marks the expected similarity of random directions for each width.",
 )
-def probe_direction_agreement() -> plt.Figure:
+def probe_direction_agreement(cosines: dict[int, np.ndarray]) -> plt.Figure:
     fig, ax = plt.subplots(figsize=(6.2, 3.6))
     shades = width_shades()
-    d = max(DEPTHS)
     for w in WIDTHS:
-        cos = redness_cosines(w, d)
-        ax.plot(cos.mean(axis=0), "o-", color=shades[w], label=f"width {w}", lw=2)
+        ax.plot(cosines[w].mean(axis=0), "o-", color=shades[w], label=f"width {w}", lw=2)
         ax.axhline(0.8 / np.sqrt(w), color=shades[w], lw=1, ls="--", alpha=0.6)
     ax.set(xlabel="residual depth", ylabel="cross-seed |cos| of redness direction", ylim=(0, 1))
     ax.set_xticks(range(max(DEPTHS) + 1), ["emb", *map(str, range(1, max(DEPTHS) + 1))])
@@ -639,7 +662,7 @@ def probe_direction_agreement() -> plt.Figure:
     return fig
 
 
-probe_direction_agreement()
+probe_direction_agreement({w: redness_cosines(w, max(DEPTHS)) for w in WIDTHS})
 
 # %%
 

@@ -161,15 +161,19 @@ Fetch = Callable[[str, dict[str, str]], tuple[str, bytes]]
 def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch = _fetch) -> None:
     """Serve *page*'s ``https://`` requests from a cache that Python fills, rather than the browser's own network.
 
-    The page's stylesheet links KaTeX and the fonts from CDNs. A headless Chromium in a proxied sandbox rejects the proxy's certificate and gets neither, so the math printed as its source; Python trusts the certificate (``SSL_CERT_FILE``), so it fetches instead, once per URL, into :func:`cache_dir`. The request's own headers go along, since Google Fonts picks the font format by user agent. A fetch that fails is aborted, with one warning per host, and the print goes on without it: the PDF is a convenience beside the page.
+    The page's stylesheet links KaTeX and the fonts from CDNs. A headless Chromium in a proxied sandbox rejects the proxy's certificate and gets neither, so the math printed as its source; Python trusts the certificate (``SSL_CERT_FILE``), so it fetches instead, once per URL, into :func:`cache_dir`. The request's own headers go along, since Google Fonts picks the font format by user agent. A fetch that fails is aborted, with one warning per host, and the print goes on without it: the PDF is a convenience beside the page. Once a host has failed, its later requests are aborted without a fetch, so a page that pulls a whole frontend from one CDN waits out one timeout rather than one per file.
     """
     root = cache if cache is not None else cache_dir()
-    warned: set[str] = set()
+    unreachable: set[str] = set()
 
     def handle(route: Any) -> None:
         req = route.request
         if req.method != "GET":
             route.continue_()
+            return
+        host = req.url.split("/")[2]
+        if host in unreachable:
+            route.abort()
             return
         key = hashlib.sha256(req.url.encode()).hexdigest()
         body, kind = root / key, root / (key + ".type")
@@ -177,10 +181,8 @@ def route_remote(page: Any, *, cache: Path | None = None, fetch: Fetch = _fetch)
             try:
                 content_type, data = fetch(req.url, {k: v for k, v in req.headers.items() if k.lower() != "host"})
             except (urllib.error.URLError, OSError, ValueError) as e:
-                host = req.url.split("/")[2]
-                if host not in warned:
-                    warned.add(host)
-                    log.warning("print: %s unreachable (%s); printing without it", host, e)
+                unreachable.add(host)
+                log.warning("print: %s unreachable (%s); printing without it", host, e)
                 route.abort()
                 return
             root.mkdir(parents=True, exist_ok=True)
@@ -343,7 +345,14 @@ def print_bundle(
             page = browser.new_page(viewport={"width": 1100, "height": 1400}, locale="en-US")
             route_remote(page)
             page.goto(url)
-            page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
+            try:
+                page.locator("main.lit").first.wait_for(timeout=timeout * 1000)
+            except PlaywrightError as e:
+                # A page from before mini.lit (a stale marimo export, say) never shows one.
+                log.warning(
+                    "report PDF skipped: no main.lit on the page after %.0fs (%s)", timeout, str(e).splitlines()[0]
+                )
+                return None
             if page.locator(".arithmatex").count() and not page.locator(".katex").count():
                 log.warning("print: the page has math but KaTeX did not render it; the PDF shows the source")
             return print_page(page, out, settle=settle)

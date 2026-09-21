@@ -2,6 +2,7 @@
 
 import colorsys
 import itertools
+from collections.abc import Sequence
 import json
 import tempfile
 from collections import Counter
@@ -15,12 +16,12 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.axes import Axes
 
-from mini.lit import stop
+from mini.lit import memo, stop
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 from sca.data.colors import redness
 from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, TOP, vocabulary
-from sca.vis import draw_cube_bound, plot_rgb_cube, project_cube
+from sca.vis import CUBE_VIEWS, ViewName, draw_cube_bound, plot_rgb_cube, project_cube
 
 # What a result cell shows while the run has not published yet.
 RESULTS_TO_COME = "/// admonition | TODO\n    type: warning\nResults to come.\n///"
@@ -39,27 +40,26 @@ GRID_UNIT = np.asarray(GRID, float) / TOP
 RED_WORDS = {n for n in ex.PALETTE if redness(ex.PALETTE[n]) >= ex.RED_DOSE}
 
 
-def load_json(ref: str) -> dict | None:
-    """A published JSON result as a dict, or None before it exists."""
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists.
+
+    One `get_refs` and one `get_many` for the lot: the bucket's fixed per-call latency is a couple of seconds, so resolving five refs one at a time is most of a render.
+    """
     store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
-        return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "data.json")])
-        return json.loads(path.read_text())
+    have = {r: a for r, a in store.get_refs(refs).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
 
 
-def load_npz(ref: str) -> dict[str, np.ndarray] | None:
-    """A published npz as a dict of arrays, or None before it exists."""
-    store = project_store()
-    art = store.get_refs([ref])[ref]
-    if art is None:
+def read_json(path: Path | None) -> dict | None:
+    return None if path is None else json.loads(path.read_text())
+
+
+def read_npz(path: Path | None) -> dict[str, np.ndarray] | None:
+    if path is None:
         return None
-    with tempfile.TemporaryDirectory() as d:
-        (path,) = store.get_many([(art, Path(d) / "arrays.npz")])
-        with np.load(path) as z:
-            return {k: z[k] for k in z.files}
+    with np.load(path) as z:
+        return {k: z[k] for k in z.files}
 
 
 def ink(cond: str) -> str:
@@ -265,16 +265,17 @@ def answer_pairs(res: Results) -> dict[tuple[str, int, str], Counter]:
     return out
 
 
-def cube_cloud(ax: Axes, mass: np.ndarray, *, n: int = 2500, rng, s: float = 3.0) -> None:
-    """A dithered cloud in the wheel view: *n* dots shared out over the grid colors in proportion to *mass*,
+def cube_cloud(ax: Axes, mass: np.ndarray, *, view: ViewName = "wheel", n: int = 2500, rng, s: float = 3.0) -> None:
+    """A dithered cloud in one view of the cube: *n* dots shared out over the grid colors in proportion to *mass*,
     each jittered within its color's cell and drawn in that color.
     """
-    draw_cube_bound(ax, "wheel")
+    draw_cube_bound(ax, view, labels=True)
     counts = rng.multinomial(n, mass / mass.sum())
     idx = np.repeat(np.arange(len(mass)), counts)
     rgb = GRID_UNIT[idx] + rng.uniform(-0.5, 0.5, (len(idx), 3)) / TOP
-    xy = project_cube(rgb, "wheel")
-    order = rng.permutation(len(idx))
+    xy = project_cube(rgb, view)
+    # Nearer the reader draws last, as plot_rgb_cube does, so the solid view shows its front.
+    order = np.argsort(rgb @ CUBE_VIEWS[view].toward, kind="stable")
     ax.scatter(
         xy[order, 0],
         xy[order, 1],
@@ -285,6 +286,110 @@ def cube_cloud(ax: Axes, mass: np.ndarray, *, n: int = 2500, rng, s: float = 3.0
         zorder=3,
         clip_on=False,
     )
+
+
+def split_moves(d: np.ndarray, w: np.ndarray, iters: int = 10) -> list[np.ndarray]:
+    """Weighted 2-means on displacement vectors: the member mask of each side (one or two).
+
+    Seeded by splitting across the mean direction, so a cell whose answers fan out to either side of it comes back as two moves rather than one that points between them.
+    """
+    m = (w[:, None] * d).sum(0) / w.sum()
+    axis = np.array([-m[1], m[0]]) / np.hypot(*m) if np.hypot(*m) > 1e-9 else np.array([1.0, 0.0])
+    lab = (d - m) @ axis > 0
+    for _ in range(iters):
+        cs = [
+            (w[lab == k, None] * d[lab == k]).sum(0) / w[lab == k].sum() if w[lab == k].sum() > 0 else m
+            for k in (False, True)
+        ]
+        new = ((d - cs[1]) ** 2).sum(1) < ((d - cs[0]) ** 2).sum(1)
+        if (new == lab).all():
+            break
+        lab = new
+    return [lab == k for k in (False, True) if w[lab == k].sum() > 0]
+
+
+def flow_arrows(
+    ax: Axes,
+    truth: np.ndarray,
+    guess: np.ndarray,
+    n: np.ndarray,
+    *,
+    view: ViewName = "wheel",
+    sigma: float = 0.2,
+    step: float = 0.2,
+    min_share: float = 0.25,
+    min_sep: float = 0.3,
+    min_move: float = 0.05,
+    spread: bool = True,
+) -> None:
+    """The (truth → guess) moves as a sampled flow field in one view of the cube.
+
+    A stub per move stacks up illegibly once moves span the wheel, so this smooths them instead: at each point of a hex lattice with a truth mark nearby, the count-weighted mean move of the truths within a Gaussian of width *sigma*, drawn as an arrow in the local mean truth color and sized by the local count. Where the moves split two ways — a cell whose answers go left or right but rarely between — the cell gets an arrow per side, provided each side holds *min_share* of the weight and they differ by *min_sep*. Moves that spread more ways than two average out, so a short arrow can also mean a scatter; a mean move under *min_move* draws nothing, since the marks already show an answer that stays put. With *spread*, each arrow sits in a faint wedge spanning one circular standard deviation of its side's directions (weighted by count and length, so the short moves' noisy directions count for little), at the side's mean length.
+    """
+    from matplotlib.patches import FancyArrowPatch, Wedge
+    from matplotlib.path import Path as MplPath
+
+    t, g = project_cube(truth, view), project_cube(guess, view)
+    d = g - t
+    length = np.hypot(d[:, 0], d[:, 1])
+    angle = np.arctan2(d[:, 1], d[:, 0])
+    xs = np.arange(-1, 1.001, step)
+    ys = np.arange(-1, 1.001, step * np.sqrt(3) / 2)
+    pts = np.array([(x + (step / 2 if j % 2 else 0), y) for j, y in enumerate(ys) for x in xs])
+    # Sample only inside the cube (a tail outside it would read as an answer from nowhere), and
+    # only where a truth mark lies close enough for the smoothed move to describe it.
+    inside = MplPath(project_cube(CUBE_VIEWS[view].rim, view)).contains_points(pts, radius=0.02)
+    cells = []
+    for p in pts[inside]:
+        dist = np.sqrt(((t - p) ** 2).sum(1))
+        if dist.min() > step * 0.75:
+            continue
+        w = n * np.exp(-(dist**2) / (2 * sigma**2))
+        total = float(w.sum())
+        color = np.clip((w[:, None] * truth).sum(0) / total, 0, 1)
+        sides = split_moves(d, w)
+        means = [(w[s, None] * d[s]).sum(0) / w[s].sum() for s in sides]
+        if len(sides) == 2 and (
+            min(w[s].sum() for s in sides) / total < min_share or np.hypot(*(means[0] - means[1])) < min_sep
+        ):
+            sides = [np.ones(len(d), bool)]
+        parts = []
+        for s in sides:
+            ws = w[s]
+            m = (ws[:, None] * d[s]).sum(0) / ws.sum()
+            # Circular mean and spread of the direction, weighted by count × length.
+            wl = ws * length[s]
+            z = (wl * np.exp(1j * angle[s])).sum() / wl.sum() if wl.sum() > 0 else 1.0
+            sd = np.sqrt(max(-2 * np.log(max(abs(z), 1e-9)), 0))
+            parts.append((m, float(ws.sum()), float(np.angle(z)), float(sd), float((ws * length[s]).sum() / ws.sum())))
+        cells.append((p, parts, total, color))
+    w_max = max(c[2] for c in cells)
+    for p, parts, _, color in cells:
+        for m, wk, mean_angle, sd, mean_len in parts:
+            if np.hypot(*m) < min_move:
+                continue  # the marks already show where an answer stays put
+            size = np.sqrt(wk / w_max)
+            if spread and sd > 0.05:
+                a, half = np.degrees(mean_angle), np.degrees(min(sd, np.pi))
+                ax.add_patch(
+                    Wedge(p, mean_len, a - half, a + half, facecolor=color, lw=0, alpha=0.12, zorder=1, clip_on=False)
+                )
+            # The head is sized in points, so cap it against the shaft or a short move is all head.
+            head = min(4 + 7 * size, 30 * float(np.hypot(*m)))
+            arrow = FancyArrowPatch(
+                p,
+                p + m,
+                arrowstyle="-|>",
+                mutation_scale=head,
+                lw=0.4 + 1.8 * size,
+                color=color,
+                alpha=0.9,
+                zorder=4,
+                clip_on=False,
+                shrinkA=0,
+                shrinkB=0,
+            )
+            ax.add_patch(arrow)
 
 
 def answer_mass(res: Results) -> dict[tuple[str, int, str], np.ndarray]:
@@ -348,8 +453,8 @@ def decoded_colors(res: Results) -> dict:
                 [d[:, pos[i], tgt[i], rows[i]] for i in range(len(rows))], axis=1
             )  # (L1, n, 3)
             out[op, pas, "answer"] = d[:, ex.DECODE_POS, 2, rows]  # (L1, n, 3)
-        out[op, "operand_truth"] = GRID_UNIT[tok[rows, pos]]
-        out[op, "answer_truth"] = GRID_UNIT[ans[rows]]
+        out[op, "truth", "operand"] = GRID_UNIT[tok[rows, pos]]
+        out[op, "truth", "answer"] = GRID_UNIT[ans[rows]]
     return out
 
 
@@ -411,7 +516,7 @@ The retention drop happens before the anneal begins. The op1 alignment rises und
 
 None of the lines below is a result; ex-2.2.11 will adopt what it needs from here and score it at fresh seeds.
 
-- [Removal](#removal-on-the-order-sensitive-ops): on the three HSV ops the kept share follows a change of hue on the red operand, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the saturation or value of the red operand (`sat-hsv` and `value-hsv` with red at op2), two thirds of the clean exact match survives the projection. Where the answer takes the hue of red, or the whole color, it goes. One case no counterfactual predicts: `hue-hsv` with red at op1, whose answer needs only the saturation and value of red, and where a third of the clean exact match survives. A linear probe on the stream reads the projected red operand as a hue rotated away from red, at a lower value, and the rotation grows block by block.
+- [Removal](#removal-on-the-order-sensitive-ops): on the three HSV ops the kept share follows a change of hue on the red operand, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the saturation or value of the red operand (`sat-hsv` and `value-hsv` with red at op2), two thirds of the clean exact match survives the projection. Where the answer takes the hue of red, or the whole color, it goes. One case no counterfactual predicts: `hue-hsv` with red at op1, whose answer needs only the saturation and value of red, and where a third of the clean exact match survives; its projected answers keep the hue of op2 and come out paler. A linear probe on the stream reads the projected red operand as a hue rotated away from red, at a lower value, and the rotation grows block by block.
 - [Retention](#retention-and-the-anneal): on `handover` the alignment reaches a noisy plateau by epoch 10, and its peak is just the high point of that noise. By the time the anneal begins at epoch 45 the seeds sit at 0.66, a few of them drifting downward. Through the anneal itself every condition is flat, so the gate is reading the noise in the plateau plus the drift. `handover-slot` and `handover-tied` hold their plateaus, so the drift needs the whole-line labeller and the untied readout together.
 - [Containment](#containment-under-the-untied-readout): ᾱ at op1 on the non-red lines is 0.28 on `handover`, 0.18 on `handover-slot`, and 0.16 on `handover-tied`, against 0.02 on the control. Each half of the handover raises it, so the untied readout is not the whole story. The `⏎` embedding row picks up the axis only under the whole-line labeller: 0.17 on `handover` and zero on `handover-slot`.
 - [What we make of it](#what-we-make-of-it): score removal on the lines whose answer takes the hue of the red operand, judge retention against the alignment at the start of the anneal (or drop the ratio and report a level), and carry the op1 alignment as a report line rather than a gate.
@@ -429,13 +534,17 @@ Neither set matches what the training labeller used.[^labeller]
 [^stream]: The *residual stream* is the running vector the transformer carries from block to block; each block reads it and adds to it. A *slice* is that vector at one depth, and a *position* is one token in the line.
 """
 
-res = Results(
-    m229=require(load_json(ex.EX229_METRICS_REF), ex.EX229_METRICS_REF),
-    traj=require(load_json(ex.EX229_TRAJ_REF), ex.EX229_TRAJ_REF),
-    probes=require(load_npz(ex.EX229_PROBE_REF), ex.EX229_PROBE_REF),
-    metrics=load_json(ex.METRICS_REF),
-    arrays=load_npz(ex.ARRAYS_REF),
-)
+with tempfile.TemporaryDirectory() as _tmp:
+    _files = fetch(
+        [ex.EX229_METRICS_REF, ex.EX229_TRAJ_REF, ex.EX229_PROBE_REF, ex.METRICS_REF, ex.ARRAYS_REF], Path(_tmp)
+    )
+    res = Results(
+        m229=require(read_json(_files[ex.EX229_METRICS_REF]), ex.EX229_METRICS_REF),
+        traj=require(read_json(_files[ex.EX229_TRAJ_REF]), ex.EX229_TRAJ_REF),
+        probes=require(read_npz(_files[ex.EX229_PROBE_REF]), ex.EX229_PROBE_REF),
+        metrics=read_json(_files[ex.METRICS_REF]),
+        arrays=read_npz(_files[ex.ARRAYS_REF]),
+    )
 
 r"""
 ## Removal on the order-sensitive ops
@@ -486,12 +595,13 @@ table_html(
 # %%
 
 
+@memo
 @themed(
     name="counterfactuals",
     caption="**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Dots are the kept share of the twenty `handover` seeds on the red lines under the projection, with the seed mean in the larger marker. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (plus), or its replacement by gray of the same value (cross). To zero is the rule that picked the removal lines, and it predicts near zero everywhere.",
     alt_text="Chart of kept share by op and red slot. Observed kept shares track the change-of-hue prediction in six of eight columns; hue-hsv with red at op1 sits at a third where the hue prediction is one, and mix and value-hsv with red at op1 sit near zero under every prediction.",
 )
-def plot_cf() -> plt.Figure:
+def plot_cf(kept: dict[tuple[str, str], np.ndarray], cf: dict[str, dict[int, dict[str, float]]]) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, ax = plt.subplots(figsize=(7.2, 2.9), layout="constrained")
     xs, labels = [], []
@@ -500,14 +610,7 @@ def plot_cf() -> plt.Figure:
         x = i + (i // 2) * 0.5
         xs.append(x)
         labels.append(f"{op}\nred at {g}")
-        dots(
-            ax,
-            x,
-            res.kept("handover", op, f"red_{g}"),
-            "handover",
-            rng=rng,
-            label="observed, red lines" if i == 0 else None,
-        )
+        dots(ax, x, kept[op, g], "handover", rng=rng, label="observed, red lines" if i == 0 else None)
         for j, (name, m, lt, dk) in enumerate(cfs):
             ax.plot(
                 x + 0.22 + 0.16 * j,
@@ -527,7 +630,7 @@ def plot_cf() -> plt.Figure:
     return fig
 
 
-plot_cf()
+plot_cf({(op, g): res.kept("handover", op, f"red_{g}") for op in OPS for _, g in SLOTS}, cf)
 
 # %%
 hue = {(op, s): cf[op][s]["change of hue"] for op in OPS for s, _ in SLOTS}
@@ -548,7 +651,7 @@ What stays open is whether the partial loss of saturation and value comes from t
 
 ### Where the answers go
 
-The counterfactual table says which answers are lost. The next three figures show what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. All three use the same view of the RGB cube, the one the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top and lightness collapses onto the center.
+The counterfactual table says which answers are lost. The next three figures show what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. All three draw the RGB cube twice. The top row is the wheel view the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top, and lightness collapses onto the center. The row under it is the solid view: the cube turned so red points at the reader, which puts white at the top, black at the bottom, and lightness up the page. A move the wheel view hides, a color getting lighter or darker at the same hue, shows in the solid view; and a move along the red–cyan axis, which the solid view looks along, shows only in the wheel. Where a figure draws the moves themselves, it does so as a smoothed flow: an arrow for the mean move of the answers near it, with a faint wedge for their spread, so a wide wedge is a group of answers that went off in several directions.
 """
 
 # The scoring pass is what the rest of the report reads; the retention and containment reads
@@ -558,15 +661,46 @@ if res.arrays is None or res.metrics is None:
     stop(RESULTS_TO_COME)
 
 guess_pairs = answer_pairs(res)
+# The two house views of the cube, one row each: down the gray diagonal, then red toward the reader.
+VIEWS: tuple[ViewName, ...] = ("wheel", "solid")
 
 
-def plot_guess(op: str) -> plt.Figure:
-    fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.3), layout="constrained")
-    for ax, ((slot, g), pas) in zip(axes, itertools.product(SLOTS, PASSES), strict=True):
-        pairs = guess_pairs[op, slot, pas]
+def view_grid[G, C](
+    groups: Sequence[G], cols: Sequence[C], *, figsize: tuple[float, float], stacked: bool = False
+) -> tuple[plt.Figure, dict[tuple[ViewName, G, C], Axes]]:
+    """The figure the removal-line figures share: one sub-figure per group, so the gap between groups is
+    wider than the gap within (side by side, or *stacked*), with a row per view and a column per *cols*.
+    Only the top row of a group carries titles; the row under it is the same panel seen from the side.
+    """
+    fig = plt.figure(figsize=figsize, layout="constrained")
+    shape = (len(groups), 1) if stacked else (1, len(groups))
+    subs = fig.subfigures(*shape, squeeze=False, hspace=0.06, wspace=0.08).ravel()
+    axes = {}
+    for group, sub in zip(groups, subs, strict=True):
+        grid = sub.subplots(len(VIEWS), len(cols))
+        for (i, view), (j, col) in itertools.product(enumerate(VIEWS), enumerate(cols)):
+            axes[view, group, col] = grid[i, j]
+    return fig, axes
+
+
+def title(ax: Axes, view: ViewName, text: str) -> None:
+    if view == VIEWS[0]:
+        ax.set_title(text, fontsize=7, pad=8)  # padded clear of the top corner letter
+
+
+def per_op[K, V](d: dict[tuple, V], op: str) -> dict[tuple, V]:
+    """One op's entries of a dict keyed `(op, ...)`, with the op dropped from the key."""
+    return {k[1:]: v for k, v in d.items() if k[0] == op}
+
+
+def plot_guess(op: str, guess_pairs: dict[tuple, Counter]) -> plt.Figure:
+    fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
+    for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
+        ax = axes[view, slot, pas]
+        pairs = guess_pairs[slot, pas]
         if not pairs:
-            draw_cube_bound(ax, "wheel")
-            ax.set_title(f"red at {g}, {pas}: no removal lines", fontsize=7)
+            draw_cube_bound(ax, view, labels=True)
+            title(ax, view, f"red at {g}, {pas}: no removal lines")
             continue
         keys = np.array(list(pairs))
         n = np.array([pairs[tuple(k)] for k in keys], float)
@@ -574,20 +708,36 @@ def plot_guess(op: str) -> plt.Figure:
         on = keys[:, 1] >= 0
         keys, n = keys[on], n[on]
         truth, guess = GRID_UNIT[keys[:, 0]], GRID_UNIT[keys[:, 1]]
-        plot_rgb_cube(ax, guess, truth, truth=truth, diameter=0.04 + 0.16 * np.sqrt(n / n.max()), view="wheel")
+        dia = 0.01 + 0.1 * np.sqrt(n / n.max())
+        plot_rgb_cube(ax, guess, truth, s=0.01, diameter=dia, view=view, labels=True)
+        if pas == "projection":
+            # The solid view looks down the red–cyan axis, so a move along it leaves only jitter here.
+            flow_arrows(ax, truth, guess, n, view=view, sigma=0.2, step=0.4, min_move=0.05 if view == "wheel" else 0.08)
         note = f", {off} off-vocab" if off else ""
-        ax.set_title(f"red at {g}, {pas} ({int(n.sum())}{note})", fontsize=7)
+        title(ax, view, f"red at {g}, {pas} ({int(n.sum())}{note})")
     return fig
 
 
+@memo
+def guess_figure(op: str, pairs: dict[tuple, Counter]) -> str:
+    """One op's block of the greedy-answer figure, memoized on its (truth, guess) counts."""
+    return themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op, pairs)
+
+
 figure_html(
-    "".join(figure_html(themed(plot_guess, name=f"guess-{op}")(op), caption=f"`{op}`") for op in OPS),
-    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. Wheel view of the RGB cube. Each mark is a greedy answer, placed at its own color and colored by the true answer, with an open ring at the true answer and a stub between them. Marks are sized by how many answers made that move, and a mark sitting on its ring is an answer that matches the truth.",
+    "".join(guess_figure(op, per_op(guess_pairs, op)) for op in OPS),
+    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, and sized by how many answers made that move; the clean panels show where the true answers lie, and a projected mark whose color matches its place is an answer that still matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
     aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
 )
 
 r"""
-Clean, the greedy answer is the true one on almost every removal line, so the clean panels are where the truth lies. On `mix` the projected answers move toward the center of the cube, and their mean is a gray with a little red left in it. Their hues stay near red: nine in ten sit within a third of a turn of it, which is why the green and blue half of the wheel stays empty. A `mix` answer is the midpoint of its two operands, and a red operand that reads as orange or pink after the projection cannot pull a midpoint to the far side of the wheel.
+Clean, the greedy answer is the true one on almost every removal line, so the clean panels are where the truth lies. The projected panels sort the ops, roughly, into three kinds of move.
+
+On `mix` the projected answers move toward the center of the cube, and their mean is a gray with a little red left in it. Their hues stay near red: nine in ten sit within a third of a turn of it, which is why the green and blue half of the wheel stays empty. A `mix` answer is the midpoint of its two operands, and a red operand that reads as orange or pink after the projection cannot pull a midpoint to the far side of the wheel. The solid row of `mix` shows only jitter, because a move from red toward gray runs along the red–cyan axis, the one direction that view cannot show.
+
+On `hue-hsv` with red at op1, the case no counterfactual predicted, the answers keep their hue and lose saturation. The true answers are the hue of op2 at the full saturation and value of red, so they sit on the rim of the wheel; projected, each moves straight in toward the center, and in the solid row the arrows run level toward the gray axis, so the answers get paler without getting darker. The model still reads the hue of op2 and returns it as a washed-out color; what the projection has cost it is the saturation read of the red operand.
+
+The other four broken slots are the hue rotation. On `hue-hsv` with red at op2 the true answers are reds at the saturation and value of op1, and projected they split into an orange lobe and a pink lobe, at the same lightness as before; the flow draws two arrows from each cell for this reason, one to each side. `sat-hsv` and `value-hsv` with red at op1 fan out the same way, from red toward orange and pink, with wider wedges: these answers take two attributes of red, and the moves scatter as well as rotate. In the solid row of `value-hsv` the arrows point every way, so those answers seem to change in lightness as well as hue, with no one direction to it; that panel is the least tidy of the set, and the rotation is only the largest part of what it shows. On the two slots the projection leaves alone, `sat-hsv` and `value-hsv` with red at op2, the arrows are short and the marks stay on their clean positions.
 
 The greedy answer is only one token. The whole answer distribution says how confidently the model moved, and whether the mass that left the true answer went to one color or spread out. The next figure draws that distribution as a dithered cloud in the cube.
 """
@@ -595,23 +745,29 @@ The greedy answer is only one token. The whole answer distribution says how conf
 cloud_mass = answer_mass(res)
 
 
-def plot_cloud(op: str) -> plt.Figure:
+def plot_cloud(op: str, mass: dict[tuple, np.ndarray]) -> plt.Figure:
     rng = np.random.default_rng(1)
-    fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.3), layout="constrained")
-    for i, ((slot, g), pas) in enumerate(itertools.product(SLOTS, PASSES)):
-        ax = axes[i]
-        m = cloud_mass[op, slot, pas]
+    fig, axes = view_grid([slot for slot, _ in SLOTS], PASSES, figsize=(8.4, 4.6))
+    for view, (slot, g), pas in itertools.product(VIEWS, SLOTS, PASSES):
+        ax = axes[view, slot, pas]
+        m = mass[slot, pas]
         if m.sum() == 0:
-            draw_cube_bound(ax, "wheel")
+            draw_cube_bound(ax, view, labels=True)
         else:
-            cube_cloud(ax, m, rng=rng)
-        ax.set_title(f"red at {g}, {pas}", fontsize=7)
+            cube_cloud(ax, m, view=view, rng=rng)
+        title(ax, view, f"red at {g}, {pas}")
     return fig
 
 
+@memo
+def cloud_figure(op: str, mass: dict[tuple, np.ndarray]) -> str:
+    """One op's block of the answer-mass figure, memoized on its mean mass per slot and pass."""
+    return themed(plot_cloud, name=f"cloud-{op}", caption=f"`{op}`")(op, mass)
+
+
 figure_html(
-    "".join(figure_html(themed(plot_cloud, name=f"cloud-{op}")(op), caption=f"`{op}`") for op in OPS),
-    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right. Wheel view of the RGB cube. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
+    "".join(cloud_figure(op, per_op(cloud_mass, op)) for op in OPS),
+    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, in the wheel view (top) and the solid view (bottom), as in the previous figure. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
     aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
 )
 
@@ -639,6 +795,8 @@ Per line, the projected answer is unsure among a handful of colors rather than s
 
 So the wheel-wide spread of the projected clouds is a spread across lines, each moved to its own neighbourhood. That is what we would expect if the operand reads as a hue rotated one way or the other, which is what the probe finds.
 
+The solid row adds one thing the greedy answers did not show. On `hue-hsv` the projected mass reaches every lightness, from near black to near white, where the greedy answers of the previous figure kept the lightness of the truth. Read with the table above, one reading is that the runners-up a line hesitates among differ from its top answer in lightness as well as hue; the clouds pool the lines, so this is a guess about what is inside each one rather than a measurement.
+
 The structure inside each cloud is the set of answers the op can produce on the grid, carried around the wheel by the rotation. Take `sat-hsv` with red at op1: the clean answers are reds of every saturation, a ray from white at the center out to red at the top, and projected that ray appears at every hue. With red at op2 the answers are fully saturated colors at the hue and value of op1, which in the wheel view are the rim and the spokes running in toward the center, and the projected panel keeps that skeleton.
 
 ### What the stream says
@@ -653,24 +811,55 @@ Fitting on the non-red lines keeps the axis out of the probes. A probe fit on li
 decoded = decoded_colors(res)
 
 
-def plot_decoded(op: str) -> plt.Figure:
+READS = ("operand", "answer")
+
+
+def slice_name(sl: int) -> str:
+    """Slice 0 is the embedding; each later slice is the stream after that many blocks."""
+    return "emb" if sl == 0 else f"slice {sl}"
+
+
+def plot_decoded(op: str, dec: dict[tuple, np.ndarray]) -> plt.Figure:
     n_sl = len(ex.SLICES)
-    fig, axes = plt.subplots(2, n_sl, figsize=(1.75 * n_sl, 3.9), layout="constrained")
-    for r, what in enumerate(("operand", "answer")):
-        truth = decoded[op, f"{what}_truth"]
-        for s in range(n_sl):
-            ax = axes[r, s]
-            d = np.clip(decoded[op, "projection", what][s], -0.2, 1.2)
-            ring = np.clip(decoded[op, "clean", what][s], -0.2, 1.2)
-            plot_rgb_cube(ax, d, truth, truth=ring, s=5, view="wheel")
-            ax.set_title(f"{'red operand' if what == 'operand' else 'answer at ='}, slice {s}", fontsize=7)
+    fig, axes = view_grid(READS, ex.SLICES, figsize=(1.75 * n_sl, 7.6), stacked=True)
+    for view, what, sl in itertools.product(VIEWS, READS, ex.SLICES):
+        ax = axes[view, what, sl]
+        truth = dec["truth", what]
+        d = np.clip(dec["projection", what][sl], -0.2, 1.2)
+        ring = np.clip(dec["clean", what][sl], -0.2, 1.2)
+        if what == "operand":
+            # A few dozen lines that all start at red: one stub each is the legible picture. No rings,
+            # since a ring at red under a red stub adds nothing.
+            plot_rgb_cube(ax, d, truth, truth=ring, rings=False, s=5, view=view, labels=True)
+        else:
+            # Hundreds of lines all round the wheel: light marks, and the moves as a flow. The weights
+            # are flat (one line per move); the lattice is finer than the answer figures' since the
+            # moves are shorter.
+            plot_rgb_cube(ax, d, truth, s=2, view=view, labels=True)
+            flow_arrows(
+                ax,
+                ring,
+                d,
+                np.ones(len(d)),
+                view=view,
+                sigma=0.15,
+                step=0.25,
+                min_move=0.05 if view == "wheel" else 0.08,
+            )
+        title(ax, view, f"{'red operand' if what == 'operand' else 'answer at ='}, {slice_name(sl)}")
     return fig
 
 
+@memo
+def decoded_figure(op: str, dec: dict[tuple, np.ndarray]) -> str:
+    """One op's block of the decoded-colors figure, memoized on its seed-mean decodes."""
+    return themed(plot_decoded, name=f"decoded-{op}", caption=f"`{op}`")(op, dec)
+
+
 figure_html(
-    "".join(figure_html(themed(plot_decoded, name=f"decoded-{op}")(op), caption=f"`{op}`") for op in OPS),
-    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with an open ring at the clean decode of the same line and a stub between them, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer. Wheel view of the RGB cube. Slice 0 is the embedding, and each later slice is the stream after one more block.",
-    aria_label="Cube panels of probe-decoded colors across five slices, projected marks with rings at the clean decode. The operand marks start on their rings at red and slide further from them with each slice, toward orange on one side and pink on the other; the answer marks stop short of rings that spread toward the rim.",
+    "".join(decoded_figure(op, per_op(decoded, op)) for op in OPS),
+    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with a stub from the clean decode of the same line, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer; there are too many lines for rings and stubs, so the moves from the clean decodes to the projected ones are drawn as a smoothed flow, on the same terms as the greedy-answer figure. Each read is shown in the wheel view and, under it, the solid view, as in the answer figures. *emb* is the embedding, and slice *n* is the stream after *n* blocks.",
+    aria_label="Cube panels of probe-decoded colors across five slices, in wheel and solid views. The operand marks start at red and slide further from it with each slice, toward orange on one side and pink on the other, at nearly constant lightness; the answer flow points away from red for the reddish answers and gently inward elsewhere.",
 )
 
 # %%
@@ -683,9 +872,9 @@ for op in OPS:
     for k, v in r2.items():
         probe_rows.append([f"`{op}`, {k}", *(f"{x:.2f}" for x in v)])
 table_html(
-    ["Op and site", *(f"slice {s}" for s in ex.SLICES)],
+    ["Op and site", *(slice_name(s) for s in ex.SLICES)],
     probe_rows,
-    "**Probe fit on the red lines, R² per slice, mean over seeds.** Each probe is a ridge fit on the clean stream of the non-red lines, and is read here on the clean stream of the red lines. `op1@op1` reads op1 at position 0, `op2@op2` reads op2 at position 2, and `ans@=` reads the raw answer from the rule at `=`. The negative fit of the answer probe at slice 0 is expected: at the embedding, `=` has nothing of the line in it.",
+    "**Probe fit on the red lines, R² per slice, mean over seeds.** Each probe is a ridge fit on the clean stream of the non-red lines, and is read here on the clean stream of the red lines. `op1@op1` reads op1 at position 0, `op2@op2` reads op2 at position 2, and `ans@=` reads the raw answer from the rule at `=`. The negative fit of the answer probe at *emb* is expected: at the embedding, `=` has nothing of the line in it.",
 )
 
 
@@ -700,10 +889,10 @@ hsv_rows = []
 last = len(ex.SLICES) - 1
 for op in OPS:
     for what, name in (("operand", "red operand"), ("answer", "answer at `=`")):
-        truth = decoded[op, f"{what}_truth"]
+        truth = decoded[op, "truth", what]
         ht = hsv(truth)
         for sl in (1, last):
-            cells = [f"`{op}`, {name}, slice {sl}"]
+            cells = [f"`{op}`, {name}, {slice_name(sl)}"]
             for pas in PASSES:
                 d = decoded[op, pas, what][sl]
                 h = hsv(d)
@@ -722,17 +911,17 @@ table_html(
 )
 
 r"""
-At the embedding, the projection changes nothing the probe can see. Clean and projected reads coincide at slice 0, on operand and answer alike, and the small offset both show is the shrinkage of the ridge fit. The probes are blind to the axis, so whatever the projection takes at slice 0 becomes visible only once the blocks have acted on it.[^slice0]
+At the embedding, the projection changes nothing the probe can see. Clean and projected reads coincide there, on operand and answer alike, and the small offset both show is the shrinkage of the ridge fit. The probes are blind to the axis, so whatever the projection takes at the embedding becomes visible only once the blocks have acted on it.[^emb]
 
-[^slice0]: At slice 0 the stream at `=` is the same vector on every line, since nothing of the line has reached that position yet. A probe there can only return one color for every answer: the mean of its fit set, near the center of the wheel.
+[^emb]: At the embedding the stream at `=` is the same vector on every line, since nothing of the line has reached that position yet. A probe there can only return one color for every answer: the mean of its fit set, near the center of the wheel.
 
-From the first block on, the projected red operand reads as a different color, and the difference grows with depth. The move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the figure that is the marks sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center.
+From the first block on, the projected red operand reads as a different color, and the difference grows with depth. The move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the wheel view that is the stubs sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center. The solid view says how the value is lost. Red sits at the center of that view, and most stubs run level from it toward yellow or magenta, so those operands trade some red for green or blue and keep their lightness. The stubs colored pure red are the exception: the operands with no green or blue in them to start with move a little up, or on a couple of lines a long way down toward black, keeping the hue of red and losing value the plain way. The pattern is the same on every op.
 
-So this is the change-of-hue counterfactual that the kept shares followed, with a loss of value alongside it. M1 saw a related asymmetry when it deleted the hue subspace of an autoencoder (ex-2.7 in [ex-preppy](https://github.com/z0u/ex-preppy), under its ablation figures): red, green, and blue darkened, and yellow, cyan, and magenta lightened. One reading of both is that the primaries sit nearer black on the gray diagonal than the secondaries do, so what remains of red once a hue direction is gone leans toward black.
+So this is the change-of-hue counterfactual that the kept shares followed, with a loss of value alongside it. M1 saw a related asymmetry when it deleted the hue subspace of an autoencoder (ex-2.7 in [ex-preppy](https://github.com/z0u/ex-preppy), under its ablation figures): red, green, and blue darkened, and yellow, cyan, and magenta lightened. One reading of both is that the primaries sit nearer black on the gray diagonal than the secondaries do, so what remains of red once a hue direction is gone leans toward black. The few lines that drop toward black here fit that reading; the larger group that trades red for a neighbouring channel is a hue rotation with the value loss as a side effect.
 
 The slots that take the saturation and value of the red operand have only what the stream keeps of it, so that lost value is the partial loss the counterfactual table could not explain.
 
-The answer at `=` follows the operand. Clean, it reaches its ring by the last slice. Projected, it stops short, with a smaller hue offset than the operand and a saturation about two tenths under the clean read. The answers that survive on `sat-hsv` and `value-hsv` with red at op2 are the ones whose true color the rotated, dimmer operand still snaps to.
+The answer at `=` follows the operand. Clean, it reaches its ring by the last slice. Projected, it stops short, with a smaller hue offset than the operand and a saturation about two tenths under the clean read. In the answer rows of the figure the flow points away from red on the reddish answers and gently inward on the rest, and on `mix` it is the same straight move down the wheel, invisible in the solid view, that the greedy answers made. The answers that survive on `sat-hsv` and `value-hsv` with red at op2 are the ones whose true color the rotated, dimmer operand still snaps to.
 
 ## Retention and the anneal
 
@@ -742,36 +931,38 @@ The natural reading was that the anneal, over the last tenth of training, lets t
 """
 
 ret = retention_stats(res)
+RET_CONDS = ("handover", "handover-slot", "handover-tied")
 
 
+def traj_lines(cond: str) -> tuple[np.ndarray, np.ndarray]:
+    """The epochs and the (seed, epoch) line alignment of a condition's runs, on the first run's epoch grid."""
+    trajs = [res.traj[r["label"]]["traj"] for r in res.by_cond(cond)]
+    ep = np.array(trajs[0]["epoch"])
+    return ep, np.array([np.interp(ep, t["epoch"], t["m_line"]) for t in trajs])
+
+
+@memo
 @themed(
     name="retention",
-    caption="**Line alignment over training, and two retention ratios.** Left: every seed's line alignment against epoch, one thin line per seed, for the three handover conditions; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
-    alt_text="Three panels. Left, alignment trajectories: handover seeds rise to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
+    caption="**Line alignment over training, and two retention ratios.** Left: line alignment against epoch for the three handover conditions, one faint line per seed with the seed mean drawn over them; the shaded band is the anneal window, where the anchor weight falls from 0.1 to its floor. Middle: the retention ratio ex-2.2.9 gated, the final alignment over its peak, per seed with the seed mean in the larger marker; the dashed rule is the gate and the hatched side misses it. Right: the final alignment over its value at the start of the anneal, the ratio that would measure the cost of the anneal alone, with the same gate level dotted for reference.",
+    alt_text="Three panels. Left, alignment trajectories with faint per-seed lines under a bold mean: handover rises to about 0.75 by epoch 20 and drift down to about 0.66 before the anneal band begins at epoch 45, then stay flat; handover-slot and handover-tied peak later and drift less. Middle, end over peak: handover sits around 0.88 with one seed under the 0.8 gate, the other two conditions above 0.9. Right, end over the alignment at the anneal start: all three conditions sit at 1.0.",
 )
-def plot_ret() -> plt.Figure:
+def plot_ret(
+    lines: dict[str, tuple[np.ndarray, np.ndarray]], ret: dict[str, np.ndarray], a0: float, gate: float
+) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.8), layout="constrained", width_ratios=[2.2, 1, 1])
     ax = axes[0]
-    conds = ("handover", "handover-slot", "handover-tied")
-    for cond in conds:
-        for i, r in enumerate(res.by_cond(cond)):
-            t = res.traj[r["label"]]["traj"]
-            ax.plot(t["epoch"], t["m_line"], "-", color=ink(cond), lw=0.7, alpha=0.5, label=cond if i == 0 else None)
-    a0 = float(np.mean([anneal_start(res, r["label"]) for r in res.by_cond("handover")]))
-    ax.axvspan(
-        a0,
-        max(res.traj["handover-s0"]["traj"]["epoch"]),
-        facecolor=light_dark("#000", "#fff"),
-        alpha=0.06,
-        lw=0,
-        zorder=0,
-    )
+    conds = tuple(lines)
+    for cond, (ep, ml) in lines.items():
+        for row in ml:
+            ax.plot(ep, row, "-", color=ink(cond), lw=0.5, alpha=0.18, zorder=1)
+        ax.plot(ep, ml.mean(axis=0), "-", color=ink(cond), lw=1.6, label=cond, zorder=3)
+    ax.axvspan(a0, lines["handover"][0].max(), facecolor=light_dark("#000", "#fff"), alpha=0.06, lw=0, zorder=0)
     ax.text(a0, 0.02, " anneal", fontsize=6.5, va="bottom", color=light_dark("#333", "#ccc"))
     ax.set_xlabel("epoch")
     ax.set_ylabel("line alignment m_line")
     ax.set_ylim(0, 0.85)
-    gate = res.m229["design"]["gates"]["retention"]
     for ax, col, name in ((axes[1], (3, 0), "end ÷ peak"), (axes[2], (3, 2), "end ÷ at anneal start")):
         for i, cond in enumerate(conds):
             v = ret[cond][:, col[0]] / ret[cond][:, col[1]]
@@ -785,7 +976,12 @@ def plot_ret() -> plt.Figure:
     return fig
 
 
-plot_ret()
+plot_ret(
+    {c: traj_lines(c) for c in RET_CONDS},
+    {c: ret[c] for c in RET_CONDS},
+    float(np.mean([anneal_start(res, r["label"]) for r in res.by_cond("handover")])),
+    res.m229["design"]["gates"]["retention"],
+)
 
 # %%
 h, s, t = (ret[c] for c in ("handover", "handover-slot", "handover-tied"))
@@ -812,12 +1008,13 @@ But `handover` changed two things at once relative to the recipe of ex-2.2.3: th
 cont = {c: containment_rows(res, c) for c in CONDS}
 
 
+@memo
 @themed(
     name="containment",
     caption="**Containment by condition.** Per seed, with the seed mean in the larger marker. Left: the mean alignment of the stream on the non-red lines with the anchor axis at op1, with the reference level from ex-2.2.3 dotted. Middle: the mean absolute axis component of the embedding rows for the 209 non-red color words. Right: the axis component of the `⏎` embedding row, with the same row of the untied readout as an open marker beside it where the condition has one.",
     alt_text="Three dot panels by condition. Alpha at op1: control near 0, handover-tied 0.16, handover-slot 0.18, handover 0.28, handover-narrow 0.30. Non-red rows: all conditions between 0.06 and 0.10. The newline row: near zero on control and handover-slot, 0.17 on handover, 0.27 on handover-tied.",
 )
-def plot_cont() -> plt.Figure:
+def plot_cont(cont: dict[str, dict[str, np.ndarray]], ref: float) -> plt.Figure:
     rng = np.random.default_rng(0)
     fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.7), layout="constrained")
     panels = (
@@ -830,7 +1027,6 @@ def plot_cont() -> plt.Figure:
             dots(ax, i, cont[cond][key], cond, rng=rng, label=cond if key == "alpha" else None)
         ax.set_xticks(range(len(CONDS)), [c.replace("handover-", "h.-") for c in CONDS], fontsize=6.5)
         ax.set_title(title, fontsize=8)
-    ref = res.m229["design"]["gates"]["mean_align_ref"]
     axes[0].axhline(ref, color=light_dark("#333", "#ddd"), lw=0.7, ls=":", zorder=2)
     axes[2].axhline(0, color=light_dark("#333", "#ddd"), lw=0.5, zorder=1)
     for ax in axes[2:]:
@@ -856,7 +1052,7 @@ def plot_cont() -> plt.Figure:
     return fig
 
 
-plot_cont()
+plot_cont(cont, res.m229["design"]["gates"]["mean_align_ref"])
 
 # %%
 a = {c: float(cont[c]["alpha"].mean()) for c in CONDS}
