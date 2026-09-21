@@ -155,14 +155,15 @@ r"""
 """
 
 rf"""
-**What we expect.** *Red* lands where the recipe put it, with the same margin, grading, and contrast as in ex-2.2.9, and nothing is lost across the anneal. There are four gates and three ungated lines, all read on the `mix` lines of `handover` under its own labeller.
+**What we expect.** *Red* lands where the recipe put it, with the same margin, grading, and contrast as in ex-2.2.9, and nothing is lost across the anneal. There are three gates and four ungated lines, all read on the `mix` lines of `handover` under its own labeller. The three gates are the ones ex-2.2.9 set. They score what the anchor weight optimizes, so they are adoption floors rather than tests of a mechanism: they say the recipe still does on this grammar what it did on the last one.
 
 - *Margin.* Seed-mean m_line at least {ex.MARGIN_RATIO:.0%} of the {ex.REF_M_LINE:.4f} in ex-2.1.10; partial from {ex.MARGIN_PARTIAL:.0%}.
 - *Grading.* Grading r² at least {ex.GRADE_R2_RATIO:.0%} of the {ex.REF_R2_SIM:.3f} in ex-2.1.11.
 - *Contrast.* At least {ex.CONTRAST_GATE:g}; partial from {ex.CONTRAST_PARTIAL:g}.
-- *Retention.* Every run whose alignment at the start of the anneal reaches {ex.RETENTION_FLOOR:g} ends at {ex.RETENTION_GATE:g} of that value. This is the read we changed. On the runs from ex-2.2.9, ex-2.2.10 measured it at 0.99 and above on every condition, so we expect every seed to clear it. A seed below the line would say the anneal does cost something after all, and that the old read had been right for the wrong reason.
 
-The three lines have no gate, and we print each beside its references.
+The four lines have no gate, and we print each beside its references.
+
+- *Retention.* Every run whose alignment at the start of the anneal reaches {ex.RETENTION_FLOOR:g} ends at {ex.RETENTION_GATE:g} of that value. This is the read we changed. On the runs from ex-2.2.9, ex-2.2.10 measured it at 0.99 and above on every condition, so we expect every seed to clear it, which is why it is a line and stays outside the decision: a read whose direction the method predicts cannot inform it. A seed below the line would still be worth stopping for. It would say the anneal does cost something after all, and that the old read had been right for the wrong reason.
 
 - *Level.* The final alignment, seed mean and range, beside `handover-slot`, `handover-tied`, and the point adopted in ex-2.2.3. Ex-2.2.9 read 0.66 against 0.72 and 0.70, and we expect the same ordering. The gap is the drift before the anneal. What that drift is goes to the [training-dynamics item](/todo/science/training-dynamics-under-the-retention-drift.md); here we only say how large it is at fresh seeds.
 - *ᾱ at op1.* The mean alignment of the non-red colors at op1, beside the same two references and the point from ex-2.2.3. Ex-2.2.9 read 0.28 against 0.18 and 0.16. We expect the same shape, with `handover` above both and each reference about halfway down. This was a gate at 0.1 through ex-2.2.9, where it missed. It becomes a gate again once we can name a mechanism ([backlog](/todo/science/containment-rises-under-the-untied-readout.md)).
@@ -218,11 +219,12 @@ r"""
 rf"""
 {ex.DECISION}
 
-Retention joins the rule this time. In ex-2.2.9 we reported it without letting it count, because we already suspected the read. Now that the read asks the question it was meant to ask, a loss across the anneal is something a schedule would have to answer before we carry the grammar forward.
+The rule is ex-2.2.9's with the removal lines changed. Retention stays outside it, as it was there: with the new denominator ex-2.2.10 read it at 0.99 on every condition, so it is expected to clear with room, and a gate the method can predict does not inform a decision. It is a line in H2, and a seed under 0.8 would still stop us.
 
-<!-- REVIEW: retention was outside ex-2.2.9's decision rule and is inside this one. Ex-2.2.10 read it at
-0.99 on every condition with the new denominator, so the gate is expected to pass with room; if that
-seems a gate that cannot inform, drop it back to a reporting level. -->
+<!-- REVIEW: the first draft put retention inside the decision rule, since the read now asks the question it
+was written for. The prereg review pointed out that ex-2.2.10 already measured it at ~1.0 on every
+condition, so its direction is predictable from the method and it is a manipulation check rather than a
+gate. Moved back to a reported line. Verify: `ex.DECISION` names margin, grading, and contrast only. -->
 """
 
 r"""

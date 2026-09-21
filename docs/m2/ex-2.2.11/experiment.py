@@ -209,7 +209,7 @@ def sv_line(op, a, b) -> bool:
 RETENTION_FLOOR = ex229.RETENTION_FLOOR
 RETENTION_GATE = ex229.RETENTION_GATE
 ANNEAL_WEIGHT_RATIO = 0.99
-"""H2 (retention): every run whose alignment at the start of the anneal reaches `RETENTION_FLOOR` ends at
+"""H2 (retention), a line and no gate: every run whose alignment at the start of the anneal reaches `RETENTION_FLOOR` ends at
 `RETENTION_GATE` of that value. The anneal starts at the first trajectory point after the anchor weight's
 peak where the weight is under `ANNEAL_WEIGHT_RATIO` of it, and the alignment at the start is the last point
 before that, as ex-2.2.10 read it. The old ratio divided by the run's peak, which on `handover` is the high
@@ -260,7 +260,6 @@ EX229_TRAJ_REF = ex229.TRAJ_REF
 
 DECISION = f"""\
 The handover is adopted, and `{HANDOVER.name}` becomes the grammar and recipe of record for the anchored-op \
-experiments, when it clears H1, H2 (margin, grading, contrast, and retention against the start of the anneal, \
-all in full), and H3 in full on the removal lines chosen by hue; every partial band is a reporting level. \
+experiments, when it clears H1, H2 (margin, grading, and contrast, all in full), and H3 in full on the removal lines chosen by hue; every partial band is a reporting level. \
 Otherwise it is not adopted, and the report says which gate was missed and what the references say about \
 which change is responsible."""
