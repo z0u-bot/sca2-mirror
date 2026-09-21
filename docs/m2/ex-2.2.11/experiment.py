@@ -1,21 +1,21 @@
 """
-The handover re-run: ex-2.2.9's conditions at fresh seeds, scored with the three reads ex-2.2.10 proposed.
+The handover re-run: ex-2.2.9's conditions at fresh seeds, scored with the three measurements ex-2.2.10 proposed.
 
 Ex-2.2.9 put every proposal of the scouting round together (table A+, drawn answers, the whole-line
 labeller, the untied readout) and did not adopt the result: the removal gate missed on the three ops that
 take one HSV attribute from their second operand, and one seed in twenty ended under the retention gate.
-Ex-2.2.10 then read the stored runs and found both misses in the reads rather than in the model. The
+Ex-2.2.10 then went back over the stored runs and found both misses in the measurements rather than in the model. The
 removal miss is the line-picking rule's: the projection acts on the red operand like a change of hue, and
 the to-zero rule counts lines whose answer takes only red's saturation or value. The retention drop happens
-under the constant anchor weight, before the anneal the read was meant to check. And the op1 alignment
+under the constant anchor weight, before the anneal the measurement was meant to check. And the op1 alignment
 rises under either half of the handover, so its old reference belongs to the old grammar.
 
 Reads chosen after looking at the data cannot score the same data, so this is the same experiment again,
-at seeds ex-2.2.9 never trained, with the reads fixed in advance:
+at seeds ex-2.2.9 never trained, with the measurements fixed in advance:
 
 1. Removal lines are chosen by hue: a red line is a removal line when some channel permutation of its red
    operand moves the true answer by at least `FAR_MOVE`. The slots the rule drops (the ones whose answer
-   takes only red's saturation or value) become a second read, with no gate.
+   takes only red's saturation or value) become a second measurement, with no gate.
 2. Retention is the final alignment over the alignment at the start of the anneal, gated at 0.8, and the
    level at the end of training is reported beside the references.
 3. ᾱ at op1 is a report line with `handover-slot` and `handover-tied` as its references, and gates nothing.
@@ -85,7 +85,7 @@ OPERATORS = ex229.OPERATORS
 OPERATOR_SPEC = ex229.OPERATOR_SPEC
 SYNTAX_WORDS = ex229.SYNTAX_WORDS
 """The grammar, the corpus, the probe sets, the recipe, and the operators: all as ex-2.2.9 froze them. The
-same corpus at the same seed, so the held-out pairs are the same and the task read is on the same lines."""
+same corpus at the same seed, so the held-out pairs are the same and the task measurement is on the same lines."""
 
 TASK_GATE = ex229.TASK_GATE
 TASK_PARTIAL = ex229.TASK_PARTIAL
@@ -106,35 +106,35 @@ TAIL = ex229.TAIL
 RESOLUTION_SD = ex229.RESOLUTION_SD
 NOISE_RUN = ex229.NOISE_RUN
 COMPONENT_NOISE = ex229.COMPONENT_NOISE
-"""Every gate ex-2.2.9 set, at the same value. The re-run changes which lines the removal gate is read on,
+"""Every gate ex-2.2.9 set, at the same value. The re-run changes which lines the removal gate is scored on,
 what the retention ratio divides by, and whether ᾱ is gated; it changes no threshold."""
 
 # REVIEW: bound RESOLUTION_SD, NOISE_RUN, and COMPONENT_NOISE above as well. Every "within a band" or
-# "more than a band" read in H1, H2, and H4 needs a frozen σ source, and the draft named one only for
+# "more than a band" comparison in H1, H2, and H4 needs a frozen σ source, and the draft named one only for
 # the deficit. Verify: ex-2.2.9's module carries the same three names, with the same sources.
 
 # --- Conditions -------------------------------------------------------------------------------------
 
 SEED_OFFSET = 100
 """Every run trains at a seed ex-2.2.9 never used: condition seed *i* here is model seed `SEED_OFFSET + i`.
-Ex-2.2.10 chose the reads on ex-2.2.9's seeds 0..19, so those checkpoints cannot score them. The corpus
+Ex-2.2.10 chose the measurements on ex-2.2.9's seeds 0..19, so those checkpoints cannot score them. The corpus
 seed is unchanged, so the task is the same; only the initialization and the batch order are fresh."""
 
 CONTROL = Cond("control", 5, "un-anchored", "reference", lam=0.0)
 """As ex-2.2.9: the task reference for H1."""
 
 HANDOVER = Cond("handover", 20, "the recipe, untied readout, whole-line labeller", "candidate")
-"""The one candidate, at the reference's seed count. The gates are read on this condition alone."""
+"""The one candidate, at the reference's seed count. The gates are scored on this condition alone."""
 
 SLOT = ex229.SLOT
 """Ex-2.2.3's either-slot labeller, twenty seeds. Reference for the ᾱ line (it undid half the rise in
-ex-2.2.9), for the whole-line label's selectivity cost (H4), and for the saturation-and-value read, where it
+ex-2.2.9), for the whole-line label's selectivity cost (H4), and for the saturation-and-value measurement, where it
 says whether the shortfall is the operator's or this checkpoint's. Not a fallback: the labeller needs the
 operand positions, which M3 will not have."""
 
 TIED = ex229.TIED
 """The tied readout, nine seeds. Reference for the ᾱ line (it undid the other half), for the syntax-token
-read (H4), and for the saturation-and-value read. Nine seeds are enough for a line with no gate on it."""
+comparison (H4), and for the saturation-and-value measurement. Nine seeds are enough for a line with no gate on it."""
 
 CONDS: tuple[Cond, ...] = (CONTROL, HANDOVER, SLOT, TIED)
 ANCHORED: tuple[Cond, ...] = tuple(c for c in CONDS if c.lam > 0)
@@ -143,9 +143,9 @@ assert N_RUNS == 54
 """`handover-narrow` does not return: its lines-per-op question was exploratory and ex-2.2.9 answered it."""
 
 SCORED_UNDER_PROJECTION: tuple[Cond, ...] = (HANDOVER, SLOT, TIED)
-"""Every anchored condition is scored under the operators, so the saturation-and-value read and the
+"""Every anchored condition is scored under the operators, so the saturation-and-value measurement and the
 selectivity comparisons have the references beside the candidate. Ex-2.2.9 scored them too; ex-2.2.10's
-answer-mass read did not, which is the gap it asked the re-run to close."""
+answer-mass measurement did not, which is the gap it asked the re-run to close."""
 
 # --- The removal lines, by hue ----------------------------------------------------------------------
 
@@ -168,8 +168,14 @@ saturation or value from red."""
 HUE_ROTATION_CHECK = True
 """The permutation rule reaches six hues. The method also counts the lines a finer rule would pick, rotating
 the red operand's hue in HSV in steps and snapping to the grid, and reports every line where the two rules
-disagree. If they disagree anywhere, the finer rule is the one to keep, and the report says so before the
-freeze. This constant is a reminder that the check is part of the method, and its result is not a gate."""
+disagree. If they disagree on more than `HUE_ROTATION_TOLERANCE` of some op's red lines, the finer rule is the
+one to keep, and the report says so before the freeze. This constant is a reminder that the check is part of
+the method, and its result is not a gate."""
+
+HUE_ROTATION_TOLERANCE = 0.01
+"""The share of an op's red lines the two rules may disagree on before the finer rule replaces the permutation
+rule. A change to one line in a hundred moves a kept share by at most a hundredth, under the resolution of
+every gate here, so a disagreement that small is not worth a second rule."""
 
 HUE_ROTATION_STEPS = 12
 """Hue steps for the finer rule: every 30 degrees, snapped to the grid, with the operand's saturation and
@@ -197,7 +203,7 @@ def hue_move(op, a, b) -> float:
 
 def sv_line(op, a, b) -> bool:
     """A red line the hue rule drops: red by dose, and no permutation of the red operand moves its answer far.
-    These are the saturation-and-value lines, read without a gate.
+    These are the saturation-and-value lines, reported without a gate.
     """
     from sca.data.colors import redness
 
@@ -212,12 +218,12 @@ ANNEAL_WEIGHT_RATIO = 0.99
 """H2 (retention), a line and no gate: every run whose alignment at the start of the anneal reaches `RETENTION_FLOOR` ends at
 `RETENTION_GATE` of that value. The anneal starts at the first trajectory point after the anchor weight's
 peak where the weight is under `ANNEAL_WEIGHT_RATIO` of it, and the alignment at the start is the last point
-before that, as ex-2.2.10 read it. The old ratio divided by the run's peak, which on `handover` is the high
+before that, as ex-2.2.10 measured it. The old ratio divided by the run's peak, which on `handover` is the high
 point of a noisy plateau reached thirty epochs before the anneal."""
 
 LEVEL_REFS: tuple[Cond, ...] = (SLOT, TIED)
 """The level line: `handover`'s final alignment, seed mean and range, beside the same on these references and
-on ex-2.2.3's adopted point. No gate. Ex-2.2.10 read 0.66 against 0.72 and 0.70; the drift that produced the
+on ex-2.2.3's adopted point. No gate. Ex-2.2.10 measured 0.66 against 0.72 and 0.70; the drift that produced the
 gap happens under the constant anchor weight and is the [training-dynamics
 item](/todo/science/training-dynamics-under-the-retention-drift.md)'s question."""
 
@@ -225,20 +231,20 @@ item](/todo/science/training-dynamics-under-the-retention-drift.md)'s question."
 
 ALPHA_REFS: tuple[Cond, ...] = (SLOT, TIED)
 """ᾱ at op1 on `handover`, beside the same on these two references and on ex-2.2.3's adopted point. No gate:
-ex-2.2.9 read 0.28 against 0.18 and 0.16, each reference undoing about half the rise, and no mechanism is
+ex-2.2.9 measured 0.28 against 0.18 and 0.16, each reference undoing about half the rise, and no mechanism is
 named for either half. A gate returns once one is."""
 
 EOL_ROW = "\n"
-"""The `⏎` embedding row's axis component, on every anchored condition, as a line. Ex-2.2.9 read 0.17 on
+"""The `⏎` embedding row's axis component, on every anchored condition, as a line. Ex-2.2.9 measured 0.17 on
 `handover` and about zero on `handover-slot`, so the whole-line labeller is what puts it there."""
 
 # --- Checkpoints on the trajectory stride --------------------------------------------------------------
 
 TRAJ_CHECKPOINT_SEEDS = 3
 """The first three seeds of each anchored condition keep a checkpoint at every trajectory point, so a
-training-dynamics read (the local learning coefficient, the whole-geometry read) can be run on the plateau
-after the fact. About `TRAJ_STRIDE` checkpoints per run, a few MB each. The read itself is not part of this
-experiment."""
+training-dynamics measurement (the local learning coefficient, the whole-geometry statistics) can be run on the
+plateau after the fact. About `TRAJ_STRIDE` checkpoints per run, a few MB each. That measurement is not part of
+this experiment."""
 
 # --- Refs -------------------------------------------------------------------------------------------
 
@@ -254,7 +260,7 @@ RUN_ARRAYS_REF = "reports/m2/ex-2.2.11/arrays/{label}/{kind}"
 
 EX229_METRICS_REF = ex229.METRICS_REF
 EX229_TRAJ_REF = ex229.TRAJ_REF
-"""Ex-2.2.9's numbers, printed beside every read as the before column."""
+"""Ex-2.2.9's numbers, printed beside every measurement as the before column."""
 
 # --- The decision rule --------------------------------------------------------------------------------
 

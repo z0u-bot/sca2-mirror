@@ -168,6 +168,12 @@ main.lit details:not(:open) {
   main.lit a:visited {
     color: #1d3f78;
   }
+  /* No tint behind admonitions on paper: a filled block flickers on e-ink as the page
+   * redraws, and the left rule marks the block on its own. */
+  .admonition,
+  main.lit details {
+    background: none;
+  }
 
   /* Each top-level section starts a fresh page, so the reader swipes between sections and
    * scrolls within one. The title has no h2, so the first page is the title, the
