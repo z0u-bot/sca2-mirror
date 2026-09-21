@@ -61,7 +61,11 @@ def api():
     api = HfApi(token=TOKEN)
     probe = f"refs/_test/probe-{secrets.token_hex(4)}.json"
     try:
-        api.batch_bucket_files(BUCKET, add=[(b"{}", probe)])
+        # Unique bytes, not a constant: two xdist workers probing with the *same*
+        # payload commit the same Xet hash at once, race in the bucket's dedup, and
+        # one gets a 422 that this fixture would report as an error rather than the
+        # permission skip it is checking for. Distinct content never collides.
+        api.batch_bucket_files(BUCKET, add=[(f'{{"probe":"{probe}"}}'.encode(), probe)])
     except HfHubHTTPError as e:
         status = e.response.status_code if e.response is not None else None
         if status in (401, 403):
