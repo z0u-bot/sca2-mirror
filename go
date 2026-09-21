@@ -60,7 +60,8 @@ show_help() {
 		                       export reports and sync their bundles to the publish tier
 		  site:                assemble the public site from *published* bundles into _site/
 		                       (for CI; read-only, never runs a report; prints each PDF,
-		                       reusing the previous deploy's via MINI_PDF_MEMO)
+		                       reusing the previous deploy's via MINI_PDF_MEMO, and
+		                       production's for a PR preview)
 		  strays  [...paths]:  variable docstrings in a report, which weave as prose
 		                       (default: docs/; also runs inside lint)
 		  todo    [...sets] [--tag T] [--status S] [--bundle B] [--priority] [--grep RE] [--full]
