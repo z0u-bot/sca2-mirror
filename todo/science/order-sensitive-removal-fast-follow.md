@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [D2.2, intervention, selectivity, ex-2.2.9, grammar]
 priority: high
+closed: 2026-09-21
 opened: 2026-09-17
 ---
 # Removal on the order-sensitive ops: what to expect, and what the model answers
@@ -21,3 +22,5 @@ opened: 2026-09-17
 **2026-09-17, Fable** — the derivation and the cube figures ran as [ex-2.2.10](/docs/m2/ex-2.2.10/report.py). The kept share tracks a change-of-hue counterfactual on the red operand (channel permutations) and neither to-zero nor to-gray: where a hue change leaves the answer alone (`sat-hsv` and `value-hsv`, red at op2) the seeds keep about two thirds, elsewhere a quarter or less. The 31% on `hue-hsv` red-at-op1 is a partial loss of the red operand's saturation and value under the projection: a linear RGB probe on the stream reads the projected operand as a hue rotated away from red, at full saturation, with its value down from 0.88 to about 0.72, and the answer at `=` about two tenths less saturated than clean. The rule the re-run carries: a removal line is one whose answer moves by at least 0.4 under some channel permutation of the red operand, and the S- and V-taking slots become a gateless read of the operator's cost. Open here: whether that partial loss is the operator's or this checkpoint's, which the same scoring pass on `handover-tied` and `handover-slot` would say; ex-2.2.11's scoring should include it.
 
 **2026-09-18, Fable** — Sandy's review of the ex-2.2.10 draft: "I'm unsure" beside the redefinition of a removal line, and a caveat on the change-of-hue counterfactual, which samples six hues a sixth of a turn apart and may miss what finer rotations do. The report now states the rule as a proposal and names a finer HSV rotation, snapped to the grid, as the version to keep if the two ever disagree. Also added: per-line peakedness of the projected answer (top mass about 0.4, seven or eight effective colors on the cases the projection breaks), which says the wheel-wide spread of the answer clouds is across lines rather than one line being spread over the wheel.
+
+**2026-09-21, Fable** — closed on Sandy's second review of ex-2.2.10. The report now states the rule it proposes (a red line is a removal line when some channel permutation of its red operand moves the true answer by at least 0.4), with the saturation- and value-taking slots as a gateless read; the counterfactual discussion is split by counterfactual and tied to the figure; and ex-2.2.11's preregistration carries the rule. What stays open from here is whether the saturation and value shortfall is the operator's or this checkpoint's, which ex-2.2.11's scoring on `handover-tied` and `handover-slot` reads.

@@ -505,18 +505,23 @@ r"""
 
 /// tip |
 <!-- tl;dr -->
-Ex-2.2.9 moved the anchor onto the larger grammar and left three loose ends. Removal was one-sided on the three HSV ops, one seed in twenty fell under the retention gate, and the non-red alignment at op1 sat above the old reference. This notebook reads each off the stored runs, with one small scoring pass for the cube figures and no new training.
+Ex-2.2.9's three loose ends, read off its stored runs: the removal miss on the order-sensitive ops is the line-picking rule's, the retention drop happens before the anneal, and the op1 alignment rises under either half of the handover. We propose the re-run.
+///
+
+<!-- REVIEW: Sandy's review asked for a one- or two-sentence lede under the title, and for the three
+summary paragraphs to be ordinary body text rather than a callout. The tip box now holds the lede alone. -->
+
+Ex-2.2.9 moved the anchor onto the larger grammar and left three loose ends. Removal was one-sided on the three order-sensitive ops, one seed in twenty fell under the retention gate, and the non-red alignment at op1 sat above the old reference. This notebook reads each off the stored runs, with one small scoring pass for the cube figures and no new training.
 
 The removal miss comes from the rule we used to pick the lines. The projection acts like a change in the hue of red, and the lines that missed are the ones whose answer takes only the saturation or value of the red operand. Red is the one anchored concept, so these reads cannot say whether another concept would come apart the same way.
 
-The retention drop happens before the anneal begins. The op1 alignment rises under either half of the handover, so it belongs to the new grammar rather than to the readout alone. We propose the re-run.
-///
+The retention drop happens before the anneal begins. The op1 alignment rises under either half of the handover, so it belongs to the new grammar rather than to the readout alone.
 
 ## Observations
 
 None of the lines below is a result; ex-2.2.11 will adopt what it needs from here and score it at fresh seeds.
 
-- [Removal](#removal-on-the-order-sensitive-ops): on the three HSV ops the kept share follows a change of hue on the red operand, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the saturation or value of the red operand (`sat-hsv` and `value-hsv` with red at op2), two thirds of the clean exact match survives the projection. Where the answer takes the hue of red, or the whole color, it goes. One case no counterfactual predicts: `hue-hsv` with red at op1, whose answer needs only the saturation and value of red, and where a third of the clean exact match survives; its projected answers keep the hue of op2 and come out paler. A linear probe on the stream reads the projected red operand as a hue rotated away from red, at a lower value, and the rotation grows block by block.
+- [Removal](#removal-on-the-order-sensitive-ops): on the three order-sensitive ops (`hue-hsv`, `sat-hsv`, `value-hsv`; `hsvmix` is commutative and cleared the gate in ex-2.2.9) the kept share follows a change of hue on the red operand, and not the to-zero rule we used to pick the removal lines. Where the answer takes only the saturation or value of the red operand (`sat-hsv` and `value-hsv` with red at op2), two thirds of the clean exact match survives the projection. Where the answer takes the hue of red, or the whole color, it goes. One case no counterfactual predicts: `hue-hsv` with red at op1, whose answer needs only the saturation and value of red, and where a third of the clean exact match survives; its projected answers keep the hue of op2 and come out paler. A linear probe on the stream reads the projected red operand as a hue rotated away from red, at a lower value, and the rotation grows block by block.
 - [Retention](#retention-and-the-anneal): on `handover` the alignment reaches a noisy plateau by epoch 10, and its peak is just the high point of that noise. By the time the anneal begins at epoch 45 the seeds sit at 0.66, a few of them drifting downward. Through the anneal itself every condition is flat, so the gate is reading the noise in the plateau plus the drift. `handover-slot` and `handover-tied` hold their plateaus, so the drift needs the whole-line labeller and the untied readout together.
 - [Containment](#containment-under-the-untied-readout): ᾱ at op1 on the non-red lines is 0.28 on `handover`, 0.18 on `handover-slot`, and 0.16 on `handover-tied`, against 0.02 on the control. Each half of the handover raises it, so the untied readout is not the whole story. The `⏎` embedding row picks up the axis only under the whole-line labeller: 0.17 on `handover` and zero on `handover-slot`.
 - [What we make of it](#what-we-make-of-it): score removal on the lines whose answer takes the hue of the red operand, judge retention against the alignment at the start of the anneal (or drop the ratio and report a level), and carry the op1 alignment as a report line rather than a gate.
@@ -549,7 +554,7 @@ with tempfile.TemporaryDirectory() as _tmp:
 r"""
 ## Removal on the order-sensitive ops
 
-Ex-2.2.9 scored removal on eleven ops, and the projection cleared the gate on eight. The three that missed are the ones that read operand order: `hue-hsv`, `sat-hsv`, and `value-hsv` each take one HSV attribute from op2 and the other two from op1. On each the miss was one-sided by slot: with red at op1 the projection removed most of the answer on `sat-hsv` and `value-hsv`, and with red at op2 the answer largely survived. `hue-hsv` ran the other way.
+Ex-2.2.9 scored removal on eleven ops, and the projection cleared the gate on eight. The three that missed are the ones that read operand order: `hue-hsv`, `sat-hsv`, and `value-hsv` each take one HSV attribute from op2 and the other two from op1. The fourth op that works in HSV, `hsvmix`, averages the two operands and is commutative; it cleared the gate with the channel-wise ops, so the miss goes with operand order rather than with HSV. On each the miss was one-sided by slot: with red at op1 the projection removed most of the answer on `sat-hsv` and `value-hsv`, and with red at op2 the answer largely survived. `hue-hsv` ran the other way.
 
 Those removal lines were picked by the *to-zero* rule of ex-2.2.4: a red line counts if setting the R channel of the red operand to zero moves the true answer far. That rule says nothing about which attribute of red the answer actually needs, and it has a blind spot on pure red. Zeroing R on (5, 0, 0) gives black, which has no saturation and no value, so every `sat-hsv` and `value-hsv` line that takes only the saturation or value of red counts as a removal line.
 
@@ -598,8 +603,8 @@ table_html(
 @memo
 @themed(
     name="counterfactuals",
-    caption="**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Dots are the kept share of the twenty `handover` seeds on the red lines under the projection, with the seed mean in the larger marker. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (plus), or its replacement by gray of the same value (cross). To zero is the rule that picked the removal lines, and it predicts near zero everywhere.",
-    alt_text="Chart of kept share by op and red slot. Observed kept shares track the change-of-hue prediction in six of eight columns; hue-hsv with red at op1 sits at a third where the hue prediction is one, and mix and value-hsv with red at op1 sit near zero under every prediction.",
+    caption="**Kept share against the two counterfactuals that could differ from the rule, by op and red slot.** Each column is one op and slot. Small dots are the kept share of the twenty `handover` seeds on the red lines under the projection; ● is the seed mean. Beside them: the share of those lines whose true answer would survive a change in the hue of the red operand (+), or its replacement by gray of the same value (×). The thin line joins ● to +, so its length is how far the observed share falls from the hue prediction. To zero is the rule that picked the removal lines, and it predicts near zero everywhere.",
+    alt_text="Chart of kept share by op and red slot. Observed kept shares track the change-of-hue prediction in six of eight columns; hue-hsv with red at op1 sits at a third where the hue prediction is one, and mix and value-hsv with red at op1 sit near zero under every prediction. A thin line in each column joins the observed mean to the hue prediction; it is long in three columns and short elsewhere.",
 )
 def plot_cf(kept: dict[tuple[str, str], np.ndarray], cf: dict[str, dict[int, dict[str, float]]]) -> plt.Figure:
     rng = np.random.default_rng(0)
@@ -610,6 +615,15 @@ def plot_cf(kept: dict[tuple[str, str], np.ndarray], cf: dict[str, dict[int, dic
         x = i + (i // 2) * 0.5
         xs.append(x)
         labels.append(f"{op}\nred at {g}")
+        # The gap the prose reads: a thin line from the seed mean to the hue prediction.
+        ax.plot(
+            [x, x + 0.22],
+            [np.nanmean(kept[op, g]), cf[op][slot]["change of hue"]],
+            "-",
+            color=light_dark("#555", "#bbb"),
+            lw=0.7,
+            zorder=3,
+        )
         dots(ax, x, kept[op, g], "handover", rng=rng, label="observed, red lines" if i == 0 else None)
         for j, (name, m, lt, dk) in enumerate(cfs):
             ax.plot(
@@ -637,21 +651,32 @@ hue = {(op, s): cf[op][s]["change of hue"] for op in OPS for s, _ in SLOTS}
 obs = {(op, s): float(res.kept("handover", op, f"red_{g}").mean()) for op in OPS for s, g in SLOTS}
 lost = max(obs[k] for k in (("mix", 0), ("mix", 2), ("hue-hsv", 2), ("sat-hsv", 0), ("value-hsv", 0)))
 rf"""
-The projection behaves like the change-of-hue counterfactual, and nothing like the other two. Where a change of hue leaves the answer alone ({hue[("sat-hsv", 2)]:.0%} of `sat-hsv` red-at-op2 lines, {hue[("value-hsv", 2)]:.0%} of `value-hsv` red-at-op2 lines) the seeds keep {obs[("sat-hsv", 2)]:.0%} and {obs[("value-hsv", 2)]:.0%}. Where it moves the answer (`mix` in either slot, `hue-hsv` with red at op2, `sat-hsv` and `value-hsv` with red at op1), the seeds keep {lost:.0%} or less.
+<!-- REVIEW: Sandy's review asked for this passage to be split by counterfactual and tied to the
+figure, and for it to end with a recommendation rather than "one reading". Each paragraph below names
+the mark in the figure it reads. -->
 
-To gray would have preserved `sat-hsv` red-at-op1 ({cf["sat-hsv"][0]["to gray"]:.0%}) and `hue-hsv` red-at-op2 ({cf["hue-hsv"][2]["to gray"]:.0%}). The model keeps neither, so the projection does not turn red into gray.
+Read column by column, the seed mean (●) sits near the hue prediction (+) and nowhere near the other two.
 
-One slot the hue reading does not predict is `hue-hsv` with red at op1, whose answer is the hue of op2 at the saturation and value of red. A change of hue leaves every one of those answers alone, yet the seeds keep only {obs[("hue-hsv", 0)]:.0%}.
+**Hue.** Where a change of hue leaves the answer alone, the + is at the top of its column: {hue[("sat-hsv", 2)]:.0%} of the `sat-hsv` red-at-op2 lines and {hue[("value-hsv", 2)]:.0%} of the `value-hsv` red-at-op2 lines. Those are the two columns where the seeds keep most of the answer, {obs[("sat-hsv", 2)]:.0%} and {obs[("value-hsv", 2)]:.0%}. Where a change of hue moves the answer, the + is near the floor (`mix` in either slot, `hue-hsv` with red at op2, `sat-hsv` and `value-hsv` with red at op1), and the seeds keep {lost:.0%} or less. Six columns of eight follow the hue prediction.
 
-So when the red operand supplies saturation and value and something else supplies the hue, the projection costs the model most of that saturation and value read as well. The same loss shows up more mildly in the two slots that survive: `sat-hsv` and `value-hsv` red-at-op2 keep two thirds where the hue reading says all of it.
+**Gray.** The × disagrees with the + in two columns, `sat-hsv` red-at-op1 ({cf["sat-hsv"][0]["to gray"]:.0%}) and `hue-hsv` red-at-op2 ({cf["hue-hsv"][2]["to gray"]:.0%}), where turning the red operand gray would leave the answer alone. The seeds keep neither, so the projection does not turn red into gray.
 
-One reading is that the removal gate should count the lines whose answer needs the *hue* of the red operand, which is what the to-zero rule was meant to proxy. Under a change-of-hue rule, `sat-hsv` and `value-hsv` red-at-op2 drop out of the gate, and `hue-hsv` red-at-op1 drops out with them. What remains are the cases the projection already clears, and the rule rests on the six hues a permutation can reach.
+**To zero.** The rule that picked the removal lines predicts near zero in every column, and it is wrong wherever the + is high.
 
-What stays open is whether the partial loss of saturation and value comes from the projection itself or from this checkpoint.
+**The column the hue prediction misses.** On `hue-hsv` with red at op1 the answer is the hue of op2 at the saturation and value of red. A change of hue leaves every one of those answers alone (+ at the top), yet the seeds keep only {obs[("hue-hsv", 0)]:.0%}, and the line from ● to + is the longest in the figure. So when the red operand supplies saturation and value and something else supplies the hue, the projection also costs the model most of its read of that saturation and value. The two surviving columns show the same shortfall more mildly: `sat-hsv` and `value-hsv` red-at-op2 keep two thirds where the + says all of it.
+
+**What we propose.** The removal gate should count the lines whose answer needs the *hue* of the red operand, which is what the to-zero rule was meant to proxy: a red line is a removal line when some channel permutation of its red operand moves the true answer by at least 0.4. Under that rule `sat-hsv` and `value-hsv` red-at-op2 drop out of the gate, and `hue-hsv` red-at-op1 drops out with them; what remains are the columns the projection already clears. The rule rests on the six hues a permutation can reach, and the [design section](#what-we-make-of-it) says what to do if a finer rotation ever disagrees with it. The saturation and value shortfall becomes a read of its own, with no gate.
+
+What stays open is whether that shortfall comes from the projection itself or from this checkpoint.
 
 ### Where the answers go
 
-The counterfactual table says which answers are lost. The next three figures show what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. All three draw the RGB cube twice. The top row is the wheel view the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top, and lightness collapses onto the center. The row under it is the solid view: the cube turned so red points at the reader, which puts white at the top, black at the bottom, and lightness up the page. A move the wheel view hides, a color getting lighter or darker at the same hue, shows in the solid view; and a move along the red–cyan axis, which the solid view looks along, shows only in the wheel. Where a figure draws the moves themselves, it does so as a smoothed flow: an arrow for the mean move of the answers near it, with a faint wedge for their spread, so a wide wedge is a group of answers that went off in several directions.
+The counterfactual table says which answers are lost. The figures in this section show what the model answers instead, on the removal lines of each op and slot, from the twenty `handover` checkpoints. Each draws the RGB cube twice. The top row is the wheel view the probe-cube figures of ex-2.1.1 use: looking down the gray diagonal, so hue runs around the hexagon with red at the top, and lightness collapses onto the center. The row under it is the light–dark view: the cube turned so red points at the reader, which puts white at the top, black at the bottom, and lightness up the page. Where a figure shows the moves from true answer to given answer, it draws them as a smoothed flow rather than one stub per answer: an arrow for the mean move of the answers near it, with a faint wedge for their spread, so a wide wedge is a group of answers that went off in several directions.
+
+<!-- REVIEW: Sandy's review struck the sentence on what each view hides (the light–dark view looks
+along the red–cyan axis), and asked for the greedy-answer figure to be interleaved with its
+interpretation, one op block at a time, rather than one figure of four blocks and the prose after.
+"solid view" is now "light–dark view" in prose and captions; the code keeps the `solid` key. -->
 """
 
 # The scoring pass is what the rest of the report reads; the retention and containment reads
@@ -711,7 +736,7 @@ def plot_guess(op: str, guess_pairs: dict[tuple, Counter]) -> plt.Figure:
         dia = 0.01 + 0.1 * np.sqrt(n / n.max())
         plot_rgb_cube(ax, guess, truth, s=0.01, diameter=dia, view=view, labels=True)
         if pas == "projection":
-            # The solid view looks down the red–cyan axis, so a move along it leaves only jitter here.
+            # The light–dark (`solid`) view looks down the red–cyan axis, so a move along it leaves only jitter here.
             flow_arrows(ax, truth, guess, n, view=view, sigma=0.2, step=0.4, min_move=0.05 if view == "wheel" else 0.08)
         note = f", {off} off-vocab" if off else ""
         title(ax, view, f"red at {g}, {pas} ({int(n.sum())}{note})")
@@ -724,20 +749,49 @@ def guess_figure(op: str, pairs: dict[tuple, Counter]) -> str:
     return themed(plot_guess, name=f"guess-{op}", caption=f"`{op}`")(op, pairs)
 
 
-figure_html(
-    "".join(guess_figure(op, per_op(guess_pairs, op)) for op in OPS),
-    caption="**Greedy answers on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the solid view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, and sized by how many answers made that move; the clean panels show where the true answers lie, and a projected mark whose color matches its place is an answer that still matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages.",
-    aria_label="Cube panels of greedy answers per op and red slot, clean beside projected. Clean, nearly every mark sits on its ring; projected, marks move off their rings wherever the answer needs the hue of red, and stay on them on sat-hsv and value-hsv with red at op2.",
+GUESS_HOW_TO_READ = "Each pair of panels is one red slot, clean on the left and projected on the right, with the number of (line, seed) answers in the title. **Top row:** the wheel view of the RGB cube, down the gray diagonal, so hue runs around the hexagon and lightness collapses onto the center. **Bottom row:** the light–dark view, red toward the reader, so lightness runs up the panel from black (K) to white (W) and red and cyan fall inside. Corner letters name the cube's corners. Each mark is a greedy answer, placed at its own color and colored by the true answer, and sized by how many answers made that move; a projected mark whose color matches its place is an answer that still matches the truth. The projected panels add the moves as a smoothed flow: each arrow is the mean move of the answers whose truth lies near its tail, sized by their count and colored by their mean truth; a cell whose answers go two ways gets an arrow each way, and the faint wedge behind an arrow spans one standard deviation of the directions it averages."
+
+
+def guess_block(ops: Sequence[str], caption: str, aria_label: str) -> str:
+    return figure_html(
+        "".join(guess_figure(op, per_op(guess_pairs, op)) for op in ops), caption=caption, aria_label=aria_label
+    )
+
+
+guess_block(
+    ["mix"],
+    f"**Greedy answers on the removal lines of `mix`, clean and under the projection.** {GUESS_HOW_TO_READ}",
+    "Cube panels of greedy answers on mix, per red slot, clean beside projected. Clean, every mark sits on its ring near the top of the wheel; projected, the marks and arrows move down toward the center, and the light–dark row shows only jitter.",
 )
 
 r"""
-Clean, the greedy answer is the true one on almost every removal line, so the clean panels are where the truth lies. The projected panels sort the ops, roughly, into three kinds of move.
+Clean, the greedy answer is the true one on almost every removal line. Projected, the ops sort, roughly, into three kinds of move.
 
-On `mix` the projected answers move toward the center of the cube, and their mean is a gray with a little red left in it. Their hues stay near red: nine in ten sit within a third of a turn of it, which is why the green and blue half of the wheel stays empty. A `mix` answer is the midpoint of its two operands, and a red operand that reads as orange or pink after the projection cannot pull a midpoint to the far side of the wheel. The solid row of `mix` shows only jitter, because a move from red toward gray runs along the red–cyan axis, the one direction that view cannot show.
+On `mix` the projected answers move toward the center of the cube, and their mean is a gray with a little red left in it. Their hues stay near red: nine in ten sit within a third of a turn of it, which is why the green and blue half of the wheel stays empty. A `mix` answer is the midpoint of its two operands, and a red operand that reads as orange or pink after the projection cannot pull a midpoint to the far side of the wheel.
+"""
 
-On `hue-hsv` with red at op1, the case no counterfactual predicted, the answers keep their hue and lose saturation. The true answers are the hue of op2 at the full saturation and value of red, so they sit on the rim of the wheel; projected, each moves straight in toward the center, and in the solid row the arrows run level toward the gray axis, so the answers get paler without getting darker. The model still reads the hue of op2 and returns it as a washed-out color; what the projection has cost it is the saturation read of the red operand.
+guess_block(
+    ["hue-hsv"],
+    "**Greedy answers on the removal lines of `hue-hsv`, clean and under the projection.** Read as the `mix` figure above.",
+    "Cube panels of greedy answers on hue-hsv, per red slot, clean beside projected. With red at op1 the projected marks move straight in from the rim toward the center, and in the light–dark row the arrows run level. With red at op2 the marks split from red into an orange lobe and a pink lobe at the same lightness.",
+)
 
-The other four broken slots are the hue rotation. On `hue-hsv` with red at op2 the true answers are reds at the saturation and value of op1, and projected they split into an orange lobe and a pink lobe, at the same lightness as before; the flow draws two arrows from each cell for this reason, one to each side. `sat-hsv` and `value-hsv` with red at op1 fan out the same way, from red toward orange and pink, with wider wedges: these answers take two attributes of red, and the moves scatter as well as rotate. In the solid row of `value-hsv` the arrows point every way, so those answers seem to change in lightness as well as hue, with no one direction to it; that panel is the least tidy of the set, and the rotation is only the largest part of what it shows. On the two slots the projection leaves alone, `sat-hsv` and `value-hsv` with red at op2, the arrows are short and the marks stay on their clean positions.
+r"""
+On `hue-hsv` with red at op1, the case no counterfactual predicted, the answers keep their hue and lose saturation. The true answers are the hue of op2 at the full saturation and value of red, so they sit on the rim of the wheel; projected, each moves straight in toward the center, and in the light–dark row the arrows run level toward the gray axis, so the answers get paler without getting darker. The model still reads the hue of op2 and returns it as a washed-out color; what the projection has cost it is the saturation read of the red operand.
+
+With red at op2 the true answers are reds at the saturation and value of op1, and this is the hue rotation: projected, they split into an orange lobe and a pink lobe, at the same lightness as before. The flow draws two arrows from each cell for this reason, one to each side.
+"""
+
+guess_block(
+    ["sat-hsv", "value-hsv"],
+    "**Greedy answers on the removal lines of `sat-hsv` and `value-hsv`, clean and under the projection.** Read as the `mix` figure above.",
+    "Cube panels of greedy answers on sat-hsv and value-hsv, per red slot, clean beside projected. With red at op1 the projected marks fan out from red toward orange and pink under wide wedges. With red at op2 the arrows are short and the marks stay where the clean ones are.",
+)
+
+r"""
+`sat-hsv` and `value-hsv` with red at op1 are the other two slots the projection degrades, and they rotate the same way, from red toward orange and pink, with wider wedges: these answers take two attributes of red, and the moves scatter as well as rotate. In the light–dark row of `value-hsv` the arrows point every way, so those answers seem to change in lightness as well as hue, with no one direction to it; that panel is the least tidy of the set, and the rotation is only the largest part of what it shows. On the two slots the projection leaves alone, `sat-hsv` and `value-hsv` with red at op2, the arrows are short and the marks stay on their clean positions.
+
+### The whole answer distribution
 
 The greedy answer is only one token. The whole answer distribution says how confidently the model moved, and whether the mass that left the true answer went to one color or spread out. The next figure draws that distribution as a dithered cloud in the cube.
 """
@@ -767,7 +821,7 @@ def cloud_figure(op: str, mass: dict[tuple, np.ndarray]) -> str:
 
 figure_html(
     "".join(cloud_figure(op, per_op(cloud_mass, op)) for op in OPS),
-    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, in the wheel view (top) and the solid view (bottom), as in the previous figure. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
+    caption="**The answer distribution on the removal lines, clean and under the projection.** One block per op; each pair of panels is one red slot, clean on the left and projected on the right, in the wheel view (top) and the light–dark view (bottom), as in the figures above. The dots of each panel are shared out over the 216 grid colors in proportion to the mean answer mass those lines put on each color, so a dense patch is where the model expects the answer to be. The clean panels show where the true answers of those lines lie.",
     aria_label="Dithered cube clouds of answer mass per op and red slot, clean beside projected. Each clean cloud sits where the true answers are; projected, the cloud spreads over the whole wheel wherever red supplies the hue, and stays close to the clean one on sat-hsv and value-hsv with red at op2.",
 )
 
@@ -778,9 +832,9 @@ for op in OPS:
     for slot, g in SLOTS:
         c, p = peak[op, slot, "clean"], peak[op, slot, "projection"]
         peak_rows.append([f"`{op}`, red at {g}", f"{c[0]:.2f}", f"{p[0]:.2f}", f"{c[1]:.1f}", f"{p[1]:.1f}"])
-# The cases the projection breaks, and the two it leaves alone, as (clean, projected) pairs.
-broken_cases = (("mix", 0), ("mix", 2), ("hue-hsv", 2), ("sat-hsv", 0), ("value-hsv", 0))
-broken = [(peak[op, slot, "clean"], peak[op, slot, "projection"]) for op, slot in broken_cases]
+# The cases the projection degrades, and the two it leaves alone, as (clean, projected) pairs.
+degraded_cases = (("mix", 0), ("mix", 2), ("hue-hsv", 2), ("sat-hsv", 0), ("value-hsv", 0))
+degraded = [(peak[op, slot, "clean"], peak[op, slot, "projection"]) for op, slot in degraded_cases]
 kept_cases = [
     (peak[op, slot, "clean"], peak[op, slot, "projection"]) for op, slot in (("sat-hsv", 2), ("value-hsv", 2))
 ]
@@ -791,21 +845,19 @@ table_html(
 )
 
 rf"""
-Per line, the projected answer is unsure among a handful of colors rather than spread over the wheel. On the cases the projection breaks, the mass on the top color falls from about {np.mean([b[0][0] for b in broken]):.1f} clean to about {np.mean([b[1][0] for b in broken]):.1f}, and the effective number of colors rises from one or two to about {np.mean([b[1][1] for b in broken]):.0f}. On the two cases it leaves alone, the top mass stays at {min(k[1][0] for k in kept_cases):.1f} or above.
+Per line, the projected answer is unsure among a handful of colors rather than spread over the wheel. On the cases the projection degrades, the mass on the top color falls from about {np.mean([b[0][0] for b in degraded]):.1f} clean to about {np.mean([b[1][0] for b in degraded]):.1f}, and the effective number of colors rises from one or two to about {np.mean([b[1][1] for b in degraded]):.0f}. On the two cases it leaves alone, the top mass stays at {min(k[1][0] for k in kept_cases):.1f} or above.
 
-So the wheel-wide spread of the projected clouds is a spread across lines, each moved to its own neighbourhood. That is what we would expect if the operand reads as a hue rotated one way or the other, which is what the probe finds.
+So the wheel-wide spread of the projected clouds is a spread across lines, each staying within its own neighbourhood. That is what we would expect if the operand reads as a hue rotated one way or the other, which is also what the probe finds.[^skeleton]
 
-The solid row adds one thing the greedy answers did not show. On `hue-hsv` the projected mass reaches every lightness, from near black to near white, where the greedy answers of the previous figure kept the lightness of the truth. Read with the table above, one reading is that the runners-up a line hesitates among differ from its top answer in lightness as well as hue; the clouds pool the lines, so this is a guess about what is inside each one rather than a measurement.
+The light–dark row adds one thing the greedy answers did not show. On `hue-hsv` the projected mass reaches every lightness, from near black to near white, where the greedy answers of the previous figure kept the lightness of the truth. Read with the table above, one reading is that the runners-up a line hesitates among differ from its top answer in lightness as well as hue; the clouds pool the lines, so this is a guess about what is inside each one rather than a measurement.
 
-The structure inside each cloud is the set of answers the op can produce on the grid, carried around the wheel by the rotation. Take `sat-hsv` with red at op1: the clean answers are reds of every saturation, a ray from white at the center out to red at the top, and projected that ray appears at every hue. With red at op2 the answers are fully saturated colors at the hue and value of op1, which in the wheel view are the rim and the spokes running in toward the center, and the projected panel keeps that skeleton.
+[^skeleton]: The structure inside each cloud is the set of answers the op can produce on the grid, carried around the wheel by the rotation. Take `sat-hsv` with red at op1: the clean answers are reds of every saturation, a ray from white at the center out to red at the top, and projected that ray appears at every hue. With red at op2 the answers are fully saturated colors at the hue and value of op1, which in the wheel view are the rim and the spokes running in toward the center, and the projected panel keeps that skeleton.
 
 ### What the stream says
 
-The answers show what the model concluded. The residual stream shows what it was working from. For each op we fit a linear probe from the stream at each slice and position to the three colors a line carries: op1, op2, and the answer the rule gives. The probes were fit on the clean stream of the non-red lines, and we then decoded the red lines through them, clean and under the projection.[^probes]
+The answers say what the model concluded; the residual stream can say what it concluded it from. For each op we fit a linear probe from the stream at each slice and position to the three colors a line carries: op1, op2, and the answer the rule gives. The probes were fit on the clean stream of the non-red lines, so that the axis stays out of them, and we then decoded the red lines through them, clean and under the projection.[^probes]
 
-Fitting on the non-red lines keeps the axis out of the probes. A probe fit on lines with red in them would learn the axis as the direction of red, and would then read its removal as a loss of red at the embedding as much as anywhere. A probe blind to the axis reads what the blocks make of its absence, which is the question here. The red lines are outside the fit set, so they are held out without a leave-one-out scheme.
-
-[^probes]: The probe-cube figures of ex-2.1.3 are the precedent. The probes read RGB, so their output lands in the cube with no rotation needed to fit it. A hue probe would be ill-posed, since hue is circular, and saturation and value are piecewise-linear in RGB, so we convert the decoded RGB whenever an HSV number is wanted.
+[^probes]: The probe-cube figures of ex-2.1.3 are the precedent. The probes read RGB, so their output lands in the cube with no rotation needed to fit it. A hue probe would be ill-posed, since hue is circular, and saturation and value are piecewise-linear in RGB, so we convert the decoded RGB whenever an HSV number is wanted. Fitting on the non-red lines keeps the axis out of the probes: a probe fit on lines with red in them would learn the axis as the direction of red, and would then read its removal as a loss of red at the embedding as much as anywhere, where a probe blind to the axis reads what the blocks make of its absence. The red lines are outside the fit set, so they are held out without a leave-one-out scheme.
 """
 
 decoded = decoded_colors(res)
@@ -858,8 +910,8 @@ def decoded_figure(op: str, dec: dict[tuple, np.ndarray]) -> str:
 
 figure_html(
     "".join(decoded_figure(op, per_op(decoded, op)) for op in OPS),
-    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with a stub from the clean decode of the same line, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer; there are too many lines for rings and stubs, so the moves from the clean decodes to the projected ones are drawn as a smoothed flow, on the same terms as the greedy-answer figure. Each read is shown in the wheel view and, under it, the solid view, as in the answer figures. *emb* is the embedding, and slice *n* is the stream after *n* blocks.",
-    aria_label="Cube panels of probe-decoded colors across five slices, in wheel and solid views. The operand marks start at red and slide further from it with each slice, toward orange on one side and pink on the other, at nearly constant lightness; the answer flow points away from red for the reddish answers and gently inward elsewhere.",
+    caption="**Colors of the removal lines decoded from the residual stream, projected against clean.** One block per op, mean over the twenty seeds. **Top row:** the red operand, read at its own position by the probe fit at that slice. One mark per line, at the RGB decoded under the projection and colored by the true color of the operand, with a stub from the clean decode of the same line, so the stub is what the projection changed. **Bottom row:** the answer from the rule, read at `=` and colored by the true answer; there are too many lines for rings and stubs, so the moves from the clean decodes to the projected ones are drawn as a smoothed flow, on the same terms as the greedy-answer figure. Each read is shown in the wheel view and, under it, the light–dark view, as in the answer figures. *emb* is the embedding, and slice *n* is the stream after *n* blocks.",
+    aria_label="Cube panels of probe-decoded colors across five slices, in wheel and light–dark views. The operand marks start at red and slide further from it with each slice, toward orange on one side and pink on the other, at nearly constant lightness; the answer flow points away from red for the reddish answers and gently inward elsewhere.",
 )
 
 # %%
@@ -915,13 +967,13 @@ At the embedding, the projection changes nothing the probe can see. Clean and pr
 
 [^emb]: At the embedding the stream at `=` is the same vector on every line, since nothing of the line has reached that position yet. A probe there can only return one color for every answer: the mean of its fit set, near the center of the wheel.
 
-From the first block on, the projected red operand reads as a different color, and the difference grows with depth. The move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the wheel view that is the stubs sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center. The solid view says how the value is lost. Red sits at the center of that view, and most stubs run level from it toward yellow or magenta, so those operands trade some red for green or blue and keep their lightness. The stubs colored pure red are the exception: the operands with no green or blue in them to start with move a little up, or on a couple of lines a long way down toward black, keeping the hue of red and losing value the plain way. The pattern is the same on every op.
+From the first block on, the projected red operand reads as a different color, and the difference grows with depth. The move roughly doubles from slice 1 to slice 4 on every op. In HSV terms it is a rotation of hue away from red, a fifth of a turn by the last slice, at nearly full saturation and with a lower value. In the wheel view that is the stubs sliding along the upper edges of the hexagon, toward orange on one side and pink on the other, rather than toward the center. The light–dark view says how the value is lost. Red sits at the center of that view, and most stubs run level from it toward yellow or magenta, so those operands trade some red for green or blue and keep their lightness. The stubs colored pure red are the exception: the operands with no green or blue in them to start with move a little up, or on a couple of lines a long way down toward black, keeping the hue of red and losing value the plain way. The pattern is the same on every op.
 
 So this is the change-of-hue counterfactual that the kept shares followed, with a loss of value alongside it. M1 saw a related asymmetry when it deleted the hue subspace of an autoencoder (ex-2.7 in [ex-preppy](https://github.com/z0u/ex-preppy), under its ablation figures): red, green, and blue darkened, and yellow, cyan, and magenta lightened. One reading of both is that the primaries sit nearer black on the gray diagonal than the secondaries do, so what remains of red once a hue direction is gone leans toward black. The few lines that drop toward black here fit that reading; the larger group that trades red for a neighbouring channel is a hue rotation with the value loss as a side effect.
 
 The slots that take the saturation and value of the red operand have only what the stream keeps of it, so that lost value is the partial loss the counterfactual table could not explain.
 
-The answer at `=` follows the operand. Clean, it reaches its ring by the last slice. Projected, it stops short, with a smaller hue offset than the operand and a saturation about two tenths under the clean read. In the answer rows of the figure the flow points away from red on the reddish answers and gently inward on the rest, and on `mix` it is the same straight move down the wheel, invisible in the solid view, that the greedy answers made. The answers that survive on `sat-hsv` and `value-hsv` with red at op2 are the ones whose true color the rotated, dimmer operand still snaps to.
+The answer at `=` follows the operand. Clean, it reaches its ring by the last slice. Projected, it stops short, with a smaller hue offset than the operand and a saturation about two tenths under the clean read. In the answer rows of the figure the flow points away from red on the reddish answers and gently inward on the rest, and on `mix` it is the same straight move down the wheel, invisible in the light–dark view, that the greedy answers made. The answers that survive on `sat-hsv` and `value-hsv` with red at op2 are the ones whose true color the rotated, dimmer operand still snaps to.
 
 ## Retention and the anneal
 
@@ -996,6 +1048,10 @@ By the start of the anneal the seeds sit at {h[:, 2].mean():.2f}, a few of them 
 
 So the ratio of the end to the peak is comparing the last sample of a noisy plateau against the height of that plateau, with a slow drift under a constant anchor weight added on some seeds. That drift needs both the whole-line labeller and the untied readout: either one alone holds its plateau.
 
+What the drift is, the trajectories cannot say. One reading is that the model is still reorganizing its representations under the larger grammar, and the axis is carried a little way with them. The whole-geometry read of anchored against control runs, now in review, sees a different latent geometry only with more ops and the anchor together, and a training-dynamics measure such as the local learning coefficient would say whether the plateau is a settled solution or a slow move between them.[^llc] The [backlog item](/todo/science/training-dynamics-under-the-retention-drift.md) carries it.
+
+[^llc]: The *local learning coefficient* (LLC) is a measure of how many effective degrees of freedom a trained model is using near its current weights, estimated by sampling the loss around them. It comes from singular learning theory, and the developmental-interpretability literature uses a change in it to mark a phase transition in training: a plateau in the loss that hides a reorganization inside the model.
+
 Whether the drift matters is a different question from the one the gate asked. The end-of-training alignment is {h[:, 3].mean():.2f} on `handover`, against {s[:, 3].mean():.2f} and {t[:, 3].mean():.2f} on the references. Every read downstream of it (grading, removal, containment) is taken at the end, so that level is what the later experiments inherit. A stepped anneal, which the [backlog item](/todo/science/retention-under-longer-training.md) floated, would act on the window where nothing is lost.
 
 ## Containment under the untied readout
@@ -1066,11 +1122,13 @@ Why either half raises it is open. For the labeller half there is a candidate: u
 
 Whatever the mechanism, none of it reaches the embedding table: the non-red color rows hold {nr["handover"]:.2f} of the axis on `handover` against {nr["control"]:.2f} on the control.
 
-The `⏎` row is a separate matter, and a cleaner one. Its embedding component is {e["handover"]:.2f} on `handover` and {e["handover-slot"]:.2f} on `handover-slot`, so the whole-line labeller is what puts it there. The pull lands on every position of a red line, `⏎` included, and the slot labeller never touches that position.
+The `⏎` row is a separate, cleaner matter. Its embedding component is {e["handover"]:.2f} on `handover` and {e["handover-slot"]:.2f} on `handover-slot`, so the whole-line labeller is what puts it there. The pull lands on every position of a red line, `⏎` included, and the slot labeller never touches that position.
 
 The readout row for `⏎` is at {er["handover"]:.2f} on `handover` too. On `handover-tied` the row reads {e["handover-tied"]:.2f}, and so does `=`, which is the shared table doing double duty.
 
 The backlog item on the [`⏎` row](/todo/science/eol-embedding-row-keeps-the-axis.md) asks whether the residual redness of the answer position is part of this. Answering that needs a per-position alignment on the red lines, which ex-2.2.9 did not store, so it stays open here.
+
+It may also not survive scale. The row picks up the axis because `⏎` closes every labeled line, and nothing competes with the pull at that position; in a larger model on more diverse data the same token closes lines about everything, so the pull would be a small part of what shapes its row. That is a guess, and the row is cheap to read wherever the anchor is next applied.
 
 ## What we make of it
 
@@ -1078,7 +1136,7 @@ Three changes to the design of the re-run, and one read to carry.
 
 **Removal lines by hue.** Define a removal line as a red line whose true answer moves by at least 0.4 under some channel permutation of the red operand. Those are the lines whose answer needs the *hue* of red. On `mix` and the eight other channel-wise ops this is the to-zero set, or close to it. On the three HSV ops it drops the slots that take only saturation or value (`sat-hsv` and `value-hsv` with red at op2), and `hue-hsv` with red at op1 goes with them.
 
-The gate stays at kept under 0.2, and on the lines that remain every `handover` seed already clears it. The permutation rule reaches six hues; if a finer rotation of the operand in HSV, snapped to the grid, ever disagrees with it, the finer one is the rule to keep.
+The gate stays at *kept* under 0.2, and on the lines that remain every `handover` seed already clears it. The permutation rule reaches six hues; if a finer rotation of the operand in HSV, snapped to the grid, ever disagrees with it, the finer one would be the rule to keep.
 
 The saturation- and value-taking slots become a second read, with no gate. The kept share there says how much of the saturation and value of the red operand the projection takes with it, which is a cost of the operator worth reporting.
 
@@ -1087,6 +1145,8 @@ The saturation- and value-taking slots become a second read, with no gate. The k
 A high percentile of the plateau, in place of the peak, would soften the ratio and keep the drift inside it; the anneal-start denominator takes the drift out and leaves it to the level line. The early peak and the drift get a line of their own in the report: the level at the end of training, beside the references.
 
 **The op1 alignment as a line rather than a gate.** ᾱ at op1 rises under either half of the handover, and the embedding rows do not move, so the old reference of 0.1 belonged to the old grammar. The re-run reports ᾱ at op1 with `handover-slot` and `handover-tied` as its references, and gates nothing on it. A gate can return once we can name a mechanism.
+
+**What the shape of the loss suggests for a larger model.** On the lines that need the removed concept, the model is not confidently wrong. It hesitates among a handful of neighbours of the true answer, and it keeps what the concept did not supply: the hue of op2, the lightness. If the same held for an anchored concept in a language model, removal would look like a reduced capability confined to the prompts that need the concept, with the model wavering among near-misses rather than producing a confident substitute. That is the side-effect profile anchoring is meant to buy, and it is a guess from one concept in one small model. The near-misses here are neighbours because the answer space is a color cube; a language model's answer space has no such tidy neighbourhood.
 
 **The `⏎` row** stays as it is, with its backlog item open. The whole-line labeller is what puts it there, and the slot labeller is not coming back for it. If the edits in M3 ever touch the answer position, this row is the first place to look.
 
