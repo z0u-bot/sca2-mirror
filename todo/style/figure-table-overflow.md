@@ -13,79 +13,11 @@ Captions should be no wider than the containing column of text.
 
 And all of this needs to support one level of nesting, for sub-figures with captions. They should be displayed inline where there's room, and stack vertically when there isn't.
 
-Examples of current structure, which we can change:
-
-```html
-<div class="output block">
-  <span class="markdown prose">
-    <span class="paragraph">A plain mo.md() with a Markdown table</span>
-    <table>...</table> <!-- if this is hard to wrap in a figure then let's not, but do let's style it like the others -->
-  </span>
-</div>
-```
-
-```html
-<div class="output block">
-  <figure class="report-figure">
-    <div class="report-table-scroll"> <!-- This wrapper div seems unnecessary -->
-      <table class="report-table">...</table>
-    </div>
-    <caption></caption>
-  </figure>
-</div>
-```
-
-```html
-<div class="output block">
-  <figure class="mini-themed-figure"> <!-- Styled by rules in mini.lit's sheet since 2026-09-20; each figure used to inline its own. -->
-    <img class="mini-themed-img-light" ...>
-    <img class="mini-themed-img-dark" ...>
-    <figcaption>
-      <span class="markdown prose dark:prose-invert contents">
-        <span class="paragraph">Caption rendered from Markdown</span>
-      </span>
-    </figcaption>
-  </figure>
-</div>
-```
-
-```html
-<div class="output block">
-  <figure>
-    <style>...</style>
-    <figure class="mini-themed-figure-4uh4hsadff2">
-      <!-- this inline max-width style will need to go -->
-      <img class="mini-themed-img-light" ... width="414" height="414" style="max-width: 100%; height: auto;">
-      <img class="mini-themed-img-dark" ... width="414" height="414" style="max-width: 100%; height: auto;">
-      <figcaption>Subfigure (a)</figcaption>
-    </figure>
-    <style>...</style>
-    <figure class="mini-themed-figure-6954f82d4dc9">
-      <img>
-      <img>
-      <figcaption>Subfigure (b)</figcaption>
-    </figure>
-    <figcaption>Main caption</figcaption>
-  </figure>
-</div>
-```
+The markup these asks were written against was Marimo's, and it is gone. `mini.lit` weaves each cell's output straight into `<main class="lit">`, so there are three shapes to work with: a themed `<figure>` (with `<figure>` children when it has sub-figures), a Markdown `<table>`, and an authored `<table class="report-table">`.
 
 Also, our current util function that produces figure tags expects HTML for the caption, but agents often provide Markdown instead. I think it should probably accept Markdown, and render it.
 
 For nested figures, I looked at changing the outer figure to use a flex-wrap layout. Maybe we can get that to work but the main caption needs to be on its own row. And one nice thing about the current text-wrap hack is that it balances the wrapping so the last row doesn't have fewer sub-figures than the earlier ones.
-
-A partial implementation is in `report.css`: Markdown tables (and the authored `report-table`s inside a `figure`) break out of the column, centre on the viewport, and scroll horizontally when wider than the page. Marimo makes the table itself the scroll box (`display: block; overflow: auto`), so the centering transform sits on the table rather than on its rows; a transformed row shifts the scrollable overflow and clips the leading columns of a wide table.
-
-```css
-.output .markdown table {
-  width: max-content;
-  max-width: calc(100vw - 126px); /* Marimo's nav bars: 42px left, 84px right. */
-  margin-left: calc(50% - 21px);
-  transform: translateX(-50%);
-}
-```
-
-This is a screen-only fix. On PDF export the same tables stay column-bound: the print block in `report.css` resets the breakout (`width: auto; max-width: 100%; margin-inline: 0; transform: none`) and lets cells wrap instead, which is the wrong trade for a wide numeric table. The print side still needs its own centering and page-width rule (see the note below).
 
 ## Notes
 
@@ -94,3 +26,13 @@ This is a screen-only fix. On PDF export the same tables stay column-bound: the 
 **2026-09-17, Claude** — The screen-side centering and scrolling landed today (rule above). Sandy confirms it works on screen and not in the PDF export, so the two print asks in the note above (centre in the column; a wide table fills the page width with about 2 mm each side) are the open part of this item, along with the figure/caption normalisation.
 
 **2026-09-17, Sandy** — It looks like we don't need the `report-table-scroll` wrapper anymore: tables in Marimo Markdown cell outputs are scrollable. Also I think we should get rid of our own table class and just use plain `.markdown table` and `.markdown figure table`.
+
+**2026-09-20, housekeeping** — [#192](https://github.com/z0u/sca2/pull/192) settled most of this, including the print side that the 2026-09-17 note called the open part. `main.lit` now spans the page and caps each *child* at `--measure`, so `main.lit > :is(figure, table)` opts figures and tables out and they take the full width; a narrower one still centres. Print gets the same behaviour from one variable — `@page` side margins drop to 5 mm and `--measure` becomes 118 mm, which holds the reading measure where it was and gives a figure about 30 mm more. Captions keep the measure (`min(var(--measure), 100%)` so a sub-figure's caption stays inside its own panel), and the sub-figure row is the flex-wrap layout asked for above, with the main caption on a row of its own. The stylesheets are `src/mini/lit/lit.css` (structure) and `docs/report.css` (authored-table styling and the print block); `report.css`'s Marimo-era breakout rule is gone, so the CSS that used to be quoted here has been dropped.
+
+What's left is the normalisation, and it is smaller than it was:
+
+- **The wrapper `div` is now harmful, not just redundant.** `docs/report.css` makes `table.report-table` its own scroll box and says a report should put the class on the table with no wrapper, but `docs/m2/ex-2.2.1/report.py` and `docs/m2/ex-2.2.6/report.py` still author `<div class="report-table-scroll">` around theirs. Reading the selectors, that div is what becomes the direct child of `main.lit`, so it is capped at `--measure` and the table inside it never reaches the full width. Worth confirming in a browser before fixing, then dropping the wrapper in both.
+- **`table_html` is copied into eight reports** (ex-2.2.3 through ex-2.2.10) rather than living in `mini.vis`, which is why the two helpers from the 2026-09-17 note — the no-break space between a value and its range, and `cell_html`'s backtick-to-`<code>` — sit in one report each. Lifting `table_html` is the move that gives them a home.
+- **Markdown captions** in the figure helper are untouched.
+
+Sandy's ask to drop `.report-table` in favour of plain element selectors is partly overtaken: #192 made the *layout* rules element-based and deliberately kept the class for content semantics (`num`, `range`, `ref`). So the remaining question is narrower — whether those three cell classes are worth keeping — rather than whether the table class should exist at all.
