@@ -211,3 +211,31 @@ def test_svg_figure_externalizes_through_the_report_publisher(tmp_path: Path):
     assert out.startswith('<figure data-mini-asset="_assets/marks.html" aria-label="two marks">')
     assert out.count("<svg") == 2 and "<figcaption>" in out  # the page keeps the inline copy
     assert (tmp_path / "_assets" / "marks.html").read_text() == out.replace(' data-mini-asset="_assets/marks.html"', "")
+
+
+def test_svg_figure_keeps_one_copy_of_a_repeated_style_block():
+    """A strip's SVGs all carry the same theme; inside an HTML page one copy styles them all.
+
+    An inline SVG's `<style>` is not scoped to that SVG — it joins the document's
+    stylesheets — so the repeats were about a kilobyte each of no effect. The surviving
+    copy is what keeps the externalized sidecar self-contained.
+    """
+    from mini.vis import svg_figure
+
+    style = "<style>svg { --col-a: red; }</style>"
+    svg = f'<svg xmlns="http://www.w3.org/2000/svg">{style}<rect/></svg>'
+    out = svg_figure([svg, svg, svg], alt_text="three marks", name="marks")
+    assert out.count("<svg") == 3  # every SVG is still there
+    assert out.count("<style>") == 1
+    assert "--col-a: red" in out
+
+
+def test_svg_figure_keeps_style_blocks_that_differ():
+    """Two SVGs themed apart both keep their own block — only exact repeats collapse."""
+    from mini.vis import svg_figure
+
+    def one(color: str) -> str:
+        return f'<svg xmlns="http://www.w3.org/2000/svg"><style>svg {{ --col-a: {color}; }}</style><rect/></svg>'
+
+    out = svg_figure([one("red"), one("blue")], alt_text="two marks", name="marks")
+    assert out.count("<style>") == 2

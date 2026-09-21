@@ -5,7 +5,7 @@ from typing import Sequence
 from subline.series import Series
 from subline.sparkline import Sparkline
 from subline.types import TokenBB
-from utils.dom import Element
+from utils.dom import Element, content_tag, stamp_ids
 
 
 class Subline:
@@ -226,5 +226,10 @@ class Subline:
         total_width = max(text_width + 2 * self.margin, legend_width + 2 * self.margin)
         svg.set("viewBox", f"0 0 {total_width} {total_height}")
         svg.set("style", svg.get("style", "") + f"width: {total_width:.1f}px; max-width: 100%; display: inline-block;")
+
+        # Name this plot's defs apart from any other subline's on the same page, using a
+        # digest of the markup built so far — so the ids follow the figure's content and
+        # two renders of one figure agree byte for byte.
+        stamp_ids(svg, content_tag(svg))
 
         return ET.tostring(svg, encoding="unicode")

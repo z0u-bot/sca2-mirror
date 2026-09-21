@@ -12,6 +12,8 @@ Subline(css="svg { --bg-color: light-dark(#fff, #181c1a); }").plot(text, series)
 
 Overridable properties include `--bg-color`, `--col-text`, `--col-baseline`, `--col-series-1..5`, and `--blend-mode`.
 
+One theme per page, though. Inlined into HTML, an SVG's `<style>` is not scoped to that SVG — it joins the document's stylesheets and reaches every element on the page. So two sublines on one page with different `css` do not theme apart: both blocks use the `svg` selector, and the later one in document order wins for both. Give a page's sublines the same `css`, which is also what lets `mini.vis.svg_figure` keep one copy of the block per figure instead of one per SVG.
+
 
 ## Citation
 
