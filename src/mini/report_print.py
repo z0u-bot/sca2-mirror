@@ -36,6 +36,8 @@ __all__ = [
     "route_remote",
     "ink_extents",
     "normalize_pdf",
+    "padded_height",
+    "wrapped_cells",
     "chromium_path",
     "MAX_PAGE_MM",
 ]
@@ -46,8 +48,14 @@ log = logging.getLogger(__name__)
 # grows a page toward it until every section fits on one.
 MAX_PAGE_MM = 5080
 
-# The shortest a clipped page may be, as height over width: the reMarkable 2 screen (1872 × 1404 px). A page shorter than the screen is letterboxed there, so a short section costs nothing to pad, and the reader's vertical swipe then behaves the same on every page.
-MIN_PAGE_ASPECT = 1872 / 1404
+# The reader's screen, as height over width: the reMarkable 2 is 1872 × 1404 px. A clipped
+# page is padded to a whole number of screens when it is short: a page shorter than one
+# screen becomes one (it would be letterboxed anyway), and one between one and two screens
+# becomes two, because the reader zooms such a page out to fit rather than scrolling it, and
+# the text prints small (Sandy saw it on a 700 pt page). A taller page scrolls, and is cut to
+# its content.
+SCREEN_ASPECT = 1872 / 1404
+MIN_PAGE_ASPECT = SCREEN_ASPECT  # the floor of the padding: one screen
 
 _MM_PER = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "px": 25.4 / 96}
 
@@ -64,6 +72,40 @@ _PAGE_SIZE_JS = """() => {
 # How many elements start a fresh page, under print media (emulated by the caller).
 _PAGE_BREAKS_JS = """() =>
   [...document.querySelectorAll('body *')].filter(e => getComputedStyle(e).breakBefore === 'page').length"""
+
+# The side margins of the last ``@page`` rule that sets a size, in CSS px, (left, right); 0
+# where the rule sets none.
+_PAGE_MARGINS_JS = """() => {
+  const walk = rules => [...rules].flatMap(r =>
+    r instanceof CSSPageRule ? (r.style.getPropertyValue('size') ? [r.style] : []) : r.cssRules ? walk(r.cssRules) : []);
+  const styles = [...document.styleSheets].flatMap(s => { try { return walk(s.cssRules) } catch (e) { return [] } });
+  const st = styles.at(-1);
+  if (!st) return [0, 0];
+  const px = v => { const m = /^([0-9.]+)(mm|cm|in|pt|px)$/.exec(v || ''); if (!m) return 0;
+    return parseFloat(m[1]) * {mm: 96 / 25.4, cm: 96 / 2.54, in: 96, pt: 96 / 72, px: 1}[m[2]]; };
+  return [px(st.getPropertyValue('margin-left')), px(st.getPropertyValue('margin-right'))];
+}"""
+
+# Per table, how many of its cells wrap onto a third line, header and body counted apart:
+# a header on two lines is usual in a narrow column and reads fine. Lines are the cell's content height over its line height (1.2 × the font size
+# when the line height is `normal`). The table is named by its caption when its figure has
+# one, else by its header row.
+_WRAPPED_CELLS_JS = """() => [...document.querySelectorAll('table')].map(table => {
+  const lines = cell => {
+    const cs = getComputedStyle(cell);
+    const lh = cs.lineHeight === 'normal' ? 1.2 * parseFloat(cs.fontSize) : parseFloat(cs.lineHeight);
+    const h = cell.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    return Math.round(h / lh);
+  };
+  const heads = [...table.querySelectorAll('th')], cells = [...table.querySelectorAll('td')];
+  const fig = table.closest('figure'), cap = fig && fig.querySelector(':scope > figcaption');
+  return {
+    name: (cap ? cap.textContent : heads.map(h => h.textContent).join(' | ')).trim().replace(/\\s+/g, ' ').slice(0, 80),
+    headers: heads.filter(c => lines(c) > 2).length,
+    cells: cells.filter(c => lines(c) > 2).length,
+    columns: table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells.length : (table.rows[0] ? table.rows[0].cells.length : 0),
+  };
+}).filter(t => t.headers || t.cells)"""
 
 # A <style> last in the document, so its @page outranks the stylesheet's; re-run with a
 # new size, it replaces its own text rather than stacking.
@@ -215,7 +257,28 @@ def print_page(page: Any, out: Path, *, settle: float = 3.0, fit: bool = True) -
         return out
     _print_fitting_sections(page, out, size)
     normalize_pdf(out, extents=ink_extents(out))
+    for t in wrapped_cells(page, size[0]):
+        log.warning(
+            "print: table %r (%d columns) wraps on the page: %d header and %d body cell(s) run to a third line. "
+            "A row that wraps cannot be scanned; split the table or drop a column.",
+            t["name"],
+            t["columns"],
+            t["headers"],
+            t["cells"],
+        )
     return out
+
+
+def wrapped_cells(page: Any, width_mm: float) -> list[dict[str, Any]]:
+    """The tables on *page* whose cells wrap when laid out at a *width_mm* sheet under print media: per table its name, column count, and how many header and body cells run to a third line (a header on two lines is usual in a narrow column).
+
+    A ten-column table that fits a screen wraps every cell on the reMarkable's page, and a reader cannot scan the row (the eye loses the column). The fix is the author's (split the table, drop a column, a no-break space to keep a phrase whole), so this measures and the caller warns. The measurement lays the page out in a viewport as wide as the sheet's content area (the ``@page`` size less its side margins), under print media, which is the layout the print used; the viewport is left that way, since a print does not read it.
+    """
+    page.emulate_media(media="print", color_scheme="light")
+    left, right = page.evaluate(_PAGE_MARGINS_JS)
+    width = max(int(round(width_mm * 96 / 25.4 - left - right)), 100)
+    page.set_viewport_size({"width": width, "height": 1400})
+    return page.evaluate(_WRAPPED_CELLS_JS)
 
 
 def _page_size_mm(page: Any) -> tuple[float, float] | None:
@@ -284,7 +347,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
 
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
-    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A page is never clipped shorter than :data:`MIN_PAGE_ASPECT` times its width. A blank page is left as it is.
+    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A short page is padded to one or two screens (:func:`padded_height`). A blank page is left as it is.
 
     In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
@@ -300,9 +363,22 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
                 continue
             top, bottom = extent
             x0, y0, x1, y1 = (float(v) for v in page.MediaBox)  # PDF y runs up: y1 is the top edge
-            height = max(bottom + top, MIN_PAGE_ASPECT * (x1 - x0))
+            height = padded_height(bottom + top, x1 - x0)
             page.MediaBox = page.CropBox = [x0, max(y0, y1 - height), x1, y1]
         pdf.save(path, deterministic_id=True)
+
+
+def padded_height(content: float, width: float) -> float:
+    """The height a clipped page gets for *content* points of ink on a page *width* wide: one screen when the content is shorter than that, two when it is between one and two screens, else the content itself.
+
+    See :data:`SCREEN_ASPECT`: a page a little taller than the screen is zoomed out to fit, so it is padded to the next whole screen, where the reader scrolls it instead.
+    """
+    screen = SCREEN_ASPECT * width
+    if content < screen:
+        return screen
+    if content < 2 * screen:
+        return 2 * screen
+    return content
 
 
 def _inline_dests(pdf: Any) -> None:

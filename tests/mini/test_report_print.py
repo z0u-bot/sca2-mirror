@@ -140,6 +140,13 @@ def test_fit_prints_one_page_per_section_and_clips_each_to_its_ink(browser, tmp_
     assert heights[0] == pytest.approx(floor) and heights[2] == pytest.approx(floor)
 
 
+def test_padded_height_rounds_a_short_page_up_to_whole_screens():
+    screen = report_print.SCREEN_ASPECT * 100
+    assert report_print.padded_height(10, 100) == screen
+    assert report_print.padded_height(screen * 1.2, 100) == 2 * screen  # would zoom out to fit; scrolls at two
+    assert report_print.padded_height(screen * 2.5, 100) == screen * 2.5
+
+
 def test_fit_leaves_a_page_without_a_sized_page_rule_alone(browser, tmp_path: Path):
     out = tmp_path / "plain.pdf"
     page = browser.new_page()
@@ -209,3 +216,30 @@ def test_route_remote_prints_on_when_a_fetch_fails(browser, tmp_path: Path, capl
     assert page.locator("body").inner_text() == "hi"
     assert "cdn.test unreachable" in caplog.text
     assert not list(tmp_path.iterdir())
+
+
+_WIDE_TABLE = (
+    """<html><head><style>
+@page { size: 100mm 120mm; margin: 10mm }
+body { font-size: 11pt }
+</style></head><body>
+<h1>Title</h1>
+<figure><table><thead><tr>"""
+    + "".join(f"<th>column heading {i}</th>" for i in range(8))
+    + "</tr></thead><tbody><tr>"
+    + "".join(f"<td>a value with a long range ({i}.40 to {i}.46)</td>" for i in range(8))
+    + """</tr></tbody></table><figcaption>The wide one.</figcaption></figure>
+<table><tr><th>a</th><th>b</th></tr><tr><td>1</td><td>2</td></tr></table>
+</body></html>"""
+)
+
+
+def test_wrapped_cells_names_a_table_that_wraps_on_the_sheet_and_the_print_warns(browser, tmp_path: Path, caplog):
+    page = browser.new_page()
+    page.set_content(_WIDE_TABLE)
+    wrapped = report_print.wrapped_cells(page, 100)
+    assert [t["name"] for t in wrapped] == ["The wide one."]  # the two-column table fits
+    assert wrapped[0]["columns"] == 8 and wrapped[0]["headers"] == 8 and wrapped[0]["cells"] == 8
+    report_print.print_page(page, tmp_path / "wide.pdf", settle=0)
+    page.close()
+    assert "table 'The wide one.' (8 columns) wraps on the page: 8 header and 8 body cell(s)" in caplog.text

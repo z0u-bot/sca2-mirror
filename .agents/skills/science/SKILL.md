@@ -132,14 +132,13 @@ Directly under the tl;dr, and above the intro prose. Every preregistered hypothe
 ```md
 ## Findings
 
-<!-- Note: outdated; see todo/style/report-register-explain-it-over-lunch.md -->
+**H1 (task cost) — held.** Anchoring costs the task nothing we can measure:
+the largest exact-match gap from control, over the seven conditions, is
+0.0013 against a gate of 0.02.
 
-**H1 (task cost) — holds.** Largest `named_holdout` exact-match gap from
-control, across all seven conditions: 0.0013. Gate: 0.02.
-
-**H3 (attribution) — fails.** Both main effects clear 0.1, but the
-anti-subspace effect (+0.141) is smaller than the op1-only effect (+0.221),
-not larger; the ordering holds within every seed.
+**H3 (attribution) — did not hold.** Both effects are real (each clears
+0.1), but the anti-subspace one is the smaller, +0.141 against +0.221, and
+it is the smaller within every seed.
 ```
 
 The tl;dr says which way it came out; this says what happened, in words that could be read aloud to a colleague. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
