@@ -334,10 +334,6 @@ target_index = {"named_holdout": 1}
 rows = [(es, cell["surprisal"][es][target_index.get(es, 0)]) for es in EVAL_SETS]
 log_v = np.log(len(colors.alphabet()))
 sub_width = min(max(len(r["text"]) for _, r in rows), 80)
-# Match the dark background of the sublines to this notebook, rather than the
-# neutral subline default; light mode already matches. `css` overrides the
-# `--bg-color` of the library (later rule wins).
-sub_css = "svg { --bg-color: light-dark(#fff, #181c1a); }"
 
 
 def sublines(rows: list[tuple[str, dict]], series, aria_label: str, name: str) -> str:
@@ -348,7 +344,7 @@ def sublines(rows: list[tuple[str, dict]], series, aria_label: str, name: str) -
     """
 
     def one(tag_name: str, row: dict) -> str:
-        svg = Subline(chars_per_line=sub_width, css=sub_css).plot(row["text"], series(row))
+        svg = Subline(chars_per_line=sub_width).plot(row["text"], series(row))
         tag = f'<span style="font-size: 11px; font-family: monospace; opacity: 0.65">{tag_name}</span>'
         return figure_html(svg, caption=tag, style="display: inline-block; margin: 0 .5em")
 

@@ -16,7 +16,7 @@ from pathlib import Path
 
 from mini.lit.document import Document, Runner, Woven, parse
 from mini.lit.page import page, to_html
-from mini.reports import Publisher, export_key, link_externalized
+from mini.reports import Publisher, export_key, link_externalized, report_styles, set_report_styles
 from mini.runs import data_root
 
 __all__ = ["render", "compose", "Rendered", "to_pdf", "output_dir"]
@@ -51,9 +51,13 @@ class Rendered:
 
 
 def compose(woven: Woven, *, extra_body: str = "") -> tuple[str, float]:
-    """The woven Markdown as a complete page, with how long that took."""
+    """The woven Markdown as a complete page, with how long that took.
+
+    The project's shared report stylesheet (``docs/report.css``, :func:`mini.reports.report_styles`) goes in last, so a render, the live server and the export all show it — the site build re-inlines the current source on top.
+    """
     t0 = time.perf_counter()
     html = page(to_html(woven.markdown), title=woven.doc.title, extra_body=extra_body)
+    html = set_report_styles(html, report_styles(woven.doc.path))
     return html, time.perf_counter() - t0
 
 

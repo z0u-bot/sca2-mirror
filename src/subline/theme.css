@@ -1,0 +1,29 @@
+/* The subline theme. Embedded in every SVG the library draws, so a file opened on its
+ * own is themed; scoped to `svg.subline`, because inlined in an HTML page a <style> is
+ * not scoped to its SVG and would otherwise reach every SVG on the page. Each colour is
+ * a custom property with a page token first and the library's own value as the
+ * fallback: on a page that defines `--bg`, `--fg-muted`, `--border` and `--font-mono`
+ * (mini.lit's sheet does) the figure takes the page's theme; alone, it takes its own. */
+svg.subline text {
+    font-family: var(--font-mono, ui-monospace, "Source Code Pro", "Noto Sans Mono", monospace);
+    font-optical-sizing: auto;
+    font-weight: 400;
+    white-space: pre;
+}
+svg.subline {
+    color-scheme: light dark;
+    --col-series-1: light-dark(#ef4444, #ff7878);
+    --col-series-2: light-dark(#3b82f6, #3b82f6);
+    --col-series-3: light-dark(#22c55e, #45e881);
+    --col-series-4: light-dark(#f97316, #ffa261);
+    --col-series-5: light-dark(#a855f7, #d9b1ff);
+    --col-text: var(--fg-muted, light-dark(#666666, #dddddd));
+    --col-baseline: var(--border, light-dark(#cccccc, #666666));
+    --bg-color: var(--bg, light-dark(#fff, #2a2a2a));
+    --blend-mode: multiply;
+    transition: background-color 0.3s;
+}
+@media (prefers-color-scheme: dark) {
+    svg.subline { --blend-mode: screen; }
+}
+svg.subline :is(rect, circle, line, path, text) { transition: fill 0.3s, stroke 0.3s; }

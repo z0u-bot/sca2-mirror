@@ -1,7 +1,7 @@
 """
 Markdown to HTML, and the page around it.
 
-The Markdown dialect is python-markdown with the pymdownx extensions (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), the dialect the reports are written in. The page is one HTML file: our stylesheet inline, the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
+The Markdown dialect is python-markdown with the pymdownx extensions (tables, footnotes, ``///`` admonitions and details, arithmatex math, superfences, highlight, tilde/caret/mark, attribute lists), the dialect the reports are written in. The page is one HTML file: our stylesheets inline (``base.css``, shared with the site's Markdown pages, then ``lit.css``, the frame, then the Pygments styles), the body in ``<main class="lit">``, and KaTeX pulled from a CDN only when the document has math.
 """
 
 from __future__ import annotations
@@ -17,7 +17,8 @@ from pymdownx.slugs import slugify
 
 __all__ = ["to_html", "page", "render_fragment"]
 
-CSS_PATH = Path(__file__).with_name("lit.css")
+BASE_CSS_PATH = Path(__file__).with_name("base.css")  # shared with the site's Markdown pages
+CSS_PATH = Path(__file__).with_name("lit.css")  # the frame; its header maps the rest of the CSS
 
 EXTENSIONS = [
     "tables",
@@ -86,7 +87,7 @@ def render_fragment(text: str) -> str:
 def stylesheet() -> str:
     light = HtmlFormatter(style="default").get_style_defs(".highlight")
     dark = HtmlFormatter(style="github-dark").get_style_defs(".highlight")
-    return f"{CSS_PATH.read_text()}\n{light}\n@media (prefers-color-scheme: dark) {{\n{dark}\n}}\n"
+    return f"{BASE_CSS_PATH.read_text()}\n{CSS_PATH.read_text()}\n{light}\n@media (prefers-color-scheme: dark) {{\n{dark}\n}}\n"
 
 
 _KATEX = """

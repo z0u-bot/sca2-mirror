@@ -4,16 +4,15 @@ Visualize metrics as sparklines under text.
 
 ## Styling
 
-The SVG carries its own theme (light/dark aware) via CSS custom properties. To restyle without editing the library, pass `css` — appended after the built-in styles, so a later rule overrides at equal specificity:
+The SVG carries its own theme (`theme.css`, light/dark aware) as CSS custom properties, scoped to `svg.subline`. Each colour reads a page token first and falls back to the library's own value — `--bg-color: var(--bg, …)`, `--col-text: var(--fg-muted, …)`, `--col-baseline: var(--border, …)`, and the text's `font-family: var(--font-mono, …)` — so inlined in a page that defines those tokens the figure takes the page's theme, and opened on its own it takes its own.
+
+To restyle one figure, pass `vars`: custom properties set on that SVG's root element, which reach that figure alone:
 
 ```python
-Subline(css="svg { --bg-color: light-dark(#fff, #181c1a); }").plot(text, series)
+Subline(vars={"--bg-color": "light-dark(#fff, #181c1a)"}).plot(text, series)
 ```
 
-Overridable properties include `--bg-color`, `--col-text`, `--col-baseline`, `--col-series-1..5`, and `--blend-mode`.
-
-One theme per page, though. Inlined into HTML, an SVG's `<style>` is not scoped to that SVG — it joins the document's stylesheets and reaches every element on the page. So two sublines on one page with different `css` do not theme apart: both blocks use the `svg` selector, and the later one in document order wins for both. Give a page's sublines the same `css`, which is also what lets `mini.vis.svg_figure` keep one copy of the block per figure instead of one per SVG.
-
+Settable properties include `--bg-color`, `--col-text`, `--col-baseline`, `--col-series-1..5`, and `--blend-mode`. For restyling beyond what the properties reach there is `css`, appended after the built-in theme — but inlined into HTML, an SVG's `<style>` is not scoped to that SVG: it joins the document's stylesheets and reaches every element on the page, so `css` themes every subline on the page at once, and the last one in document order wins. `mini.vis.svg_figure` keeps one copy of an identical block per figure.
 
 ## Citation
 

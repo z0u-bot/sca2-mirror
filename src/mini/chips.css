@@ -1,0 +1,15 @@
+[data-mini-banner],[data-mini-provenance]{
+  box-sizing:border-box;line-height:1.4;font-family:system-ui,sans-serif;
+  width:min(var(--measure, 50rem), 100% - 2 * var(--gutter, 1.5rem));margin-inline:auto}
+[data-mini-banner]{order:-1;margin-block:1rem;
+  display:flex;gap:1rem;align-items:center;font-size:.8125rem}
+[data-mini-banner] a{color:inherit;text-decoration:none;opacity:.7}
+[data-mini-banner] a:hover{text-decoration:underline;opacity:1}
+[data-mini-provenance]{order:1;margin-block:0 2.5rem;font-size:.75rem;
+  background:none;border:0;border-radius:0;padding:.5rem 0 0;
+  border-top:1px solid color-mix(in srgb, CanvasText 15%, transparent)}
+[data-mini-provenance] > summary{cursor:pointer;font-weight:400}
+/* The summary, and the "via <ref>" line under each experiment, recede. */
+[data-mini-provenance] > summary,[data-mini-provenance] > div > div{
+  color:color-mix(in srgb, CanvasText 60%, transparent)}
+@media print{[data-mini-banner],[data-mini-provenance]{display:none}}

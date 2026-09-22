@@ -1,4 +1,4 @@
-"""Subline rendering: line-wrap arithmetic, the custom-CSS hook, and SVG id stability."""
+"""Subline rendering: line-wrap arithmetic, the theme and its hooks, and SVG id stability."""
 
 import re
 
@@ -36,7 +36,30 @@ def test_custom_css_overrides_defaults():
     """`css` is appended after the built-in styles, so a later rule wins at equal specificity."""
     svg = Subline(chars_per_line=20, css="svg { --bg-color: red; }").plot("hello", [_series(5)])
     assert "--col-series-1" in svg  # base theme still present
-    assert svg.index("--bg-color: red") > svg.index("--bg-color: light-dark")  # override comes last
+    assert svg.index("--bg-color: red") > svg.index("--bg-color: var(--bg")  # override comes last
+
+
+def test_theme_is_scoped_to_the_subline_and_reads_page_tokens():
+    """Inlined in a page, a `<style>` reaches the whole document, so every rule names `svg.subline`;
+    each colour reads a page token first and keeps the library's own value as the fallback."""
+    svg = Subline(chars_per_line=20).plot("hello", [_series(5)])
+    block = re.search(r"<style>(.*?)</style>", svg, re.S)
+    assert block is not None
+    style = re.sub(r"/\*.*?\*/", "", block[1], flags=re.S)
+    selectors = re.findall(r"(?:^|[{}])\s*([^{}@]+?)\s*\{", style)  # every rule's selector; @media is skipped
+    assert selectors and all(sel.strip().startswith("svg.subline") for sel in selectors), selectors
+    assert 'class="subline"' in svg
+    assert "--bg-color: var(--bg, light-dark(" in style
+    assert "font-family: var(--font-mono," in style
+    assert "@import" not in style  # the page's font, or the machine's: nothing fetched per figure
+
+
+def test_vars_theme_one_figure_alone():
+    """`vars` land on the root element's `style`, which is scoped to that SVG where `css` is not."""
+    svg = Subline(chars_per_line=20, vars={"--bg-color": "#123"}).plot("hello", [_series(5)])
+    root = svg[: svg.index(">")]
+    assert "--bg-color: #123;" in root
+    assert "<style>" not in root
 
 
 def _ids(svg: str) -> list[str]:
