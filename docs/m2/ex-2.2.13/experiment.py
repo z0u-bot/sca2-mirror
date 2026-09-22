@@ -45,7 +45,7 @@ KEPT_GATE = 0.2
 from an op's red-dependent answers. The implementation binds this from ex-2.2.11 and asserts the value."""
 
 CONTROL = "control"
-"""The un-anchored control: ex-2.2.11's `control` checkpoints at seeds 100–119, served from the store rather
+"""The un-anchored control: ex-2.2.11's `control` checkpoints at seeds 100–104, served from the store rather
 than retrained. It is the task reference (ex-2.2.11's task gate is a seed mean within a band of the
 control's) and the ᾱ baseline for the axis conditions. Neither role touches the observation this experiment
 follows up, which was read off anchored checkpoints, so borrowing it spends nothing the design needs. The
@@ -281,6 +281,8 @@ EX2211_PROBE_REF = ex2211.PROBE_REF
 EX2211_TRAJ_REF = ex2211.TRAJ_REF
 EX2211_METRICS_REF = ex2211.METRICS_REF
 EX2211_CHECKPOINT_REF = ex2211.CHECKPOINT_REF
+EX2212_METRICS_REF = ex2212.METRICS_REF
+"""Ex-2.2.12's numbers, printed beside the four conditions of the ladder its sweep already saw."""
 
 CONTROL_SEEDS = 5
 """How many `control` runs ex-2.2.11 trained, at model seeds 100–104. Both of the control's roles here — the
