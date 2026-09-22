@@ -208,7 +208,8 @@ main.lit details:not(:open) {
     font-size: 11pt;
   }
   main.lit p,
-  main.lit li {
+  main.lit li,
+  main.lit dd {
     /* Spacious, for hand-written annotations. */
     line-height: 2.5;
   }
