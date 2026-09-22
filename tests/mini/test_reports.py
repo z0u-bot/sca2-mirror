@@ -18,6 +18,7 @@ from mini.reports import (
     insert_base,
     is_report,
     lightbox_chrome,
+    mark_verdicts,
     load_pins,
     mark_figures,
     relative_urls,
@@ -576,3 +577,45 @@ def test_link_externalized_swaps_a_stamped_element_for_a_link(tmp_path, caplog):
     )  # an image sidecar is an image; no label → stem
     assert "spark.svg carries no aria-label" in caplog.text
     assert link_externalized("<p>plain</p>") == "<p>plain</p>"
+
+
+VERDICT_PAGE = (
+    '<h2 id="a">Does it hold? (H1)<a class="anchor-link" href="#a">&para;</a></h2>\n'
+    "<p>Evidence.</p>\n"
+    '<div class="admonition success">\n<p class="admonition-title">Pass</p>\n<p>Held.</p>\n</div>\n'
+    '<h2 id="b">And this? (H2)</h2>\n'
+    '<h3 id="b1">First half</h3>\n'
+    '<div class="admonition danger">\n<p class="admonition-title">Miss</p>\n<p>No.</p>\n</div>\n'
+    '<h3 id="b2">Second half</h3>\n'
+    '<div class="admonition warning">\n<p class="admonition-title">TODO</p>\n<p>Results to come.</p>\n</div>\n'
+    '<h2 id="c">Method</h2>\n'
+)
+
+
+def test_mark_verdicts_badges_the_nearest_heading_above_each_verdict():
+    out = mark_verdicts(VERDICT_PAGE)
+    # H1's badge sits by the words, before the permalink anchor.
+    assert '(H1) <mark class="verdict pass">\u2713 Pass</mark><a class="anchor-link"' in out
+    # The h3 nearest the Miss gets it, not the h2 above both.
+    assert '<h3 id="b1">First half <mark class="verdict miss">\u2717 Miss</mark></h3>' in out
+    assert '<h2 id="b">And this? (H2)</h2>' in out
+    # A TODO placeholder is no verdict, and a section with none is left alone.
+    assert '<h3 id="b2">Second half</h3>' in out
+    assert '<h2 id="c">Method</h2>' in out
+    assert out.count("<mark") == 2
+
+
+def test_mark_verdicts_is_idempotent_and_the_last_verdict_under_a_heading_wins():
+    once = mark_verdicts(VERDICT_PAGE)
+    assert mark_verdicts(once) == once
+    two = (
+        '<h2 id="a">Q</h2>\n'
+        '<div class="admonition warning">\n<p class="admonition-title">Partial</p>\n<p>x</p>\n</div>\n'
+        '<div class="admonition success">\n<p class="admonition-title">Pass</p>\n<p>y</p>\n</div>\n'
+    )
+    assert '<h2 id="a">Q <mark class="verdict pass">\u2713 Pass</mark></h2>' in mark_verdicts(two)
+
+
+def test_mark_verdicts_leaves_a_page_without_verdicts_untouched():
+    page = '<h2 id="a">Q</h2>\n<div class="admonition tip">\n<p class="admonition-title"></p>\n<p>tl;dr</p>\n</div>'
+    assert mark_verdicts(page) == page

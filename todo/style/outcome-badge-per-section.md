@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [reports, structure]
 opened: 2026-09-17
+closed: 2026-09-22
 ---
 # An outcome badge in each hypothesis section's heading row
 
@@ -29,3 +30,7 @@ Mockup CSS:
   font-size: 1.5em;
 }
 ```
+
+## Notes
+
+**2026-09-22, Fable** — Done, together with [verdict-badge-at-the-heading](verdict-badge-at-the-heading.md), which is the same ask from the ex-2.2.11 review; the note there says what landed. On the open question: the footer callout stays, and the badge is hoisted from it at page-build time, so nothing is written twice. The wording is the admonition's title (Pass / Miss / Partial), which is what ex-2.2.9 and ex-2.2.11 both emit; a report that prefers "gate cleared" can change its title once the words in `mini.reports.VERDICTS` include it.

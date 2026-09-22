@@ -45,6 +45,7 @@ from mini.reports import (
     set_alternate,
     set_banner,
     set_lightbox,
+    mark_verdicts,
     set_report_styles,
     stray_links,
 )
@@ -473,7 +474,9 @@ def build_reports(
             print(note)
         if bundle.html is None:
             continue
-        figures = tuple(report_figures(bundle.html, link=ASSET_LINK))
+        # The verdict badges, for a page exported before a render wrote them (a no-op otherwise).
+        bundle = replace(bundle, html=(page_html := mark_verdicts(bundle.html)))
+        figures = tuple(report_figures(page_html, link=ASSET_LINK))
         from_dir = report.parent.relative_to(DOCS_DIR).as_posix()  # where author links resolve
         from_dir = "" if from_dir == "." else from_dir
         nb_rel = report.relative_to(WORKSPACE_ROOT).as_posix()
@@ -493,7 +496,7 @@ def build_reports(
             pdf_url = f"{page_url}{PDF_LEAF}" if page_url else PDF_LEAF
         strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=pdf_url)
 
-        html = resolve_html_links(bundle.html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
+        html = resolve_html_links(page_html, links, from_dir=from_dir, out_dir=key, externalizing=externalizing)
         html = set_alternate(html, type=PDF_TYPE, href=pdf_url)  # the build's, in place of any an older export declared
         html = mark_figures(html, link=ASSET_LINK)  # defer offscreen figures; mark them zoomable
         html = set_lightbox(html)  # click a figure for the full-size image, over a dimmed page

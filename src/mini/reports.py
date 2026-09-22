@@ -68,6 +68,8 @@ __all__ = [
     "github_slug",
     "insert_base",
     "report_styles",
+    "mark_verdicts",
+    "VERDICTS",
     "set_report_styles",
     "set_banner",
     "set_provenance",
@@ -909,6 +911,50 @@ def set_lightbox(html: str) -> str:
     Pairs with :func:`mark_figures`, which is what says *which* images are figures. A no-op on a page with no ``</head>``.
     """
     return re.sub(r"(</head>)", lambda m: f"    {lightbox_chrome()}\n{m.group(1)}", html, count=1)
+
+
+# A verdict admonition's title, lower-cased, to the glyph its badge carries. A tick, a
+# cross and a tilde read in ink, where the admonition's colour is gone; the word rides
+# beside the glyph, so the badge says what the callout says.
+VERDICTS = {"pass": "\u2713", "miss": "\u2717", "partial": "~", "unresolved": "?"}
+
+_HEADING_RE = re.compile(r"<h([23])\b[^>]*>.*?</h\1>", re.DOTALL)
+_VERDICT_RE = re.compile(r'<div class="admonition(?: [\w-]+)*">\s*<p class="admonition-title">([^<]*)</p>', re.DOTALL)
+_BADGE_RE = re.compile(r' ?<mark class="verdict[^"]*">.*?</mark>')
+
+
+def mark_verdicts(html: str) -> str:
+    """Badge each hypothesis heading with the verdict its section reaches, so a reader meets the outcome with the question.
+
+    A preregistered report ends each hypothesis section with a verdict admonition (``/// admonition | Pass``; the title is one of :data:`VERDICTS`), a page of prose, figures and tables below the heading, so a reader on their way through cannot see the outcome when they meet the question. This finds each such admonition and writes a ``<mark class="verdict pass">`` into the nearest heading above it (an ``h2`` or ``h3``, whichever is closer), carrying the admonition's own title, so the badge and the callout cannot disagree; when one heading has several, the last wins. Done here, on the rendered page, rather than by the report: the heading is emitted before its section's results are computed, and a rewrite at page-build time reaches reports exported before the badge existed. Idempotent, so the build may apply it to a page a render already badged. The badge's styling is ``docs/report.css``'s.
+    """
+    marks: dict[int, str] = {}  # heading match start → badge
+    headings = list(_HEADING_RE.finditer(html))
+    for m in _VERDICT_RE.finditer(html):
+        title = html_unescape(m.group(1)).strip()
+        glyph = VERDICTS.get(title.lower())
+        if glyph is None:
+            continue
+        above = [h for h in headings if h.start() < m.start()]
+        if not above:
+            continue
+        marks[above[-1].start()] = f'<mark class="verdict {title.lower()}">{glyph} {html_escape(title)}</mark>'
+    if not marks:
+        return html
+    out, pos = [], 0
+    for h in headings:
+        badge = marks.get(h.start())
+        if badge is None:
+            continue
+        text = _BADGE_RE.sub("", h.group(0))
+        # Before the permalink anchor when the heading has one, so the badge sits by the words.
+        i = text.find('<a class="anchor-link"')
+        if i < 0:
+            i = text.rfind("</h")
+        out.append(html[pos : h.start()] + text[:i] + " " + badge + text[i:])
+        pos = h.end()
+    out.append(html[pos:])
+    return "".join(out)
 
 
 def report_styles(doc: Path | str) -> str:

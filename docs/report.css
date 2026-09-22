@@ -60,6 +60,40 @@ main.lit p:has(+ h1) > mark:only-child {
   }
 }
 
+/* A verdict badge in a hypothesis heading — `<mark class="verdict pass">✓ Pass</mark>`,
+ * hoisted from the section's verdict admonition at page-build time
+ * (mini.reports.mark_verdicts). A small outlined pill after the heading's words, so the
+ * outcome is visible where the question is; outlined rather than filled, since it also
+ * prints, in ink, where the glyph and the word carry it without the colour. */
+main.lit :is(h2, h3) > mark.verdict {
+  display: inline-block;
+  vertical-align: middle;
+  margin-inline-start: 0.5em;
+  padding: 0 0.65em 0.05em;
+  border: 1.5px solid currentColor;
+  border-radius: 1em;
+  background: none;
+  color: inherit;
+  font-family: inherit;
+  font-size: 0.6em;
+  font-weight: 600;
+  line-height: 1.7;
+  white-space: nowrap;
+
+  &.pass {
+    color: #2a9d5c;
+  }
+  &.miss {
+    color: #c33;
+  }
+  &.partial {
+    color: #d9822b;
+  }
+  &.unresolved {
+    opacity: 0.7;
+  }
+}
+
 /* Authored report tables. Headings left-align with their columns by default; annotate
  * numeric columns (header and cells) with class="num" to right-align on tabular figures. */
 .report-table th {

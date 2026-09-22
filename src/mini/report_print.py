@@ -36,6 +36,7 @@ __all__ = [
     "route_remote",
     "ink_extents",
     "normalize_pdf",
+    "wrapped_cells",
     "chromium_path",
     "MAX_PAGE_MM",
 ]
@@ -46,8 +47,8 @@ log = logging.getLogger(__name__)
 # grows a page toward it until every section fits on one.
 MAX_PAGE_MM = 5080
 
-# The shortest a clipped page may be, as height over width: the reMarkable 2 screen (1872 × 1404 px). A page shorter than the screen is letterboxed there, so a short section costs nothing to pad, and the reader's vertical swipe then behaves the same on every page.
-MIN_PAGE_ASPECT = 1872 / 1404
+# The shortest a clipped page may be, as height over width. The reMarkable 2 screen is 1872 × 1404 px (an aspect of 4:3), and a page only a little taller than that is zoomed out to fit it, so its text prints small: a 700 pt page on the 158 mm sheet did, where pages of 1000 pt and more rendered at full size and scrolled. So the floor is well above the screen: a short section is padded with white (which costs nothing) until the reader scrolls it like every other page. 2.25 is 1000 pt over the sheet's width; the band between the screen and the smallest page seen to scroll has not been mapped more finely than that.
+MIN_PAGE_ASPECT = 2.25
 
 _MM_PER = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "px": 25.4 / 96}
 
@@ -64,6 +65,40 @@ _PAGE_SIZE_JS = """() => {
 # How many elements start a fresh page, under print media (emulated by the caller).
 _PAGE_BREAKS_JS = """() =>
   [...document.querySelectorAll('body *')].filter(e => getComputedStyle(e).breakBefore === 'page').length"""
+
+# The side margins of the last ``@page`` rule that sets a size, in CSS px, (left, right); 0
+# where the rule sets none.
+_PAGE_MARGINS_JS = """() => {
+  const walk = rules => [...rules].flatMap(r =>
+    r instanceof CSSPageRule ? (r.style.getPropertyValue('size') ? [r.style] : []) : r.cssRules ? walk(r.cssRules) : []);
+  const styles = [...document.styleSheets].flatMap(s => { try { return walk(s.cssRules) } catch (e) { return [] } });
+  const st = styles.at(-1);
+  if (!st) return [0, 0];
+  const px = v => { const m = /^([0-9.]+)(mm|cm|in|pt|px)$/.exec(v || ''); if (!m) return 0;
+    return parseFloat(m[1]) * {mm: 96 / 25.4, cm: 96 / 2.54, in: 96, pt: 96 / 72, px: 1}[m[2]]; };
+  return [px(st.getPropertyValue('margin-left')), px(st.getPropertyValue('margin-right'))];
+}"""
+
+# Per table, how many of its cells wrap onto a third line, header and body counted apart:
+# a header on two lines is usual in a narrow column and reads fine. Lines are the cell's content height over its line height (1.2 × the font size
+# when the line height is `normal`). The table is named by its caption when its figure has
+# one, else by its header row.
+_WRAPPED_CELLS_JS = """() => [...document.querySelectorAll('table')].map(table => {
+  const lines = cell => {
+    const cs = getComputedStyle(cell);
+    const lh = cs.lineHeight === 'normal' ? 1.2 * parseFloat(cs.fontSize) : parseFloat(cs.lineHeight);
+    const h = cell.getBoundingClientRect().height - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom);
+    return Math.round(h / lh);
+  };
+  const heads = [...table.querySelectorAll('th')], cells = [...table.querySelectorAll('td')];
+  const fig = table.closest('figure'), cap = fig && fig.querySelector(':scope > figcaption');
+  return {
+    name: (cap ? cap.textContent : heads.map(h => h.textContent).join(' | ')).trim().replace(/\\s+/g, ' ').slice(0, 80),
+    headers: heads.filter(c => lines(c) > 2).length,
+    cells: cells.filter(c => lines(c) > 2).length,
+    columns: table.tHead && table.tHead.rows[0] ? table.tHead.rows[0].cells.length : (table.rows[0] ? table.rows[0].cells.length : 0),
+  };
+}).filter(t => t.headers || t.cells)"""
 
 # A <style> last in the document, so its @page outranks the stylesheet's; re-run with a
 # new size, it replaces its own text rather than stacking.
@@ -215,7 +250,28 @@ def print_page(page: Any, out: Path, *, settle: float = 3.0, fit: bool = True) -
         return out
     _print_fitting_sections(page, out, size)
     normalize_pdf(out, extents=ink_extents(out))
+    for t in wrapped_cells(page, size[0]):
+        log.warning(
+            "print: table %r (%d columns) wraps on the page: %d header and %d body cell(s) run to a third line. "
+            "A row that wraps cannot be scanned; split the table or drop a column.",
+            t["name"],
+            t["columns"],
+            t["headers"],
+            t["cells"],
+        )
     return out
+
+
+def wrapped_cells(page: Any, width_mm: float) -> list[dict[str, Any]]:
+    """The tables on *page* whose cells wrap when laid out at a *width_mm* sheet under print media: per table its name, column count, and how many header and body cells run to a third line (a header on two lines is usual in a narrow column).
+
+    A ten-column table that fits a screen wraps every cell on the reMarkable's page, and a reader cannot scan the row (the eye loses the column). The fix is the author's (split the table, drop a column, a no-break space to keep a phrase whole), so this measures and the caller warns. The measurement lays the page out in a viewport as wide as the sheet's content area (the ``@page`` size less its side margins), under print media, which is the layout the print used; the viewport is left that way, since a print does not read it.
+    """
+    page.emulate_media(media="print", color_scheme="light")
+    left, right = page.evaluate(_PAGE_MARGINS_JS)
+    width = max(int(round(width_mm * 96 / 25.4 - left - right)), 100)
+    page.set_viewport_size({"width": width, "height": 1400})
+    return page.evaluate(_WRAPPED_CELLS_JS)
 
 
 def _page_size_mm(page: Any) -> tuple[float, float] | None:
