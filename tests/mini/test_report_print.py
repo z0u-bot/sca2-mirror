@@ -140,6 +140,13 @@ def test_fit_prints_one_page_per_section_and_clips_each_to_its_ink(browser, tmp_
     assert heights[0] == pytest.approx(floor) and heights[2] == pytest.approx(floor)
 
 
+def test_padded_height_rounds_a_short_page_up_to_whole_screens():
+    screen = report_print.SCREEN_ASPECT * 100
+    assert report_print.padded_height(10, 100) == screen
+    assert report_print.padded_height(screen * 1.2, 100) == 2 * screen  # would zoom out to fit; scrolls at two
+    assert report_print.padded_height(screen * 2.5, 100) == screen * 2.5
+
+
 def test_fit_leaves_a_page_without_a_sized_page_rule_alone(browser, tmp_path: Path):
     out = tmp_path / "plain.pdf"
     page = browser.new_page()

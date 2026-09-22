@@ -12,4 +12,4 @@ Proposal: when the PDF export clips a section to a page and the height lands in 
 
 ## Notes
 
-**2026-09-22, Fable** — Done in `mini.report_print`: the clip already had a floor (`MIN_PAGE_ASPECT`, the screen's 4:3), so the change is the floor, now 2.25 times the sheet's width, about 1000 pt on the 158 mm sheet, the smallest page seen to scroll at full size. A short section is padded with white to that, which costs nothing. The band between the screen's height and 1000 pt has not been mapped more finely; if a page at, say, 900 pt turns out to scroll too, the constant can come down.
+**2026-09-22, Fable** — Done in `mini.report_print`, as Sandy's three-band rule: a clipped page shorter than one screen (the reMarkable's 4:3) is padded to one, a page between one and two screens is padded to two, and a taller page is cut to its content plus the margin as before (`padded_height`). The middle band is the zoom-to-fit case; at two screens the reader scrolls.

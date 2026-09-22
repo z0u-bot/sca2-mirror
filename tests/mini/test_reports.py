@@ -594,10 +594,16 @@ VERDICT_PAGE = (
 
 def test_mark_verdicts_badges_the_nearest_heading_above_each_verdict():
     out = mark_verdicts(VERDICT_PAGE)
-    # H1's badge sits by the words, before the permalink anchor.
-    assert '(H1) <mark class="verdict pass">\u2713 Pass</mark><a class="anchor-link"' in out
+    # H1's words and its permalink anchor are one span, the badge after it.
+    assert (
+        '<h2 id="a"><span class="heading-words">Does it hold? (H1)<a class="anchor-link" href="#a">&para;</a></span> '
+        '<mark class="verdict pass">\u2713 Pass</mark></h2>'
+    ) in out
     # The h3 nearest the Miss gets it, not the h2 above both.
-    assert '<h3 id="b1">First half <mark class="verdict miss">\u2717 Miss</mark></h3>' in out
+    assert (
+        '<h3 id="b1"><span class="heading-words">First half</span> <mark class="verdict miss">\u2717 Miss</mark></h3>'
+        in out
+    )
     assert '<h2 id="b">And this? (H2)</h2>' in out
     # A TODO placeholder is no verdict, and a section with none is left alone.
     assert '<h3 id="b2">Second half</h3>' in out
@@ -613,7 +619,10 @@ def test_mark_verdicts_is_idempotent_and_the_last_verdict_under_a_heading_wins()
         '<div class="admonition warning">\n<p class="admonition-title">Partial</p>\n<p>x</p>\n</div>\n'
         '<div class="admonition success">\n<p class="admonition-title">Pass</p>\n<p>y</p>\n</div>\n'
     )
-    assert '<h2 id="a">Q <mark class="verdict pass">\u2713 Pass</mark></h2>' in mark_verdicts(two)
+    assert (
+        '<h2 id="a"><span class="heading-words">Q</span> <mark class="verdict pass">\u2713 Pass</mark></h2>'
+        in mark_verdicts(two)
+    )
 
 
 def test_mark_verdicts_leaves_a_page_without_verdicts_untouched():

@@ -62,13 +62,24 @@ main.lit p:has(+ h1) > mark:only-child {
 
 /* A verdict badge in a hypothesis heading — `<mark class="verdict pass">✓ Pass</mark>`,
  * hoisted from the section's verdict admonition at page-build time
- * (mini.reports.mark_verdicts). A small outlined pill after the heading's words, so the
- * outcome is visible where the question is; outlined rather than filled, since it also
- * prints, in ink, where the glyph and the word carry it without the colour. */
+ * (mini.reports.mark_verdicts). The hoist wraps the heading's words in a span, and the
+ * heading becomes a flex row of the two, so the badge sits at the right edge on the
+ * first line however the words wrap; a small outlined
+ * pill, outlined rather than filled since it also prints, in ink, where the glyph and the
+ * word carry it without the colour. */
+main.lit :is(h2, h3):has(> mark.verdict) {
+  display: flex;
+  align-items: baseline;
+  column-gap: 0.4em;
+
+  > .heading-words {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+}
 main.lit :is(h2, h3) > mark.verdict {
-  display: inline-block;
-  vertical-align: middle;
-  margin-inline-start: 0.5em;
+  flex: none;
+  margin-inline-start: auto;
   padding: 0 0.65em 0.05em;
   border: 1.5px solid currentColor;
   border-radius: 1em;

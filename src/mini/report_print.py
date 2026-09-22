@@ -36,6 +36,7 @@ __all__ = [
     "route_remote",
     "ink_extents",
     "normalize_pdf",
+    "padded_height",
     "wrapped_cells",
     "chromium_path",
     "MAX_PAGE_MM",
@@ -47,8 +48,14 @@ log = logging.getLogger(__name__)
 # grows a page toward it until every section fits on one.
 MAX_PAGE_MM = 5080
 
-# The shortest a clipped page may be, as height over width. The reMarkable 2 screen is 1872 × 1404 px (an aspect of 4:3), and a page only a little taller than that is zoomed out to fit it, so its text prints small: a 700 pt page on the 158 mm sheet did, where pages of 1000 pt and more rendered at full size and scrolled. So the floor is well above the screen: a short section is padded with white (which costs nothing) until the reader scrolls it like every other page. 2.25 is 1000 pt over the sheet's width; the band between the screen and the smallest page seen to scroll has not been mapped more finely than that.
-MIN_PAGE_ASPECT = 2.25
+# The reader's screen, as height over width: the reMarkable 2 is 1872 × 1404 px. A clipped
+# page is padded to a whole number of screens when it is short: a page shorter than one
+# screen becomes one (it would be letterboxed anyway), and one between one and two screens
+# becomes two, because the reader zooms such a page out to fit rather than scrolling it, and
+# the text prints small (Sandy saw it on a 700 pt page). A taller page scrolls, and is cut to
+# its content.
+SCREEN_ASPECT = 1872 / 1404
+MIN_PAGE_ASPECT = SCREEN_ASPECT  # the floor of the padding: one screen
 
 _MM_PER = {"mm": 1.0, "cm": 10.0, "in": 25.4, "pt": 25.4 / 72, "px": 25.4 / 96}
 
@@ -340,7 +347,7 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
 
     Chromium stamps ``CreationDate``/``ModDate`` (now) and a document ID (random) into every PDF. A re-export of an unchanged report would then upload a different file and mint a publish-tier commit for nothing, where today an identical bundle mints none. Dates go; the ID is re-derived from the content (qpdf's deterministic ID).
 
-    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A page is never clipped shorter than :data:`MIN_PAGE_ASPECT` times its width. A blank page is left as it is.
+    *extents* (from :func:`ink_extents`) clips each page's box to its ink, keeping the top edge: the white below the last ink is made the same as the white above the first, which is the top margin plus the heading's leading, so the two ends of a page match. A short page is padded to one or two screens (:func:`padded_height`). A blank page is left as it is.
 
     In-page links (a footnote and its backlink, a heading) print as named destinations in the document's ``/Dests`` dictionary; each link annotation is given its destination outright (:func:`_inline_dests`), so a viewer that resolves only direct destinations, as the simpler e-ink ones do, follows them too.
     """
@@ -356,9 +363,22 @@ def normalize_pdf(path: Path, *, extents: list[tuple[float, float] | None] | Non
                 continue
             top, bottom = extent
             x0, y0, x1, y1 = (float(v) for v in page.MediaBox)  # PDF y runs up: y1 is the top edge
-            height = max(bottom + top, MIN_PAGE_ASPECT * (x1 - x0))
+            height = padded_height(bottom + top, x1 - x0)
             page.MediaBox = page.CropBox = [x0, max(y0, y1 - height), x1, y1]
         pdf.save(path, deterministic_id=True)
+
+
+def padded_height(content: float, width: float) -> float:
+    """The height a clipped page gets for *content* points of ink on a page *width* wide: one screen when the content is shorter than that, two when it is between one and two screens, else the content itself.
+
+    See :data:`SCREEN_ASPECT`: a page a little taller than the screen is zoomed out to fit, so it is padded to the next whole screen, where the reader scrolls it instead.
+    """
+    screen = SCREEN_ASPECT * width
+    if content < screen:
+        return screen
+    if content < 2 * screen:
+        return 2 * screen
+    return content
 
 
 def _inline_dests(pdf: Any) -> None:
