@@ -10,3 +10,7 @@ The geometry-rsa reanalysis found that on the handover grammar, and for the heav
 The measurement already exists: the geometry-rsa report's e₁-dropped variant becomes an e₁₂-dropped one, and the control band is the same. A preregistered version would state, for the handover grammar, that the last-block RSA to the controls with the anchored subspace dropped is inside the control band, and would carry the single-axis arm as the comparison.
 
 Two things to settle first. How the anchor target is defined on a plane (a fixed direction in the plane, or the whole plane, which is a different loss), and whether the extra dimension is charged to the concept's variance share, which the checks in geometry-rsa report per axis.
+
+## Notes
+
+**2026-09-22, from the ex-2.2.11 review** — ex-2.2.11 gives this item a second motivation. On `hue-hsv`, the one op that missed removal at fresh seeds, the stream holds part of the hue of the red operand somewhere other than the axis, on all three anchored conditions alike. Sandy's margin note there: "so, maybe 2D". Sandy also asked whether a deeper network has been tried, since the HSV ops might want more depth; that is a separate knob and would go in its own item if we take it up.

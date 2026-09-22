@@ -518,7 +518,7 @@ def h1_table(res: Results) -> str:
             cells.append(bold_if(text, delta >= -ex.TASK_GATE) if c == "handover" else text)
         cells.append(f"{b:.3f}")
         rows.append(cells)
-    head = ["op", "ceiling", "control", *[f"`{c}` (Δ) ↑" for c in ANCHORED], "band"]
+    head = ["op", "ceiling", "control", *[f"`{c}` (Δ)\u00a0↑" for c in ANCHORED], "band"]
     return table_html(
         head,
         rows,
@@ -662,10 +662,10 @@ def h2_table(res: Results) -> str:
     rows.append(ref)
     head = [
         "condition",
-        *[f"{g[0]} ↑" for g in GATES.values()],
-        "lead ↑",
-        "latch (max) ↓",
-        "retention ↑",
+        *[f"{g[0]}\u00a0↑" for g in GATES.values()],
+        "lead\u00a0↑",
+        "latch (max)\u00a0↓",
+        "retention\u00a0↑",
         "level",
         "ᾱ at op1",
         "`⏎` embedding",
@@ -850,6 +850,9 @@ def h3_verdict(res: Results) -> tuple[str, str]:
     return status, f"{removal} {sel}"
 
 
+# A kept share this close under the removal gate is named in the prose as a near miss.
+NEAR_MISS = 0.03
+
 # The saturation-and-value lines are reported by op and by the slot the red operand sits in.
 SV_SLOTS = [(op, slot) for op in ex.ORDER_SENSITIVE for slot in ("op1", "op2")]
 
@@ -858,24 +861,22 @@ def h3_figure(res: Results) -> str:
     kept = {(c, op): res.kept(c, op) for c in ANCHORED for op in ex.OP_NAMES}
     kept_zero = {op: res.kept("handover", op, group="removal_zero") for op in ex.OP_NAMES}
     deficit = {(c, op): res.deficit(c, op) for c in ANCHORED for op in ex.OP_NAMES}
-    sv = {(c, op, slot): res.kept(c, op, group=f"sv_{slot}") for c in ANCHORED for op, slot in SV_SLOTS}
-    sv_n = {(op, slot): res.n_lines("handover", op, f"sv_{slot}") for op, slot in SV_SLOTS}
-    return h3_draw(ANCHORED, kept, kept_zero, deficit, sv, sv_n)
+    return h3_draw(ANCHORED, kept, kept_zero, deficit)
 
 
 @memo
-def h3_draw(conds: list[str], kept: dict, kept_zero: dict, deficit: dict, sv: dict, sv_n: dict) -> str:
+def h3_draw(conds: list[str], kept: dict, kept_zero: dict, deficit: dict) -> str:
     @themed(
         name="h3-removal-selectivity",
         alt_text="""
-            Three dot panels stacked. The top two have the eleven ops along the bottom. In the top panel, the share of clean accuracy kept on the removal lines, handover sits under the dashed gate line at one fifth on every op but hue-hsv, where it strays just above; handover-tied sits above the line on most channel-wise ops, and the open circles, the same read on the old to-zero lines, sit above it on the three HSV ops. In the middle panel, the deficit on the non-red lines, the marks sit near zero on every op, well under the dashed gate. The bottom panel has the three order-sensitive ops split by slot along the bottom, and shows the share kept on the saturation-and-value lines, between a third and three quarters, with handover at or below both references on every slot.
+            Two dot panels stacked, with the eleven ops along the bottom. In the top panel, the share of clean accuracy kept on the removal lines, handover sits under the dashed gate line at one fifth on every op but hue-hsv, where it strays just above; handover-tied sits above the line on most channel-wise ops, and the open circles, the same read on the old to-zero lines, sit above it on the three HSV ops. In the bottom panel, the deficit on the non-red lines, the marks sit near zero on every op, well under the dashed gate.
         """,
         caption=f"""
-            **Removal, selectivity, and the saturation-and-value lines under `projection`, per op and anchored condition.** Top: the share of the clean expected exact match the model keeps on each op's removal lines, with the removal lines chosen by hue (filled marks, one per condition) and, for `handover`, by ex-2.2.9's to-zero rule (open circles). The dashed line is the {ex.RED_KEPT_GATE:.0%} gate and the hatched region above it the miss. Middle: the deficit in expected exact match on each op's non-red lines, dashed at the {ex.NONRED_DEFICIT_GATE:g} gate and dotted at the {ex.NONRED_DEFICIT_PARTIAL:g} partial level; the gate is read on `mix` only. Bottom: the share kept on the saturation-and-value lines of the three order-sensitive ops, split by the slot the red operand sits in; a slot with no such lines is left empty. Each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range.
+            **Removal and selectivity under `projection`, per op and anchored condition.** Top: the share of the clean expected exact match the model keeps on each op's removal lines, with the removal lines chosen by hue (filled marks, one per condition) and, for `handover`, by ex-2.2.9's to-zero rule (open circles). The dashed line is the {ex.RED_KEPT_GATE:.0%} gate and the hatched region above it the miss. Bottom: the deficit in expected exact match on each op's non-red lines, dashed at the {ex.NONRED_DEFICIT_GATE:g} gate and dotted at the {ex.NONRED_DEFICIT_PARTIAL:g} partial level; the gate is read on `mix` only. Each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, (top, mid, bot) = plt.subplots(3, 1, figsize=(8.4, 8.0), layout="constrained", height_ratios=[1.2, 1, 1])
+        fig, (top, mid) = plt.subplots(2, 1, figsize=(8.4, 5.6), layout="constrained", height_ratios=[1.2, 1])
         rng = np.random.default_rng(2)
         xs = np.arange(len(ex.OP_NAMES))
         off = np.linspace(-0.3, 0.3, len(conds) + 1)
@@ -902,19 +903,46 @@ def h3_draw(conds: list[str], kept: dict, kept_zero: dict, deficit: dict, sv: di
         for ax in (top, mid):
             ax.set_xticks(xs, ex.OP_NAMES, rotation=30, ha="right", fontsize=8)
         top.tick_params(labelbottom=True)
-        xs2 = np.arange(len(SV_SLOTS))
-        off2 = np.linspace(-0.25, 0.25, len(conds))
-        for x, (op, slot) in zip(xs2, SV_SLOTS, strict=True):
-            if sv_n[op, slot] == 0:
-                continue
-            for o, c in zip(off2, conds, strict=True):
-                dots(bot, x + o, sv[c, op, slot], c, rng=rng, ms=4, width=0.04)
-        bot.set_xticks(xs2, [f"{op}\nred at {slot}" for op, slot in SV_SLOTS], fontsize=8)
-        bot.set_ylabel("kept on s-and-v lines")
-        bot.set_ylim(-0.02, 1.02)
-        for ax in (top, mid, bot):
+        for ax in (top, mid):
             ax.grid(axis="y", alpha=0.2)
         fig_legend(fig, top)
+        return fig
+
+    return _plot()
+
+
+def h3_sv_figure(res: Results) -> str:
+    sv = {(c, op, slot): res.kept(c, op, group=f"sv_{slot}") for c in ANCHORED for op, slot in SV_SLOTS}
+    sv_n = {(op, slot): res.n_lines("handover", op, f"sv_{slot}") for op, slot in SV_SLOTS}
+    return h3_sv_draw(ANCHORED, sv, sv_n)
+
+
+@memo
+def h3_sv_draw(conds: list[str], sv: dict, sv_n: dict) -> str:
+    @themed(
+        name="h3-sv-lines",
+        alt_text="""
+            One dot panel with the three order-sensitive ops split by slot along the bottom, six positions. It shows the share of clean accuracy kept on the saturation-and-value lines, between a third and three quarters, with handover at or below both references on every slot.
+        """,
+        caption="""
+            **The saturation-and-value lines under `projection`: the share of clean expected exact match kept, per slot and anchored condition.** The red lines of the three order-sensitive ops that the hue rule sets aside, split by the slot the red operand sits in; a slot with no such lines is left empty. Each small dot is one seed, the larger mark the seed mean, and the thin bar the seed range. No gate.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(8.4, 3.0), layout="constrained")
+        rng = np.random.default_rng(3)
+        xs = np.arange(len(SV_SLOTS))
+        off = np.linspace(-0.25, 0.25, len(conds))
+        for x, (op, slot) in zip(xs, SV_SLOTS, strict=True):
+            if sv_n[op, slot] == 0:
+                continue
+            for o, c in zip(off, conds, strict=True):
+                dots(ax, x + o, sv[c, op, slot], c, rng=rng, ms=4, width=0.04, label=c if x == 0 else None)
+        ax.set_xticks(xs, [f"{op}\nred at {slot}" for op, slot in SV_SLOTS], fontsize=8)
+        ax.set_ylabel("kept on s-and-v lines")
+        ax.set_ylim(-0.02, 1.02)
+        ax.grid(axis="y", alpha=0.2)
+        fig_legend(fig, ax)
         return fig
 
     return _plot()
@@ -931,7 +959,14 @@ def h3_removal_table(res: Results) -> str:
         for operator in ("operands", "shaped-a0.4-p0"):
             cells.append(f"{res.kept('handover', op, operator).mean():.2f}")
         rows.append(cells)
-    head = ["op", "lines", *[f"`{c}` ↓" for c in ANCHORED], "`handover`, to-zero lines", "`operands` ↓", "`shaped` ↓"]
+    head = [
+        "op",
+        "lines",
+        *[f"`{c}`\u00a0↓" for c in ANCHORED],
+        "`handover`, to-zero lines",
+        "`operands`\u00a0↓",
+        "`shaped`\u00a0↓",
+    ]
     return table_html(
         head,
         rows,
@@ -955,7 +990,7 @@ def h3_selectivity_table(res: Results) -> str:
         sd = res.ref_deficit_sd(op)
         cells.append("—" if math.isnan(sd) else f"{band(sd, res.n('handover'), len(res.ref_deficit(op))):.3f}")
         rows.append(cells)
-    head = ["op", *[f"`{c}` ↓" for c in ANCHORED], "band"]
+    head = ["op", *[f"`{c}`\u00a0↓" for c in ANCHORED], "band"]
     return table_html(
         head,
         rows,
@@ -1018,17 +1053,17 @@ def h3_prose(res: Results) -> str:
     others = {op: float(res.deficit("handover", op).mean()) for op in ex.OP_NAMES}
     hi = max(others, key=lambda op: others[op])
     zero_above = st["zero_misses"]
-    sv_low = sv_shortfalls(res)
-    n_slots = sum(1 for op, slot in SV_SLOTS if res.n_lines("handover", op, f"sv_{slot}"))
-    if sv_low:
-        op, slot, c, gap, b = max(sv_low, key=lambda t: t[3])
-        sv_line = f"On the saturation-and-value lines, `handover` keeps less than a reference on {len({(op, slot) for op, slot, *_ in sv_low})} of the {n_slots} slots by more than the band; on the other slots no reference keeps more than `handover` by more than the band. The largest gap is on `{op}` with red at {slot}: {gap:.2f} under `{c}` (band {b:.2f}). So part of what the projection takes from the saturation and value of a red color belongs to this checkpoint: the references hold more of it off the axis. The rest is the same on all three anchored checkpoints, so it belongs to the operator."
-    else:
-        sv_line = f"On the saturation-and-value lines the three conditions sit within a band of each other on every one of the {n_slots} slots. So the projection takes the same amount from the saturation and value of a red color on every checkpoint, and that cost belongs to the operator rather than to the readout or the labeller."
     if above:
         removal = f"Taking the axis out removes *red* on {len(inside)} of the {len(kept)} ops. On their removal lines, `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`. On {', '.join(f'`{op}`' for op in above)} it keeps {', '.join(f'{kept[op]:.0%} (seeds from {res.kept("handover", op).min():.0%} to {res.kept("handover", op).max():.0%})' for op in above)}, above the {ex.RED_KEPT_GATE:.0%} gate."
     else:
         removal = f"Taking the axis out removes *red* on every op. On the removal lines chosen by hue, `handover` keeps between {inside[best]:.0%} (`{best}`) and {inside[worst]:.0%} (`{worst}`) of its clean expected exact match under `projection`."
+    near = [op for op in inside if inside[op] >= ex.RED_KEPT_GATE - NEAR_MISS]
+    if near:
+        refs = ", ".join(
+            f"`{op}` ({', '.join(f'{float(res.kept(c, op).mean()):.0%} on `{c}`' for c in ('handover-slot', 'handover-tied'))})"
+            for op in near
+        )
+        removal += f" {', '.join(f'`{op}`' for op in near)} {'is a near miss' if len(near) == 1 else 'are near misses'}, within {NEAR_MISS:.0%} of the gate; the same measurement is read on every op, and the channel-wise ops keep between {min(inside[op] for op in inside if 'hsv' not in op):.0%} and {max(inside[op] for op in inside if 'hsv' not in op):.0%}, so the near miss is the top of that spread rather than an op the rule treats differently. Both references keep more there: {refs}."
     cleared = [op for op in zero_above if op not in above]
     if not zero_above:
         old = "On the same runs, the old to-zero lines also clear the gate on every op."
@@ -1038,7 +1073,24 @@ def h3_prose(res: Results) -> str:
             old += f" Picking them by hue clears {', '.join(f'`{op}`' for op in cleared)} and leaves {', '.join(f'`{op}`' for op in above)} above the line."
         elif cleared:
             old += " Picking them by hue clears every op."
-    return f"{removal} {old}\n\nOn the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference. The largest non-red deficit on any op is {others[hi]:.3f}, on `{hi}`.\n\n{sv_line}"
+    return f"{removal} {old}\n\nOn the non-red `mix` lines the deficit is {st['deficit']:.3f} (seeds from {d.min():.3f} to {d.max():.3f}), against {float(res.ref_deficit(ex.PRIMARY_OP).mean()):.3f} at the reference. The largest non-red deficit on any op is {others[hi]:.3f}, on `{hi}`."
+
+
+def h3_sv_prose(res: Results) -> str:
+    """The saturation-and-value lines: what `handover` keeps beside the two references, per slot (figure and table below)."""
+    sv_low = sv_shortfalls(res)
+    live = [(op, slot) for op, slot in SV_SLOTS if res.n_lines("handover", op, f"sv_{slot}")]
+    n_slots = len(live)
+    narrow = sum(
+        1
+        for op, slot in live
+        if float(res.kept("handover", op, group=f"sv_{slot}").std())
+        < min(float(res.kept(c, op, group=f"sv_{slot}").std()) for c in ("handover-slot", "handover-tied"))
+    )
+    if sv_low:
+        op, slot, c, gap, b = max(sv_low, key=lambda t: t[3])
+        return f"On the saturation-and-value lines (the figure and table below), `handover` keeps less than a reference on {len({(op, slot) for op, slot, *_ in sv_low})} of the {n_slots} slots by more than the band; on the other slots no reference keeps more than `handover` by more than the band. The largest gap is on `{op}` with red at {slot}: {gap:.2f} under `{c}` (band {b:.2f}). So part of what the projection takes from the saturation and value of a red color belongs to this checkpoint: the references hold more of it off the axis. The rest is the same on all three anchored checkpoints, so it belongs to the operator. The seed spread on `handover` is the narrowest of the three on {narrow} of the {n_slots} slots."
+    return f"On the saturation-and-value lines (the figure and table below) the three conditions sit within a band of each other on every one of the {n_slots} slots. So the projection takes the same amount from the saturation and value of a red color on every checkpoint, and that cost belongs to the operator rather than to the readout or the labeller."
 
 
 # --- H4: the two reference comparisons ------------------------------------------------------------
@@ -1159,7 +1211,7 @@ def h4_table(res: Results) -> str:
         for w in ex.SYNTAX_WORDS
     ]
     rows.append(["all syntax words", f"{st['component'][1]:.3f}", f"{st['component'][0]:.3f}", f"{st['readout']:.3f}"])
-    head = ["word", "`handover-tied` embedding ↓", "`handover` embedding ↓", "`handover` readout"]
+    head = ["word", "`handover-tied` embedding\u00a0↓", "`handover` embedding\u00a0↓", "`handover` readout"]
     return table_html(
         head,
         rows,
@@ -1501,7 +1553,7 @@ rf"""
 
 One more measurement has an expected direction but no gate.
 
-*Saturation and value.* We take the kept share under `projection` on the saturation-and-value lines of the three order-sensitive ops, for `handover`, `handover-slot`, and `handover-tied`. On the probe sets these are {", ".join(f"{sv_share[op]:.0%} of the red lines on `{op}`" for op in ex.ORDER_SENSITIVE)}. Those shares are counted from the true answers, so they come from the rule and the op, and from no model. Ex-2.2.10 saw `handover` keep about half on the two slots that take the saturation or value of red, and a fifth where the answer needs both at once, so the projection takes part of the saturation and value of a red color with it. If the two references keep the same shares, that cost belongs to the operator. If they keep more, the cost belongs to this checkpoint, and either the readout or the labeller is putting saturation and value onto the axis.
+*Saturation and value.* We take the kept share under `projection` on the saturation-and-value lines of the three order-sensitive ops, for `handover`, `handover-slot`, and `handover-tied`. On the probe sets these are {", ".join(f"{sv_share[op]:.0%} of the red lines on `{op}`" for op in ex.ORDER_SENSITIVE)}. Those shares are counted from the true answers, so they come from the rule and the op, and from no model. A slot is an operand position, op1 or op2; on these three ops the answer depends on which slot the red color sits in, so the lines are split by it. Ex-2.2.10 saw `handover` keep about half on the two slots that take the saturation or value of red, and a fifth where the answer needs both at once, so the projection takes part of the saturation and value of a red color with it. If the two references keep the same shares, that cost belongs to the operator. If they keep more, the cost belongs to this checkpoint, and either the readout or the labeller is putting saturation and value onto the axis.
 
 """
 
@@ -1514,6 +1566,10 @@ rf"""
 {h3_removal_table(res)}
 
 {h3_selectivity_table(res)}
+
+{h3_sv_prose(res)}
+
+{h3_sv_figure(res)}
 
 {h3_sv_table(res)}
 
@@ -1550,8 +1606,9 @@ r"""
 """
 
 adopted, decision_line = decision(res)
+decision_misses_now = decision_misses(res)
 rf"""
-{ex.DECISION}
+The rule, frozen before the run: `handover` is adopted, and becomes the grammar and recipe of record for the anchored-op experiments, if it clears H1, H2 (margin, grading, and contrast, all in full), and H3 in full on the removal lines chosen by hue; every partial band is a reporting level. Otherwise it is not adopted, and the report says which gate was missed and what the references say about which change is responsible. {"It clears all of them, so it is adopted." if adopted else f"It misses {', '.join(decision_misses_now)} and clears the rest, so it is not adopted as it stands."}
 
 {verdict_md("pass" if adopted else "miss", decision_line)}
 
@@ -1565,18 +1622,18 @@ condition, so its direction is predictable from the method and it is a manipulat
 gate. Moved back to a reported line. Verify: `ex.DECISION` names margin, grading, and contrast only. -->
 """
 
-r"""
+rf"""
 ## Exploratory analyses
 
 Not part of the decision. The two below were planned before the run. Anything we think of after seeing the data goes here too, marked as post hoc.
 
 ### The finer hue rule
 
-The permutation rule reaches six hues. A finer rule rotates the hue of the red operand in HSV in twelve steps, snaps each one to the grid, and asks the same question. The method counts how often the two rules disagree, per op. If they disagree on more than one red line in a hundred on some op, we keep the finer rule, and say so under the method before the freeze rather than here. Below that rate, the choice of rule cannot move a kept share by more than a hundredth, which is finer than any gate can resolve.
+The permutation rule reaches six hues. A finer rule rotates the hue of the red operand in HSV in twelve steps, snaps each one to the grid, and asks the same question. The method counts how often the two rules disagree, per op. If they disagree on more than one red line in a hundred on some op, we keep the finer rule and say so under the method before the freeze. Below that rate, the choice of rule cannot move a kept share by more than a hundredth, which is finer than any gate can resolve. Outcome: the two rules disagree most on `{finer_worst[0]}`, on {finer_worst_share:.1%} of its red lines, so the permutation rule stands.
 
 ### Checkpoints on the trajectory stride
 
-The first three seeds of each anchored condition keep a checkpoint at every trajectory point. Nothing in this report uses them. The [training-dynamics item](/todo/science/training-dynamics-under-the-retention-drift.md) needs them for a local learning coefficient estimate through the plateau and for the whole-geometry measurement at the same epochs, and this is the cheapest place to store them.
+The first three seeds of each anchored condition keep a checkpoint at every trajectory point. Nothing in this report uses them. The [training-dynamics item](/todo/science/training-dynamics-under-the-retention-drift.md) needs them for a local learning coefficient estimate through the plateau and for the whole-geometry measurement at the same epochs, and this is the cheapest place to store them. Recorded.
 """
 
 drift = posthoc_drift(res)
@@ -1609,9 +1666,9 @@ it had": the statistic is the share of clean expected exact match retained, not 
 seeds sat 0.03 under the 0.20 gate against a band of 0.06. Verify: the removal table and the post-hoc
 old-seeds paragraph. -->
 
-The exception is `hue-hsv`, the op whose answer takes its hue from the second operand. With the axis taken out, the model still keeps about a quarter of the accuracy it had on the lines that need a red hue there, a little more than the gate allows. We said in advance what that pattern would mean, and this is the first case: a miss on an HSV op under the hue rule. So the rule was part of the story rather than the whole of it.
+The exception is `hue-hsv`, the op whose answer takes its hue from the second operand. With the axis taken out, the model still keeps about a quarter of the accuracy it had on the lines that need a red hue there, a little more than the gate allows. We said in advance what that pattern would mean, and this is the first case: a miss on an HSV op under the hue rule. So the hue rule accounts for the ops it cleared, and on `hue-hsv` the miss has another cause.
 
-On `hue-hsv` the stream holds some of the hue of the red operand somewhere other than the axis. `handover-tied` keeps the same share on that op and `handover-slot` keeps more, so neither the readout nor the labeller put the hue there. On this one op it seems to belong to the grammar and the recipe together.
+On `hue-hsv` the stream holds some of the hue of the red operand somewhere other than the axis, which is one more reason to try [anchoring *red* to a plane](/todo/science/anchor-red-to-a-plane.md). `handover-tied` keeps the same share on that op and `handover-slot` keeps more, so neither the readout nor the labeller put the hue there. On this one op it seems to belong to the grammar and the recipe together.
 
 The seed spread on that op is wide and the gate sits well inside it. At the seeds of ex-2.2.9, the same lines came in under the gate, by less than the read resolves. So the miss is a miss under the rule we froze, and it is also a small effect at the edge of what twenty seeds resolve. It is one op of eleven, on the lines whose answer needs the hue of a red at op2.
 
