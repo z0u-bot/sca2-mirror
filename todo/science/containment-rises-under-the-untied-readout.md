@@ -1,6 +1,6 @@
 ---
 status: open
-tags: [D2.2, anchoring, containment, ex-2.2.7, ex-2.2.9]
+tags: [D2.2, anchoring, containment, ex-2.2.7, ex-2.2.9, ex-2.2.12]
 priority: high
 opened: 2026-09-15
 ---
@@ -19,3 +19,11 @@ The handover prereg ([ex-2.2.9](/docs/m2/ex-2.2.9/report.py)) reads containment 
 **2026-09-18, Fable** — Sandy agreed to carry ᾱ at op1 as a line with no gate, and asked again for the why. The ex-2.2.10 report now names one candidate for the labeller half: under the whole-line labeller a line can earn its label from its answer, and the pull then lands on every position of that line, op1 included, so a non-red op1 is pulled whenever the answer draws. A per-position read of the pull's landing on lines labeled through the answer would test it. No candidate yet for the readout half, since the embedding rows came out flat.
 
 **2026-09-22, Fable** — the per-position test for the labeller's half is act one's third read in [ex-2.2.12](/docs/m2/ex-2.2.12/report.py): ᾱ at op1 on `handover`'s red lines split by whether the line earned its label through an operand or through its answer, per slice, with `handover-slot` beside it. The τ cells of the same experiment are the first thing tried against the rise itself.
+
+**2026-09-22, Opus, housekeeping** — [ex-2.2.12](/docs/m2/ex-2.2.12/report.py) ran both of the things the note above scheduled ([#206](https://github.com/z0u/sca2/pull/206)), and neither landed. Recording what is now ruled out, so the same two reads don't get planned a third time.
+
+The label-group split can't be run on `mix`, which is the op it was run on. A mean of two colors reaches the red dose only when one of them is red, so on `mix` the group labelled through its answer alone is empty and the group labelled through both is small: the figure has two groups where the prediction needed three. What the split does show on `mix` is that ᾱ at op1 rises with having two red colors anywhere on the line, whichever of them earned the label — which is not the labeller mechanism, since it doesn't separate the two. The measurement is written to take any op, so the read itself survives; it wants `hue-hsv` or `darken`, where the answer can be red without a red operand, and it is cheap to re-score on stored checkpoints.
+
+The τ cells did not move the rise either. Against the reference's ᾱ at op1 of 0.264 at twenty seeds, `tau-0.03` reaches 0.231 and `tau-0.01` 0.254, both inside the 0.06 band — and the ladder is not monotone, so the pooling temperature is not what holds ᾱ up. The force conditions moved it about as far without being asked to (`lam-0.2` 0.223, `anti-5` 0.213), which was not predicted. That closes [the fixed-τ item](/todo/science/mellowmax-tau-under-the-whole-line-label.md) and leaves the mechanism here, still unnamed on both halves.
+
+Worth noting for whoever picks this up: the plane conditions raise ᾱ at op1 rather than lowering it (0.30–0.31 against the reference's 0.264, on the unsigned plane reading), so a second dimension is not the answer either. [Ex-2.2.13](/docs/m2/ex-2.2.13/report.py) reads the same statistic across an anchor-weight ladder ([#208](https://github.com/z0u/sca2/pull/208), open at the time of writing); its ᾱ clause is where the signed axis baseline and the unsigned plane one get compared, so check its numbers before designing the next read.

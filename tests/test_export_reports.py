@@ -25,7 +25,22 @@ def stamp(path: Path, mtime: float) -> None:
 
 
 @pytest.fixture
-def report(tmp_path: Path) -> Path:
+def baked(tmp_path: Path, monkeypatch) -> list[Path]:
+    """Stand-ins for the tooling's baked sources, stamped older than the bundle.
+
+    The real ones are this checkout's own `src/mini/*.css` and page modules, whose mtimes are whenever the repo was cloned — so without a seam every test here would read as stale on a fresh checkout. Two files, a stylesheet and a module, because the set mixes both.
+    """
+    (fake := tmp_path / "baked").mkdir()
+    paths = [fake / "lit.css", fake / "page.py"]
+    for path in paths:
+        path.write_text("")
+        stamp(path, BEFORE)
+    monkeypatch.setattr("mini.reports.baked_sources", lambda: paths)
+    return paths
+
+
+@pytest.fixture
+def report(tmp_path: Path, baked) -> Path:
     """One exported report at `docs/ex-1/`, its bundle newer than every input."""
     (tmp_path / "pyproject.toml").write_text("")
     (docs := tmp_path / "docs" / "ex-1").mkdir(parents=True)
@@ -82,6 +97,27 @@ def test_recompiled_bytecode_is_not_an_edit(report):
         stamp(p, AFTER)
     stamp(report.parent, BEFORE)  # a rewrite touches the .pyc, not the directory holding it
     assert export_reports.bundle_is_stale(report) is False
+
+
+def test_an_edited_baked_stylesheet_is_stale(report, baked):
+    """The case this was built for: `mini.lit` inlines its stylesheets into every page, so an edit to one dates a bundle whose report and inputs never moved."""
+    stamp(baked[0], AFTER)
+    assert export_reports.bundle_is_stale(report) is True
+
+
+def test_an_edited_baked_module_is_stale(report, baked):
+    """Same for the page shell and the markup `set_provenance`/`set_lightbox` inject, which the bundle carries verbatim."""
+    stamp(baked[1], AFTER)
+    assert export_reports.bundle_is_stale(report) is True
+
+
+def test_the_baked_set_covers_the_tooling_that_every_bundle_embeds():
+    """Guards the drift that motivated globbing the stylesheets: the CSS consolidation added four files beside `lit.css`, and a hand-kept roster missed them."""
+    from mini.reports import baked_sources
+
+    found = {p.name for p in baked_sources() if p.exists()}
+    assert {"base.css", "lit.css", "chips.css", "lightbox.css", "theme.css"} <= found
+    assert {"reports.py", "page.py", "render.py"} <= found
 
 
 def test_a_literate_script_exports_with_its_markdown_face_and_the_report_styles(tmp_path: Path):

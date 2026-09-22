@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [publishing, tooling]
 opened: 2026-09-19
+closed: 2026-09-22
 priority: high
 ---
 # `./go preview`'s staleness check misses edits under `src/`
@@ -24,3 +25,11 @@ The narrower first option is probably the right trade: a stylesheet edit is the 
 It also gates work we have queued. What's left of `todo/style/figure-table-overflow.md` is stylesheet edits checked by eye in a browser, which is the exact loop this taxes, and `todo/eng/consolidate-css.md` is more of the same. Fixing this first makes both cheaper.
 
 **2026-09-22** — The baked set grew with the CSS consolidation (`consolidate-css`): `src/mini/lit/base.css` beside `lit.css`, `src/mini/chips.css` and `src/mini/lightbox.css` (read into `mini.reports` at import), and `src/subline/theme.css` inside every subline SVG. A first cut of the fix would list those with `lit.css` and `reports.py`.
+
+**2026-09-22, closed** — Took the narrower option: `mini.reports.baked_sources()` lists what every bundle embeds verbatim, and `inputs_touched_at` folds those mtimes in. Two departures from the sketch above.
+
+The stylesheets are globbed (`*.css` under the `mini` and `subline` packages) rather than listed. The note above exists because a hand-kept roster drifted once already, and every CSS file under those two is there to be inlined into a page, so the glob is precise as well as self-maintaining.
+
+The Python side is listed by hand — `reports.py`, `lit/page.py`, `lit/render.py`, where the baked markup and script live — and `lit/serve.py`, `lit/caching.py` and `lit/npz.py` are left out, since they shape how a page is built rather than what lands in it. Including the three roughly triples the invalidation rate over the CSS alone (8 commits in the last six months, against 21 for the union), which is about one extra full re-export a week on a bare `./go preview`. Worth it: `--stale-only` only gates the preview path, since publishing always re-exports, so over-reporting costs one local export and says so, while under-reporting was the silent wrong answer this item is about.
+
+Still invisible: a figure helper the report imports from `mini.vis`, and the stored results it reads. Both need the import graph or store access, which is what `PROVENANCE_ASSET` is for; `--force` remains the escape hatch.

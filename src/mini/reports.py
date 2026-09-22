@@ -36,6 +36,7 @@ __all__ = [
     "export_key",
     "export_dir",
     "input_dir",
+    "baked_sources",
     "inputs_touched_at",
     "is_stale",
     "PUBLISH_LOCK",
@@ -222,7 +223,7 @@ def input_dir(report: str | Path) -> Path | None:
 
     The mirror of :func:`export_dir`: that names what a report writes, this names what it reads from the repo. A report that owns a directory (``docs/ex-2.1.8/report.py``) reads the files beside it — the ``experiment.py`` defining its tasks, a ``dopesheet.csv``, whatever else the author put there — so an edit to any of them dates the report's bundle exactly as an edit to the script does. Callers that only watch the ``.py`` see a report re-run against new results and report itself unchanged.
 
-    Scoped to the directory rather than a parsed import graph because the directory *is* the convention here (:func:`export_key` already derives a report's identity from it), and it stays right without anyone maintaining it. It's deliberately the loose end of the two: a shared module under ``src/`` is an input too, and nothing local can see that — the bundle's ``PROVENANCE_ASSET`` sidecar is where that question gets answered, at the cost of store access.
+    Scoped to the directory rather than a parsed import graph because the directory *is* the convention here (:func:`export_key` already derives a report's identity from it), and it stays right without anyone maintaining it. It's deliberately the loose end of the two: a shared module under ``src/`` is an input too. :func:`baked_sources` covers the part of that every bundle embeds verbatim; for the rest — a figure helper the script imports — the bundle's ``PROVENANCE_ASSET`` sidecar is where the question gets answered, at the cost of store access.
 
     ``None`` for a report living directly in ``docs/`` (``docs/overview.py``): the docs root is shared site space — ``publish.lock``, ``index.md``, ``report.css`` — not one report's inputs, and reading it as such would date every root-level report on every publish.
     """
@@ -231,15 +232,52 @@ def input_dir(report: str | Path) -> Path | None:
     return parent if parent != docs and docs in parent.parents else None
 
 
+# The report tooling's own page-shaping sources, as paths relative to the installed
+# ``mini`` package. Every bundle carries their *contents* — ``mini.lit``'s shell and the
+# markup ``set_provenance`` and ``set_lightbox`` inject — so an edit to one dates every
+# exported page. Named rather than traced from imports: the import graph is the general
+# problem the mtime heuristic exists to avoid, and these three are where the baked
+# strings live. ``lit/serve.py``, ``lit/caching.py`` and ``lit/npz.py`` are deliberately
+# out: they shape how a page is built or served, not what ends up in it.
+_BAKED_MODULES = ("reports.py", "lit/page.py", "lit/render.py")
+
+# Packages whose stylesheets are baked. Globbed rather than listed because the list
+# drifts: the CSS consolidation added four files beside ``lit.css``, and a hand-kept
+# roster would have missed them. Every ``.css`` under these two exists to be inlined
+# into a page — ``mini``'s into the ``<head>``, ``subline``'s into each SVG it draws —
+# so the glob is precise as well as self-maintaining.
+_BAKED_CSS_PACKAGES = ("mini", "subline")
+
+
+def baked_sources() -> list[Path]:
+    """The files whose contents every exported bundle carries verbatim.
+
+    A report's bundle is not built from the report alone: ``mini.lit`` inlines its stylesheets and wraps the document in a page shell, :func:`set_provenance` and :func:`set_lightbox` inject their own CSS and script, and every subline SVG embeds ``subline``'s theme. Edit any of those and the exported page is out of date while the report and its inputs sit still — which is what :func:`inputs_touched_at` folds these into.
+
+    Resolved against the installed packages (``mini``'s own directory, ``subline``'s via its spec) rather than the report's project root, since that is where the baked bytes actually come from. A package that isn't installed contributes nothing; a missing file is skipped by the caller.
+    """
+    from importlib.util import find_spec
+
+    pkg = Path(__file__).resolve().parent  # the installed `mini` package
+    paths = [pkg / m for m in _BAKED_MODULES]
+    for name in _BAKED_CSS_PACKAGES:
+        spec = find_spec(name)
+        if spec and spec.origin:
+            paths += sorted(Path(spec.origin).resolve().parent.rglob("*.css"))
+    return paths
+
+
 def inputs_touched_at(report: str | Path) -> float:
     """The mtime of the most recently edited thing *report* is built from.
 
-    The script, plus everything in its input directory (:func:`input_dir`) — an experiment definition, a dopesheet — since editing one of those dates any render of the report exactly as editing the script does. Directories are stamped too, so deleting an input registers (a delete bumps the parent's mtime while touching no surviving file).
+    Three sets. The script; everything in its input directory (:func:`input_dir`) — an experiment definition, a dopesheet — since editing one of those dates any render of the report exactly as editing the script does; and the report tooling's own baked sources (:func:`baked_sources`), whose contents the exported page carries verbatim. Directories are stamped too, so deleting an input registers (a delete bumps the parent's mtime while touching no surviving file).
+
+    The baked set is the broadest of the three, so it dates *every* bundle at once — a stylesheet edit re-exports the whole of ``docs/`` on the next bare ``./go preview``. That's the intended trade: the check only gates the preview path (publishing always re-exports), so over-reporting costs one local re-export, which is loud and self-correcting, while under-reporting shows a stale page and calls it a success.
 
     Skips ``__pycache__`` and dotfiles: importing ``experiment.py`` rewrites its bytecode, which would otherwise read as an edit and re-render the report every time something imported it. The *first* such import still registers, since creating ``__pycache__/`` stamps the directory holding it — one spurious re-render per fresh checkout, which is the price of noticing deletes at all.
     """
     script = Path(report).resolve()
-    paths = [script]
+    paths = [script, *baked_sources()]
     if d := input_dir(script):
         junk = (".", "__pycache__")
         paths += [d, *(p for p in d.rglob("*") if not any(s.startswith(junk) for s in p.relative_to(d).parts))]
@@ -249,7 +287,7 @@ def inputs_touched_at(report: str | Path) -> float:
 def is_stale(report: str | Path, output: Path) -> bool:
     """Whether *output* is missing, older than anything *report* is built from (:func:`inputs_touched_at`), or a page from before ``mini.lit``.
 
-    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It misses edits to imported ``src/`` modules and to the stored results a report reads, so callers offer a ``--force`` that skips the check. A bundle an earlier exporter wrote is stale whatever its mtime: the site build prints from ``main.lit``, which such a page does not have.
+    A cheap mtime heuristic for the bundle's ``index.html`` (``./go preview --stale-only``, the default). It still misses edits to a figure helper the script imports (``mini.vis``) and to the stored results a report reads, so callers offer a ``--force`` that skips the check. A bundle an earlier exporter wrote is stale whatever its mtime: the site build prints from ``main.lit``, which such a page does not have.
     """
     from mini.lit.page import is_lit_page
 
