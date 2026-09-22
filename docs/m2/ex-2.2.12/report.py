@@ -94,6 +94,8 @@ Two things differ from ex-2.2.11 in how the sweep is read. The plane cells are r
 
 **What we expect.** On `{ex.MISSED_OP}`'s removal lines, the kept share under the projection splits by the side of red: near zero where the red operand has G = B, and well above zero where G ≠ B. If the kept share is the same on all three sides, the axis is not the reason, and the plane cells of act two lose their motivation before they run.
 
+[Ex-2.2.10](../ex-2.2.10/report.py#where-the-answers-go) already saw the two sides. Its answer-cube figure for `{ex.MISSED_OP}` with red at op2 shows the projected answers leaving red in two lobes, one toward orange and one toward pink, and `sat-hsv` and `value-hsv` with red at op1 fan the same way, so the side survives the projection on those ops too; it just cannot rescue an answer that needs red's saturation or value. That figure pools every line. This read pairs each answer with its own operand's side, which is what says whether the lobes are the side of red or something else.
+
 /// admonition | TODO
 One figure: kept share per line on `hue-hsv`'s removal lines, grouped by the side of red, one panel per condition (`handover`, `handover-slot`, `handover-tied`), each dot a seed mean per line and the bar the group mean with its seed range. One table: the group means with line counts.
 ///
