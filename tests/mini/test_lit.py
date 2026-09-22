@@ -512,6 +512,18 @@ class TestRender:
         assert "<path" not in md and "[a strip](_assets/strip.html)" in md
         assert (tmp_path / "out" / "_assets" / "strip.html").exists()
 
+    def test_page_carries_the_base_sheet_the_frame_and_the_report_styles(self, tmp_path):
+        """One stylesheet stack however a page is made: base.css (shared with the site), lit.css (the frame),
+        and the project's docs/report.css last, found beside the report tree — so `./go serve` shows a report.css
+        edit live, and the export needs no step of its own."""
+        (tmp_path / "pyproject.toml").touch()
+        (tmp_path / "docs" / "report.css").parent.mkdir()
+        (tmp_path / "docs" / "report.css").write_text("main.lit { color: rebeccapurple }")
+        p = write(tmp_path / "docs", '"""# Hi"""\n')
+        html = render(p, out_dir=tmp_path / "out").html
+        assert "--font-mono:" in html and "main.lit {" in html  # base, then the frame
+        assert html.index("--font-mono:") < html.index("main.lit {") < html.index("rebeccapurple")
+
     def test_live_output_is_a_separate_tree(self, tmp_path, monkeypatch):
         from mini.lit.render import output_dir
 

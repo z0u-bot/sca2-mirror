@@ -1,4 +1,5 @@
 import xml.etree.ElementTree as ET
+from itertools import count
 from math import isnan
 from typing import Sequence
 
@@ -6,7 +7,7 @@ import numpy as np
 
 from subline.series import Series
 from subline.types import TokenBB
-from utils.dom import Element, id_sequence
+from utils.dom import Element
 
 
 class Sparkline:
@@ -14,6 +15,10 @@ class Sparkline:
 
     def __init__(self):
         self.series = []
+        # One counter per plot, so ids are `clip-0`, `clip-1`, … in render order.
+        # `Subline.plot` then qualifies them with a digest of the finished markup,
+        # which is what keeps two sublines on one page from sharing a name.
+        self._clips = count()
         self.char_width = 8.4
         self.stroke_width = 1.0
         self.baseline_width = 3.0
@@ -97,7 +102,7 @@ class Sparkline:
 
         w = sum(span.width for span in spans[window])
 
-        clip = Element(parent, "clipPath", id=f"clip-{next(id_sequence)}")
+        clip = Element(parent, "clipPath", id=f"clip-{next(self._clips):x}")
         Element(clip, "rect", x=0, y=-h, width=w, height=h * 2)
 
         # Render each series

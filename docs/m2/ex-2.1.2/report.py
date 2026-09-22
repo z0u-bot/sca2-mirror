@@ -544,7 +544,6 @@ gp_rows_by_cond = [
 ]
 if not gp_rows_by_cond:
     stop("*(The garden-path example fell outside the captured surprisal rows — skipping the sublines.)*")
-SUBLINE_CSS = "svg { --bg-color: light-dark(#fff, #181c1a); }"
 
 
 def gp_pad(row: dict, key: str) -> np.ndarray:
@@ -556,7 +555,7 @@ def gp_subline(cond: str, row: dict) -> str:
         Series(raw=np.clip(gp_pad(row, "nll"), 0, 1), label="surprisal"),
         Series(raw=np.clip(gp_pad(row, "entropy"), 0, 1), label="entropy", dasharray="3 2"),
     ]
-    svg = Subline(chars_per_line=len(row["text"]), css=SUBLINE_CSS).plot(row["text"], series)
+    svg = Subline(chars_per_line=len(row["text"])).plot(row["text"], series)
     label = f'<span style="font-size: 11px; font-family: monospace; opacity: 0.65">{cond}</span>'
     return figure_html(svg, caption=label, style="display: inline-block; margin: 0 1em 0 0")
 

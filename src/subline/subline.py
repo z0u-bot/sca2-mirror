@@ -1,21 +1,31 @@
 import xml.etree.ElementTree as ET
+from pathlib import Path
 from textwrap import dedent
-from typing import Sequence
+from typing import Mapping, Sequence
 
 from subline.series import Series
 from subline.sparkline import Sparkline
 from subline.types import TokenBB
-from utils.dom import Element
+from utils.dom import Element, content_tag, stamp_ids
+
+THEME_CSS = Path(__file__).with_name("theme.css").read_text()
+"""The built-in theme, embedded in every SVG; see ``theme.css`` for how it reads a page's tokens."""
 
 
 class Subline:
-    def __init__(self, chars_per_line: int = 80, css: str | None = None):
+    def __init__(
+        self,
+        chars_per_line: int = 80,
+        css: str | None = None,
+        vars: Mapping[str, str] | None = None,
+    ):
         self.chars_per_line = chars_per_line
-        # Extra CSS appended after the built-in styles, so callers can override the
-        # theme (e.g. the `--col-*` / `--bg-color` custom properties) without editing
-        # the library. Later rules win at equal specificity, so `svg { --bg-color: … }`
-        # here beats the defaults below.
+        # Extra CSS appended after the built-in theme, for restyling beyond what the
+        # custom properties reach. Inlined in a page it applies to the whole page, so
+        # a per-figure override goes in *vars* instead: custom properties set on this
+        # SVG's root element (``{"--bg-color": "#000"}``), which reach this figure alone.
         self.css = css
+        self.vars = dict(vars or {})
         self.font_size = 14
         self.line_height = self.font_size
         self.line_gap = self.line_height
@@ -145,7 +155,7 @@ class Subline:
 
         Each series carries one value per token, as a **fraction of the band's height**: 0 sits on the token baseline, 1 at the top. Scale into that range — dividing a surprisal by ``log |V|`` gives "fraction of a uniform guess" — and clip there, because a negative value falls outside the clip and is dropped silently, while the band itself renders up to 2. ``NaN`` breaks the path, which is how a gap is drawn: a first token with no prediction behind it wants a leading ``NaN`` so the rest stay aligned.
 
-        Series take ``--col-series-1`` through ``-5`` in order, and only those five are defined. Give each a ``dasharray`` as well as a color — on a 20px band they cross constantly. Returns the SVG as a string; see ``README.md`` for restyling it through *css*.
+        Series take ``--col-series-1`` through ``-5`` in order, and only those five are defined. Give each a ``dasharray`` as well as a color — on a 20px band they cross constantly. Returns the SVG as a string; see ``README.md`` for restyling it through *vars* and *css*.
         """
         # A bare string is split into characters; any other sequence is taken as-is.
         tokens = list(tokens)
@@ -160,38 +170,15 @@ class Subline:
         total_height = content_height + 2 * self.margin + self.line_gap + self.legend_height
 
         # Create SVG root without viewBox initially
+        own = "".join(f"{k}: {v}; " for k, v in self.vars.items())
         svg = Element(
             None,
             "svg",
             xmlns="http://www.w3.org/2000/svg",
-            style="color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);",
+            **{"class": "subline"},
+            style=f"{own}color-scheme: light dark; background-color: var(--bg-color); box-shadow: 0 0 0 10px var(--bg-color);",
         )
-        style = dedent("""
-            @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Mono:wght@100..900&family=Source+Code+Pro&display=swap');
-            text {
-                font-family: "Source Code Pro", "Noto Sans Mono", monospace !important;
-                font-optical-sizing: auto;
-                font-weight: 400;
-                white-space: pre;
-            }
-            svg {
-                color-scheme: light dark;
-                --col-series-1: light-dark(#ef4444, #ff7878);
-                --col-series-2: light-dark(#3b82f6, #3b82f6);
-                --col-series-3: light-dark(#22c55e, #45e881);
-                --col-series-4: light-dark(#f97316, #ffa261);
-                --col-series-5: light-dark(#a855f7, #d9b1ff);
-                --col-text: light-dark(#666666, #dddddd);
-                --col-baseline: light-dark(#cccccc, #666666);
-                --bg-color: light-dark(#fff, #2a2a2a);
-                --blend-mode: multiply;
-            }
-            @media (prefers-color-scheme: dark) {
-                svg { --blend-mode: screen; }
-            }
-            rect, circle, line, path, text { transition: fill 0.3s, stroke 0.3s; }
-            svg { transition: background-color 0.3s; }
-        """)
+        style = "\n" + THEME_CSS
         if self.css:
             style += dedent(self.css) + "\n"
         Element(svg, "style", text=style)
@@ -226,5 +213,10 @@ class Subline:
         total_width = max(text_width + 2 * self.margin, legend_width + 2 * self.margin)
         svg.set("viewBox", f"0 0 {total_width} {total_height}")
         svg.set("style", svg.get("style", "") + f"width: {total_width:.1f}px; max-width: 100%; display: inline-block;")
+
+        # Name this plot's defs apart from any other subline's on the same page, using a
+        # digest of the markup built so far — so the ids follow the figure's content and
+        # two renders of one figure agree byte for byte.
+        stamp_ids(svg, content_tag(svg))
 
         return ET.tostring(svg, encoding="unicode")

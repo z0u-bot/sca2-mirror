@@ -27,6 +27,7 @@
         ".codex/skills": true
     },
     "markdown.styles": [
+        "src/mini/lit/base.css",
         "scripts/md.css"
     ],
 }

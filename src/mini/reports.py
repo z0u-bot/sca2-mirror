@@ -67,6 +67,7 @@ __all__ = [
     "rewrite_links",
     "github_slug",
     "insert_base",
+    "report_styles",
     "set_report_styles",
     "set_banner",
     "set_provenance",
@@ -780,23 +781,7 @@ def _after_body_open(html: str, snippet: str) -> str:
 # transparent background needs to read correctly. Opening the file in a tab instead would
 # paint it on the browser's white canvas, wrong in dark mode; this is the reason the
 # index strip had no link to the full-size image until now.
-_LIGHTBOX_CSS = """
-[data-mini-zoom]{cursor:zoom-in}
-dialog.mini-lightbox{border:0;padding:0;margin:auto;max-width:96vw;max-height:96vh;
-  background:Canvas;color:CanvasText;border-radius:.5rem;box-shadow:0 1rem 3rem rgb(0 0 0/.45)}
-dialog.mini-lightbox::backdrop{background:rgb(0 0 0/.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
-dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto;
-  transition:filter .18s ease-out,opacity .18s ease-out,width .18s ease-out}
-dialog.mini-lightbox img.mini-lightbox-loading{filter:blur(4px) grayscale(.35);opacity:.55}
-@media (prefers-reduced-motion:reduce){dialog.mini-lightbox img{transition:none}}
-dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
-  font:italic .8125rem/1.5 system-ui,sans-serif;color:color-mix(in srgb,CanvasText 70%,transparent)}
-.mini-lightbox-close{position:absolute;top:.35rem;right:.35rem;width:1.9rem;height:1.9rem;
-  font:1.25rem/1 system-ui,sans-serif;cursor:pointer;color:CanvasText;border-radius:50%;
-  background:color-mix(in srgb,Canvas 70%,transparent);
-  border:1px solid color-mix(in srgb,CanvasText 20%,transparent)}
-@media print{dialog.mini-lightbox{display:none}}
-"""
+_LIGHTBOX_CSS = (Path(__file__).with_name("lightbox.css")).read_text()
 
 # A ``<dialog>`` opened with ``showModal`` renders in the browser's *top layer*, above
 # every stacking context on the page — so the overlay needs no z-index of its own, and
@@ -926,10 +911,19 @@ def set_lightbox(html: str) -> str:
     return re.sub(r"(</head>)", lambda m: f"    {lightbox_chrome()}\n{m.group(1)}", html, count=1)
 
 
+def report_styles(doc: Path | str) -> str:
+    """The shared report stylesheet for *doc*'s project — ``docs/report.css`` beside the report tree — or ``""`` when there is none.
+
+    One lookup for everything that renders a report (``mini.lit`` for a render, the live server and the export; the site build re-inlines the current source on top), so a report page carries the same sheet however it was made.
+    """
+    css = _project_root(Path(doc)) / "docs" / "report.css"
+    return css.read_text("utf-8") if css.exists() else ""
+
+
 def set_report_styles(html: str, css: str) -> str:
     """Inline the shared report stylesheet (*css*) as the last thing in ``<head>``.
 
-    The reports carry the same sheet two ways. The exporter bakes it into each bundle (so it ships in the raw bundle and the PDF print sees it); this re-inlines the *current* source at build time, landing after that baked copy — so editing ``docs/report.css`` restyles every published report with no re-export. It's inlined, not ``<link>``ed, because externalize mode inserts a ``<base href>`` at the bucket that would repoint a relative stylesheet URL (and inlining works offline too). A no-op on a page with no ``</head>`` to match, or when *css* is empty. Apply it last, so report rules win any specificity tie.
+    The reports carry the same sheet two ways. ``mini.lit`` inlines it into every page it renders (:func:`report_styles`), so it shows live under the server and ships in the exported bundle; the site build re-inlines the *current* source, landing after that baked copy — so editing ``docs/report.css`` restyles every published report with no re-export. It's inlined, not ``<link>``ed, because externalize mode inserts a ``<base href>`` at the bucket that would repoint a relative stylesheet URL (and inlining works offline too). A no-op on a page with no ``</head>`` to match, or when *css* is empty. Apply it last, so report rules win any specificity tie.
     """
     if not css.strip():
         return html
@@ -953,23 +947,7 @@ def set_report_styles(html: str, css: str) -> str:
 # the column reads as an empty field. ``CanvasText`` is the UA's theme-aware text color
 # (the export declares ``color-scheme``, so it tracks the device theme), which is what
 # keeps the provenance rule legible in either scheme.
-_CHIP_CSS = """
-[data-mini-banner],[data-mini-provenance]{
-  box-sizing:border-box;line-height:1.4;font-family:system-ui,sans-serif;
-  width:min(var(--measure, 50rem), 100% - 2 * var(--gutter, 1.5rem));margin-inline:auto}
-[data-mini-banner]{order:-1;margin-block:1rem;
-  display:flex;gap:1rem;align-items:center;font-size:.8125rem}
-[data-mini-banner] a{color:inherit;text-decoration:none;opacity:.7}
-[data-mini-banner] a:hover{text-decoration:underline;opacity:1}
-[data-mini-provenance]{order:1;margin-block:0 2.5rem;font-size:.75rem;
-  background:none;border:0;border-radius:0;padding:.5rem 0 0;
-  border-top:1px solid color-mix(in srgb, CanvasText 15%, transparent)}
-[data-mini-provenance] > summary{cursor:pointer;font-weight:400}
-/* The summary, and the "via <ref>" line under each experiment, recede. */
-[data-mini-provenance] > summary,[data-mini-provenance] > div > div{
-  color:color-mix(in srgb, CanvasText 60%, transparent)}
-@media print{[data-mini-banner],[data-mini-provenance]{display:none}}
-"""
+_CHIP_CSS = (Path(__file__).with_name("chips.css")).read_text()
 
 
 def _with_chip_styles(html: str) -> str:
