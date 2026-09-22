@@ -336,7 +336,8 @@ def side_draw(conds: list[str], lines: dict, kept: dict, alt_text: str) -> str:
             of ex-2.2.11; within each, one column per side of the red operand. The faint cloud is one dot per
             removal line, its kept share averaged over the condition's seeds (lines with no clean accuracy to
             keep are left out). The larger mark is the seed mean of the side's kept share, the ratio of group
-            means ex-2.2.11 gates on, and the thin bar its seed range. The dashed line is the
+            means ex-2.2.11 gates on, with one small dot per seed on the thin bar spanning the seed range.
+            The dashed line is the
             {ex.RED_KEPT_GATE:.0%} gate, hatched above.
         """,
     )
@@ -435,8 +436,9 @@ def bypass_alt(res: Results) -> str:
     lo, hi = min(m, key=lambda e: m[e]), max(m, key=lambda e: m[e])
     return f"""
         Two dot panels, hue-hsv on the left and mix on the right, with the five edits along the bottom.
-        On hue-hsv the kept share is lowest under {lo} and highest under {hi}. On mix every edit that
-        touches the embedding removes almost everything, and the blocks-only edit leaves more.
+        On hue-hsv the kept share is lowest under {lo} and highest under {hi}. On mix the two whole-line
+        embedding edits remove almost everything, the blocks-only edit leaves about a third, and the two
+        second-operand edits leave about half.
     """
 
 
@@ -915,7 +917,7 @@ Scouting, in two parts. Part 1 asks what the stored ex-2.2.11 models kept of *re
 
 [The proposal](#the-proposal): {proposal_line}, {tau_line}.
 
-## How to read this draft
+## How to read this report
 
 The measurements and the sweep's conditions were fixed before any run, at commit `007ec39`, and the promotion rule below says in advance what counts as a proposal and what happens if nothing qualifies. Everything after that commit is either observations filled into their sections or exploratory, marked as post hoc. The next preregistered experiment adopts what it needs from here and checks it on models it trains itself.
 
@@ -1016,11 +1018,15 @@ f"""
 bypass_figure(res)
 
 f"""
-**What we saw.** On `{ex.MISSED_OP}`, removing at the blocks alone keeps {bypass_st["means"]["blocks"]:.2f}, about what the full projection keeps ({bypass_st["means"]["all"]:.2f}), and removing at the embedding alone keeps more, {bypass_st["means"]["embedding"]:.2f}. The two second-operand edits sit with their whole-line counterparts, so where the projection is applied along the line does not matter, and where it is applied in depth does. The blocks-only edit has the widest seed range of any measurement in this report: some seeds keep almost everything under it and some almost nothing.
+**What we saw.** On `{ex.MISSED_OP}`, removing at the blocks alone keeps {bypass_st["means"]["blocks"]:.2f}, about what the full projection keeps ({bypass_st["means"]["all"]:.2f}), and removing at the embedding alone keeps more, {bypass_st["means"]["embedding"]:.2f}. The two second-operand edits sit with their whole-line counterparts, so where the projection is applied along the line does not matter, and where it is applied in depth does. The blocks-only edit has about the widest seed range of any measurement in this report: some seeds keep almost everything under it and some almost nothing.
 
-`{ex.PRIMARY_OP}` behaves as ex-2.2.11 would predict: every edit that touches the embedding removes nearly everything, and the blocks-only edit leaves about a third. That is the pattern the prediction had in mind for `{ex.MISSED_OP}` too, where it is closer to the reverse. The part of the answer that survives the full projection is not written at the embedding; or if it is, the blocks re-derive it from the other channels once the copy at the embedding is gone.
+`{ex.PRIMARY_OP}` behaves as ex-2.2.11 would predict, once the position of the edit is held fixed: applied over the whole line, an edit that touches the embedding removes nearly everything, and the blocks-only edit leaves about a third. Applied at the second operand alone it leaves about half, which on this op is the position mattering rather than the depth. That is the pattern the prediction had in mind for `{ex.MISSED_OP}` too, where it is closer to the reverse. The part of the answer that survives the full projection is not written at the embedding; or if it is, the blocks re-derive it from the other channels once the copy at the embedding is gone.
 """
 
+# REVIEW: corrected the `mix` reading. The prose and the alt text said every edit that touches the
+# embedding removes nearly everything on `mix`, but the two op2 edits touch the embedding and keep about
+# half (0.489, 0.501 against 0.018 for `all`). The claim now holds the position fixed. Verify: the `mix`
+# column of the bypass table.
 bypass_table(res)
 
 f"""
@@ -1059,10 +1065,10 @@ sweep_figure(
     "p2-kept",
     f"""
         Two dot panels stacked, one column per condition of the sweep and one for the control on the plane.
-        Top, the kept share on {ex.MISSED_OP}: every column sits inside or above the reference band,
-        which straddles the gate. The three plane columns sit lowest, at about a fifth, and the force and
-        tau columns sit at the reference or above it. Bottom, the kept share on the other ops: every
-        column is under the gate.
+        Top, the kept share on {ex.MISSED_OP}: every sweep column sits inside the reference band, which
+        straddles the gate, and the control sits at one. The three plane columns sit lowest, at about a
+        fifth, and the force and tau columns sit at about the reference or above it. Bottom, the kept share on the
+        other ops: every sweep column sits well under the gate, and the control sits near one.
     """,
     f"""
         **Kept share under the projection, per condition.** Top, on the `{ex.MISSED_OP}` removal lines; the
@@ -1085,10 +1091,10 @@ sweep_figure(
     ("alpha_op1",),
     "p2-alpha",
     f"""
-        One dot panel, one column per condition. The reference band sits at about {float(res.stat(REFERENCE, "alpha_op1").mean()):.2f} and the
-        grey control band near zero. The force and tau columns sit a little under the reference band; the
-        three plane columns and the plane control sit above it, the plane control at about
-        {float(res.stat(PLANE, "alpha_op1").mean()):.2f}.
+        One dot panel, one column per condition. The reference band spans about {float(res.stat(REFERENCE, "alpha_op1").min()):.2f} to {float(res.stat(REFERENCE, "alpha_op1").max()):.2f} with its mean
+        at {float(res.stat(REFERENCE, "alpha_op1").mean()):.2f}, and the grey control band sits near zero. The force and tau columns sit in the
+        lower half of the reference band and the three plane columns in its upper half; the plane control
+        sits below the band, at about {float(res.stat(PLANE, "alpha_op1").mean()):.2f}.
     """,
     f"""
         **ᾱ at op1 per condition.** The mean alignment with the anchored subspace over every color at the
@@ -1099,7 +1105,7 @@ sweep_figure(
 )
 
 f"""
-**What we saw: ᾱ at op1.** The sharper τ lowers it a little: `tau-0.03` reaches {float(res.stat("tau-0.03", "alpha_op1").mean()):.3f} against {float(res.stat(REFERENCE, "alpha_op1").mean()):.3f} for the reference, a drop smaller than the band, and `tau-0.01` does not lower it at all. The force conditions sit at about the same level as `tau-0.03`, which was not predicted and is also inside the band.
+**What we saw: ᾱ at op1.** The sharper τ lowers it a little: `tau-0.03` reaches {float(res.stat("tau-0.03", "alpha_op1").mean()):.3f} against {float(res.stat(REFERENCE, "alpha_op1").mean()):.3f} for the reference, a drop smaller than the band, and `tau-0.01` barely moves it, at {float(res.stat("tau-0.01", "alpha_op1").mean()):.3f}. The force conditions sit at about the same level as `tau-0.03`, which was not predicted and is also inside the band.
 
 The plane conditions sit higher, at {min(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}. That is the scoring rather than the models, since an unsigned two-dimensional alignment is higher for every state. Measured against the control scored on the plane, their excess is {min(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, below the {prop["ref_alpha"]:.2f} the reference shows over its own control.
 
@@ -1118,9 +1124,9 @@ sweep_figure(
     "p2-cost",
     """
         Three dot panels stacked, one column per condition. Top, the margin: every column sits above the
-        gate, the plane columns lowest. Middle, the non-red deficit: every column sits under the gate, with
-        one plane seed just over it. Bottom, the task gap: every column sits above the gate, within a
-        hundredth of zero.
+        gate, the plane columns lowest. Middle, the non-red deficit: every sweep column sits under the gate,
+        with one plane seed just over it, and the control sits on it. Bottom, the task gap: every column
+        sits above the gate, within a hundredth of zero.
     """,
     f"""
         **The cost side, per condition.** Top, the margin m_line on the `{ex.PRIMARY_OP}` lines, gated at
@@ -1131,7 +1137,7 @@ sweep_figure(
 )
 
 f"""
-**What we saw: the cost side.** Every condition passes every gate on its seed mean. The margin is lowest on the plane conditions, at about {float(res.stat("plane", "m_line").mean()):.2f} against {float(res.stat(REFERENCE, "m_line").mean()):.2f} for the reference, and still well over the gate. The non-red deficit on `{ex.PRIMARY_OP}` is under the gate on every seed mean, with one `plane` seed just over it. The task gap is within a hundredth of the control on every condition's worst op, so nothing in the sweep costs the task.
+**What we saw: the cost side.** Every condition passes every gate on its seed mean. The margin is lowest on `plane` and `L6-plane`, at about {float(res.stat("plane", "m_line").mean()):.2f} against {float(res.stat(REFERENCE, "m_line").mean()):.2f} for the reference, and still well over the gate. The non-red deficit on `{ex.PRIMARY_OP}` is under the gate on every seed mean, with one `plane` seed just over it. The task gap is within a hundredth of the control on every condition's worst op, so nothing in the sweep costs the task.
 """
 
 sweep_table(res)
@@ -1183,7 +1189,7 @@ rf"""
 
 The blind-spot story was a good story and it is wrong. It predicted which lines would survive on `hue-hsv`, and the lines that survive are the ones it said could not. That settles the plane: it was built to hold the one quantity the axis cannot, and that quantity is already removed. The sweep agrees, since every plane condition sits inside the reference band on `hue-hsv`.
 
-The two force conditions and the two τ conditions give the nulls we wanted, and they are nulls on every measurement. So the recipe is not sensitive to a doubling of either force factor, or to a sharper pool.
+The two force conditions and the two τ conditions give the nulls we wanted, and they are nulls on every measurement. At five seeds against ex-2.2.11's bands, that says a doubling of either force factor, or a sharper pool, moves nothing we can resolve.
 
 What survives is narrower than we thought: two of the seven red colors, both on the red axis, on one op, re-derived inside the blocks. That makes the leftover easier to characterise for the next experiment, and harder to remove by anchoring, because the model has a route to those answers that does not run through the axis, either at the embedding or after it. Whether that route matters depends on what the anchored-op experiments will ask of the removal.
 
