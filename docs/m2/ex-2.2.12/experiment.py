@@ -8,7 +8,7 @@ the report proposes, and the handover re-run that follows adopts at fresh seeds.
 
 from dataclasses import dataclass
 
-DESIGN_ONLY = True
+DESIGN_ONLY = True  # noqa: read by tests/mini/test_experiments_e2e.py via getattr
 
 # --- What is inherited -------------------------------------------------------------------------------
 

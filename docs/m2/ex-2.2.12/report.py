@@ -55,7 +55,7 @@ The setup we sweep is ex-2.2.11's `handover`: table A+, the stochastic corpus, t
 
 ### Act one: the stored checkpoints
 
-Act one trains nothing. It scores ex-2.2.11's twenty `handover` checkpoints, with its probe set and its removal lines, under a few more edits than ex-2.2.11 scored. Where a read has a comparison, `handover-slot` and `handover-tied` are scored too.
+Act one trains nothing. It scores the twenty `handover` checkpoints of {ex.REFERENCE_EXPERIMENT} (stored under `{ex.HANDOVER_CHECKPOINT_REF}`), with its probe set and its removal lines, under a few more edits than ex-2.2.11 scored. Where a read has a comparison, `handover-slot` and `handover-tied` are scored too.
 
 ### Act two: the sweep
 
@@ -83,7 +83,7 @@ Two things differ from ex-2.2.11 in how the sweep is read. The plane cells are r
 <dt>Kept share</dt>
 <dd>How much of its clean accuracy on the removal lines a model keeps after the projection. Zero means <em>red</em> is gone; one means the projection did nothing.</dd>
 <dt>Side of red</dt>
-<dd>Whether the red operand leans toward orange (G > B), toward pink (G < B), or sits on the red axis of the cube (G = B). The part of the hue the anchored axis cannot hold.</dd>
+<dd>Whether the red operand sits on the red axis of the cube, leans toward orange, or leans toward pink ({", ".join(ex.SIDE_GROUPS)}). The part of the hue the anchored axis cannot hold.</dd>
 <dt>ᾱ at op1</dt>
 <dd>The mean alignment with the axis over every color at the first operand position. How much the colors that are not red have drifted onto the axis.</dd>
 <dt>Band</dt>
@@ -111,7 +111,7 @@ One figure: kept share on `hue-hsv`'s removal lines under each of the {len(ex.BY
 **What we expect.** On the red lines, ᾱ at op1 is higher on the lines the whole-line labeller labelled through their answer than on the lines it labelled through an operand. That is the candidate the containment item named for the labeller's half of the rise: a line whose answer draws is pulled at every position, op1 included. If the two groups read the same, the labeller's half of the rise has another cause.
 
 /// admonition | TODO
-One figure: ᾱ at op1 on `handover`'s red lines, split by how the line earned its label, per slice, with `handover-slot` beside it as the condition with no answer-labelled lines.
+One figure: ᾱ at op1 on `handover`'s red lines, split by how the line earned its label ({" against ".join(ex.CONTAINMENT_SPLIT)}), per slice, with `handover-slot` beside it as the condition with no answer-labelled lines.
 ///
 
 ## The sweep
@@ -150,7 +150,7 @@ A grid color's side is the sign of G − B. The seven grid colors at or above th
 
 ### The plane
 
-Red's home under the plane cells is e₁ and e₂ together. Alignment is the length of a state's projection onto the pair; the anchor and anti-subspace terms, the trajectory reads, and the projection operator all take the pair where they took the axis. Every plane read is compared with the control checkpoints read on the same pair. The concept's variance share is charged two coordinates of sixty-four.
+Red's home under the plane cells is axes {ex.PLANE_AXES[0]} and {ex.PLANE_AXES[1]} of the stream, e₁ and e₂ together. Alignment is the length of a state's projection onto the pair; the anchor and anti-subspace terms, the trajectory reads, and the projection operator all take the pair where they took the axis. Every plane read is compared with the control checkpoints read on the same pair. The concept's variance share is charged two coordinates of sixty-four.
 
 ### Budget
 
