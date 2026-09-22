@@ -31,10 +31,16 @@ KEPT_GATE = 0.2
 """Ex-2.2.11's gate on the kept share, unchanged. Under it, the projection is taken to have removed *red*
 from an op's red-dependent answers. The implementation binds this from ex-2.2.11 and asserts the value."""
 
+CONTROL = "control"
+"""The un-anchored control, ex-2.2.11's `control` retrained at this experiment's seeds: the task reference
+(ex-2.2.11's task gate is a seed-mean within a band of the control's) and the ᾱ baseline for the axis
+conditions. Retraining it keeps every comparison paired within this experiment and keeps the claim that no
+checkpoint here was seen before true; it costs one rung's worth of runs."""
+
 CONTROL_PLANE = "control-plane"
-"""Ex-2.2.11's un-anchored `control` checkpoints, scored on the plane: the comparison for every plane
-measurement, since an unsigned two-dimensional alignment sits higher than a signed one-dimensional one for
-every state, anchored or not."""
+"""The same control checkpoints scored on the plane: the comparison for every plane measurement, since an
+unsigned two-dimensional alignment sits higher than a signed one-dimensional one for every state, anchored
+or not. A scoring pass, not a training condition."""
 
 # --- The ladder ----------------------------------------------------------------------------------------
 
@@ -59,15 +65,15 @@ it. Every seed here is fresh, and the reference is retrained beside the ladder a
 
 SEEDS = 20
 """Seeds a condition. Twenty is set by the spread question rather than the mean: a one-sided F-test on the
-variance ratio between the top and the foot of the ladder has power 0.90 at twenty seeds a group for a
+variance ratio between the top and the bottom of the ladder has power 0.90 at twenty seeds a group for a
 halved standard deviation, 0.81 at fifteen, and 0.63 at ten. A difference in means of the size we care
 about would be resolved by half as many."""
 
 CONDITIONS = tuple(f"{s}-{lam:g}" for s in SUBSPACES for lam in LADDER)
 assert len(CONDITIONS) == 8
 
-N_RUNS = len(CONDITIONS) * SEEDS
-assert N_RUNS == 160
+N_RUNS = (len(CONDITIONS) + 1) * SEEDS  # the eight rungs and the control
+assert N_RUNS == 180
 
 
 @dataclass(frozen=True)
@@ -82,7 +88,7 @@ class Condition:
 
 
 REFERENCE = "axis-0.1"
-"""Ex-2.2.11's recipe, retrained at this experiment's seeds: the foot of the ladder and the comparison for
+"""Ex-2.2.11's recipe, retrained at this experiment's seeds: the lowest rung of the ladder and the comparison for
 every claim about what the ladder moves. Retraining it also replicates ex-2.2.11's `handover` at fresh seeds."""
 
 GRID = tuple(Condition(f"{s}-{lam:g}", s, lam) for s in SUBSPACES for lam in LADDER)
@@ -97,7 +103,7 @@ reported beside it rather than gated."""
 
 SD_RATIO_GATE = 0.5
 """H1 holds when the across-seed standard deviation of the kept share at the top of the ladder is at most
-half of its value at the foot, within a subspace. Half is the effect ex-2.2.12 saw at five seeds
+half of its value at the lowest rung, within a subspace. Half is the effect ex-2.2.12 saw at five seeds
 (`plane-lam-0.2` at 0.036 against `plane` at 0.125, a ratio near a third) rounded back toward no effect. A
 standard deviation from five draws has a 95% interval of about 0.6× to 2.9× its true value, so the gate
 asks for less than the observation that motivated it."""
@@ -144,7 +150,9 @@ A condition qualifies when the one-sided {UCB_LEVEL:.0%} upper confidence bound 
 sits under the {KEPT_GATE:g} gate on `{MISSED_OP}` and on each of the ten other ops, {COST_LIST} are inside \
 ex-2.2.11's gates on the seed mean, and its ᾱ at op1 stands in no higher ratio to the un-anchored baseline for \
 its own subspace than the reference stands to the axis one. Among those that qualify, the one with the lowest \
-upper bound on `{MISSED_OP}` is adopted, and the smaller λ_a breaks a tie. As in ex-2.2.12, this experiment \
+upper bound on `{MISSED_OP}` is adopted, and the smaller λ_a breaks a tie. The rule sees the measurements it \
+names; if a qualifying condition looks harmful on something it does not name, the report says what and keeps \
+the reference, and that override is marked as a decision made after the data. As in ex-2.2.12, this experiment \
 proposes: the adopted recipe is confirmed at fresh seeds by the anchored-op experiment that inherits it, and \
 no number quoted here for it is free of the selection. If none qualifies, the recipe stays at `{REFERENCE}` \
 and the report carries the ladder's best characterization of the leftover — its level, its spread, and which \

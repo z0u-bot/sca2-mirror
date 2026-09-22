@@ -16,14 +16,20 @@ def ladder_html() -> str:
     )
     notes = {
         "axis-0.1": "ex-2.2.11's recipe, the reference; 20 seeds there",
-        "axis-0.2": "ex-2.2.12's <code>lam-0.2</code>, 5 seeds",
+        "axis-0.2": "ex-2.2.12's <code>lam-0.2</code>, 5 seeds: loose on the kept share, the tightest line margin and ᾱ in the sweep",
         "plane-0.1": "ex-2.2.12's <code>plane</code>, 5 seeds",
-        "plane-0.2": "ex-2.2.12's <code>plane-lam-0.2</code>, 5 seeds: the tight one",
+        "plane-0.2": "ex-2.2.12's <code>plane-lam-0.2</code>, 5 seeds: the tight kept share",
     }
     rows = [
         f"<tr><td><code>{c.name}</code></td><td class=num>{c.lam:g}</td><td>{c.subspace}</td>"
         f"<td class=num>{ex.SEEDS}</td><td>{notes.get(c.name, '')}</td></tr>"
         for c in ex.GRID
+    ]
+    rows += [
+        f"<tr><td><code>{ex.CONTROL}</code></td><td class=num>0</td><td>none; scored on the axis</td>"
+        f"<td class=num>{ex.SEEDS}</td><td>ex-2.2.11's <code>control</code>, 20 seeds there; the task reference</td></tr>",
+        f"<tr><td><code>{ex.CONTROL_PLANE}</code></td><td class=num>0</td><td>none; scored on the plane</td>"
+        f"<td class=num>—</td><td>the same checkpoints, a scoring pass; the ᾱ baseline for the plane</td></tr>",
     ]
     return f'<table class="report-table dense"><thead>{head}</thead><tbody>{"".join(rows)}</tbody></table>'
 
@@ -69,23 +75,25 @@ A second reason to expect something from the weight: we run at λ_a = 0.1 becaus
 
 ## Conditions
 
-One ladder, crossed with the home of *red*.
+One ladder, crossed with the home of *red*, and the un-anchored control beside it.
 
 {ladder_html()}
 
-**The weight.** λ_a takes four levels, {", ".join(f"{x:g}" for x in ex.LADDER)}, each a factor of √2 above the last. We read a weight on a log scale, so a constant ratio puts the levels evenly apart and makes the shape of any trend across them easy to see. The foot is the recipe from ex-2.2.11, and {ex.LADDER[2]:g} is the one step ex-2.2.12 took. The top is the foot of the margin plateau ex-2.1.11 mapped, and it stops short of the level where that survey saw its first task failures (about 0.38, on the six-op grammar at a warmer pooling temperature than ours). Where the useful range ends is left open here; the ladder tests the region between the recipe and that point.
+**The weight.** λ_a takes four levels, {", ".join(f"{x:g}" for x in ex.LADDER)}, each a factor of √2 above the last. We read a weight on a log scale, so a constant ratio puts the levels evenly apart and makes the shape of any trend across them easy to see. The lowest rung is the recipe from ex-2.2.11, and {ex.LADDER[2]:g} is the one step ex-2.2.12 took. The top rung is where the margin plateau ex-2.1.11 mapped begins, and it stops short of the level where that survey saw its first task failures (about 0.38, on the six-op grammar at a warmer pooling temperature than ours). Where the useful range ends is left open here; the ladder tests the region between the recipe and that point.
 
-**What else the weight moves.** The anti-subspace term is specified as a ratio to λ_a, peaking at 2.5× it and holding at 0.3× it, so a rung of the ladder raises the repulsion by the same factor as the pull. The ladder is a joint anchor-and-repulsion ladder rather than a pure anchor ladder, and a result along it belongs to the pair. Ex-2.2.12 moved the two separately, one step each (`lam-0.2` and `anti-5`), and neither moved any measurement on its own, so we do not spend runs here separating them; if the ladder moves something, an arm that holds the repulsion fixed at one rung is the follow-up.
+**What else the weight moves.** The anti-subspace term is specified as a ratio to λ_a, peaking at 2.5× λ_a and holding at 0.3× λ_a, so a rung of the ladder raises the repulsion by the same factor as the pull. The ladder is a joint anchor-and-repulsion ladder rather than a pure anchor ladder, and a result along it belongs to the pair. Ex-2.2.12 moved the two separately, one step each (`lam-0.2` and `anti-5`), and neither moved any measurement on its own, so we do not spend runs here separating them; if the ladder moves something, an arm that holds the repulsion fixed at one rung is the follow-up.
 
 **The home of *red*.** *Red* lives either on the first axis e₁ or on the plane spanned by e₁ and e₂. Where the plane is the home, the anchor term, the anti-subspace term, the alignment measurements, and the removal all take the pair of axes instead of the single axis, as ex-2.2.12 defined them.
 
-Ex-2.2.12 settled against the plane's first rationale, that a single axis is too small a home for a hue. Two things keep it here. The tight condition that prompted this experiment was a plane *and* a heavier weight, while the heavier weight on the axis was the loosest condition in that sweep, so a ladder on the axis alone could not say whether the narrowing comes from the weight, from the subspace, or from the two together. And the plane at the recipe's own weight has been seen at five seeds only; at twenty, `plane-{ex.LADDER[0]:g}` against `{ex.REFERENCE}` is a test of the subspace on its own, at a resolution ex-2.2.12 did not have.
+The recipe has two anchoring terms and no anti-anchor term. The pull is one minus the alignment of a labelled state with the home; on the axis that alignment is the signed cosine, so the pull is toward +e₁ and a state at −e₁ is as far from home as it can be. On the plane it is the unsigned length of the projection, so the pull is toward the plane with no preferred direction within it, and −e₁ is home. The anti-subspace term is the squared alignment averaged over every live position, labelled or not, and it has no sign in either home. An anti-anchor term, the one-sided hinge that kept every state out of the hemisphere opposite the anchor so a fallback could live there, belonged to M1's fallback and last ran in M2 in ex-2.2.2's fallback arm; the recipe line from ex-2.1.6 onward has never carried it, and on the plane there is no hemisphere for it to name.
 
-Every plane condition is compared against the un-anchored control checkpoints scored on the plane (`{ex.CONTROL_PLANE}`). For every state, anchored or not, an unsigned two-dimensional alignment sits higher than a signed one-dimensional one, so the control has to be scored the same way.
+Ex-2.2.12 settled against the plane's first rationale, that a single axis is too small a home for a hue. Two things keep it here. The tight condition that prompted this experiment was a plane *and* a heavier weight, while the heavier weight on the axis was among the loosest on the kept share in that sweep even as its line margin and ᾱ were the tightest, so a ladder on the axis alone could not say whether the narrowing comes from the weight, from the subspace, or from the two together. And the plane at the recipe's own weight has been seen at five seeds only; at twenty, `plane-{ex.LADDER[0]:g}` against `{ex.REFERENCE}` is a test of the subspace on its own, at a resolution ex-2.2.12 did not have.
+
+**The control.** The un-anchored control is trained again here at the same seeds, as ex-2.2.11 defined it. It is the reference for the task gate, which asks for a seed mean within a band of the control's, and the ᾱ baseline for the axis conditions. Every plane condition is compared against the same checkpoints scored on the plane (`{ex.CONTROL_PLANE}`): for every state, anchored or not, an unsigned two-dimensional alignment sits higher than a signed one-dimensional one, so the control has to be scored the same way.
 
 **The seeds.** {ex.SEEDS} per condition, all fresh: condition seed *i* trains at model seed {ex.SEED_OFFSET} + *i*, where ex-2.2.11 and ex-2.2.12 used an offset of 100. Every condition pairs with every other one seed for seed within this experiment, and the reference is retrained rather than borrowed, which makes it a replication of ex-2.2.11's `handover` at seeds it never saw.
 
-The spread question sets the count. A one-sided F-test on the ratio of variances between the top and the foot of the ladder resolves a halved standard deviation with power 0.90 at twenty seeds a group, 0.81 at fifteen, and 0.63 at ten; a difference in means of the size we care about would be settled by half as many. {ex.N_RUNS} runs in all.
+The spread question sets the count. A one-sided F-test on the ratio of variances between the top and the bottom of the ladder resolves a halved standard deviation with power 0.90 at twenty seeds a group, 0.81 at fifteen, and 0.63 at ten; a difference in means of the size we care about would be settled by half as many. {ex.N_RUNS} runs in all.
 
 Everything else is unchanged from ex-2.2.11: [table A+](../ex-2.2.4/report.py#the-op-set), the stochastic corpus, the whole-line labeller, the untied readout, the removal lines chosen by hue, τ = 0.1, the shape of the anti-subspace schedule, and 50 epochs at d64-L4.
 
@@ -109,7 +117,7 @@ Everything else is unchanged from ex-2.2.11: [table A+](../ex-2.2.4/report.py#th
 
 ## The leftover gets more predictable (H1)
 
-**H1.** Across the ladder, the seed spread of the kept share on the `{ex.MISSED_OP}` removal lines narrows as λ_a rises. The number we score is the ratio of the standard deviation at the top of the ladder to the one at the foot, within a subspace. H1 holds when that ratio falls to {ex.SD_RATIO_GATE:g} or below in both subspaces, and the spread falls monotonically enough that a trend contrast across the four levels has a negative slope at {ex.TREND_ALPHA:g}.[^trend]
+**H1.** Across the ladder, the seed spread of the kept share on the `{ex.MISSED_OP}` removal lines narrows as λ_a rises. The number we score is the ratio of the standard deviation at the top of the ladder to the one at the lowest rung, within a subspace. H1 holds when that ratio falls to {ex.SD_RATIO_GATE:g} or below in both subspaces, and the spread falls monotonically enough that a trend contrast across the four levels has a negative slope at {ex.TREND_ALPHA:g}.[^trend]
 
 It holds in part when one subspace does that and the other does not. On the plane alone, that would say the narrowing needs the plane, and the comparison of `plane-{ex.LADDER[0]:g}` with the reference then says whether the plane narrows the spread by itself or only once the weight rises. A flat or rising spread in both would mean the tight condition in ex-2.2.12 was five lucky seeds, and that nothing on this ladder buys predictability.
 
@@ -143,7 +151,7 @@ The seed-mean panel of the H1 figure read along the λ_a axis, with paired diffe
 
 Any claim that a recipe removes *red* cleanly is limited by whichever op does worst, and that is not the same op in every condition, so a mean over the ten would hide it.
 
-The margin is about the sampling noise on a proportion at these line counts, so a smaller drop is one we could not tell from no drop. In ex-2.2.12 the worst other op was `darken` at the reference, `darken` again one step up the axis, and `lighten` on the plane at twice the weight — the only condition in that sweep with no op over the gate at all — and the spacing between those three values is close to the margin, which is why H3 asks for a margin rather than for a difference. H3 fails if the worst op is flat or rises, which would mean the ladder buys nothing on the ops that already remove *red*.
+The margin is the {ex.WORST_OP_MARGIN:g} in the statement above, and it is there because a kept share is a proportion over some 330–400 removal lines per op, so on one checkpoint it carries a sampling error of about 0.02 at the values the worst op sits at, and the seed spread of the other ops in ex-2.2.12 was about 0.03. A drop smaller than that is one we could not tell from no drop. In ex-2.2.12 the worst other op was `darken` at the reference, `darken` again one step up the axis, and `lighten` on the plane at twice the weight — the only condition in that sweep with no op over the gate at all — and the spacing between those three values is close to the margin, which is why H3 asks for a margin rather than for a difference. H3 fails if the worst op is flat or rises, which would mean the ladder buys nothing on the ops that already remove *red*.
 
 /// admonition | TODO
 One figure: per condition, the per-op seed-mean kept share for all eleven ops as a strip, the worst highlighted and labelled, against the gate. One table: the worst op and its value per condition.
@@ -151,7 +159,7 @@ One figure: per condition, the per-op seed-mean kept share for all eleven ops as
 
 ## What the weight spends (H4)
 
-**H4.** Through the whole ladder, {ex.COST_LIST} stay inside the gates of ex-2.2.11 on the seed mean. The ladder stops under the level where the six-op survey saw the task give way, so we expect every cost to hold; the one we name as most likely to leave its gate first is the non-red deficit on the plane conditions, which ex-2.2.12 measured four times higher on the plane than on the axis.
+**H4.** Every cost statistic stays inside its gate from ex-2.2.11 on the seed mean through the whole ladder: {ex.COST_LIST}. The ladder stops under the level where the six-op survey saw the task give way, so we expect every cost to hold; the one we name as most likely to leave its gate first is the non-red deficit on the plane conditions, which ex-2.2.12 measured four times higher on the plane than on the axis.
 
 If a statistic leaves its gate at or below λ_a = {ex.LADDER[-1]:g}, the useful range of the recipe on this grammar is narrower than the map in ex-2.1.11 suggested, which is worth knowing on its own. If none does, the range is at least this wide, and where it ends stays open.
 
@@ -167,9 +175,7 @@ The rule, frozen before the run:
 
 > {ex.ADOPTION}
 
-And what changed from the rule in ex-2.2.12, and why:
-
-> {ex.OLD_RULE}
+What changed from the rule in ex-2.2.12, and why. {ex.OLD_RULE}
 
 /// admonition | TODO
 One table: per condition, the upper bound on `hue-hsv` and on the worst other op, the verdict for each cost statistic, and the qualifying verdict under this rule and under the one from ex-2.2.12.
@@ -177,9 +183,9 @@ One table: per condition, the upper bound on `hue-hsv` and on the worst other op
 
 ## Exploratory analyses
 
-Not part of the plan. Anything we think of after seeing the data goes here, marked as post hoc. Four measurements are planned as descriptions rather than tests, and they run whichever way the four predictions come out.
+Four measurements are planned as descriptions rather than tests: they carry no gate, and no finding rests on them. Anything we think of after seeing the data goes here too, marked as post hoc.
 
-**The spread of everything else.** H1 scores the spread of one statistic. The same seed-spread table for every cost statistic, the line margin, and the task, per condition, says whether a heavier anchor makes training as a whole more reproducible on this grammar or only settles the leftover. It carries no gate because we have no prediction for the direction of most of them: a heavier pull could hold the margin to a tighter value across seeds, or could amplify whatever differs between initializations.
+**The spread of everything else.** H1 scores the spread of one statistic. The same seed-spread table for every cost statistic, the line margin, and the task, per condition, says whether a heavier anchor makes training as a whole more reproducible on this grammar or only settles the leftover. It carries no gate because we have no prediction for the direction of most of them: a heavier pull could hold the margin to a tighter value across seeds, or could amplify whatever differs between initializations. Ex-2.2.12 gives a hint that the two spreads can move apart: one step up the axis, the line margin and ᾱ at op1 were the tightest in the sweep while the kept share stayed as wide as the reference, and on the plane at the same step it was the other way round.
 
 **Which lines are left.** Ex-2.2.12 found that nearly all of the `{ex.MISSED_OP}` survival comes from two of the seven red colors, but it scored conditions rather than individual lines. Scoring per line across the ladder tells us whether a narrow seed spread means the same lines survive every time, which would let us characterize the leftover, or a shifting set of lines that happens to be the same size.
 
@@ -197,7 +203,7 @@ About 200 words: what the ladder says the weight buys, whether the anchored-op e
 
 ### Fresh seeds
 
-Ex-2.2.11 and ex-2.2.12 trained at model seeds 100–119. The observation this experiment follows up was read off those checkpoints, and a rule written in advance does not make data we have already seen unseen, so nothing here is served from the store: every condition, the reference included, trains at seeds {ex.SEED_OFFSET}–{ex.SEED_OFFSET + ex.SEEDS - 1}. The four conditions that earlier experiments saw appear in the H1 table beside their earlier values, as a replication rather than as data.
+Ex-2.2.11 and ex-2.2.12 trained at model seeds 100–119. The observation this experiment follows up was read off those checkpoints, and a rule written in advance does not make data we have already seen unseen, so nothing here is served from the store: every condition, the reference and the control included, trains at seeds {ex.SEED_OFFSET}–{ex.SEED_OFFSET + ex.SEEDS - 1}. The four conditions that earlier experiments saw appear in the H1 table beside their earlier values, as a replication rather than as data.
 
 We do not hold seeds back to quote the adopted condition from. The search is eight conditions, so the selection bias on the winner is small, and ex-2.2.12 set the pattern this experiment follows: the ladder proposes, and the anchored-op experiment that inherits the recipe confirms it at seeds of its own. Deciding the rule on half the seeds would halve the precision of the upper bound it rests on, for a correction the next experiment pays anyway.
 
@@ -209,7 +215,7 @@ So the concept holds two coordinates of sixty-four rather than one, and its shar
 
 ### Budget
 
-{ex.N_RUNS} runs at d64-L4, each as long as a run in ex-2.2.11, at about three minutes a run on an L4. Scoring adds the eleven ops under the operators from ex-2.2.11, the per-line pass, and the achromatic edit. That is about three and a half times the sweep in ex-2.2.12, which cost six dollars on Modal.
+{ex.N_RUNS} runs at d64-L4, each as long as a run in ex-2.2.11, at about three minutes a run on an L4. Scoring adds the eleven ops under the operators from ex-2.2.11, the per-line pass, and the achromatic edit. That is about four times the sweep in ex-2.2.12, which cost six dollars on Modal.
 
 ### What this experiment does not vary
 
