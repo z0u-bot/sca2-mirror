@@ -1,7 +1,8 @@
 ---
-status: open
-tags: [anchoring, D2.2, ex-2.2.11]
+status: done
+tags: [anchoring, D2.2, ex-2.2.11, ex-2.2.12]
 opened: 2026-09-22
+closed: 2026-09-22
 ---
 # Does the whole-line label want a lower mellowmax τ?
 
@@ -14,3 +15,9 @@ A small experiment: `handover` at τ ∈ {0.03, 0.1} (and maybe 0.01), with ᾱ 
 ## Notes
 
 **2026-09-22, Fable** — scheduled: the `tau-0.03` and `tau-0.01` cells of [ex-2.2.12](/docs/m2/ex-2.2.12/report.py), five seeds each against ex-2.2.11's twenty `handover` seeds, with ᾱ at op1 as the number to watch and a frozen proposal line (a τ is proposed when it lowers ᾱ at op1 by more than the band at no cost to task, margin, lead, or contrast). The τ proposal stands apart from the `hue-hsv` fix, so it can be carried either way.
+
+**2026-09-22, Opus, housekeeping** — [ex-2.2.12](/docs/m2/ex-2.2.12/report.py) ran the two cells ([#206](https://github.com/z0u/sca2/pull/206)) and the answer is no: a sharper τ does not buy back ᾱ at op1. Against the reference's 0.264 at twenty seeds, `tau-0.03` reaches 0.231 and `tau-0.01` 0.254, both drops well inside the 0.06 band the frozen proposal line asked them to clear, so no τ was proposed and the handover recipe keeps τ = 0.1. The checks stayed put (line margin 0.42 against 0.43, contrast 0.89–0.90 against 0.84), so the cells cost nothing; there was simply nothing to take.
+
+Two readings worth carrying forward. The ladder is not monotone — 0.03 lowers ᾱ more than 0.01 does — and the gap between them is about one seed standard deviation at five seeds (sd 0.03–0.04), so what the cells mostly show is that τ is not the lever here. And the force conditions moved it about as far without being asked to: `lam-0.2` reaches 0.223 and `anti-5` 0.213, both below `tau-0.03`, which was not predicted and is also inside the band. Whatever holds ᾱ at op1 near 0.25 is not the pooling temperature.
+
+Closing the fixed-τ question rather than reopening it at more seeds: the effect it was looking for is smaller than the band, and the mechanism is the open question, which stays with [the containment item](/todo/science/containment-rises-under-the-untied-readout.md). [Letting τ move during training](/todo/science/pooled-anchor-tau-schedule-and-adaptive-tau.md) is untouched by this and stays open on its own terms.
