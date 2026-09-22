@@ -84,6 +84,12 @@ main.lit p:has(+ h1) > mark:only-child {
   opacity: 0.65;
 }
 
+/* A design table (conditions, factor levels): reference material rather than a result, so
+ * it sits a step smaller than the prose. */
+.report-table.dense {
+  font-size: 0.85em;
+}
+
 /* Wide tables (e.g. a per-seed completions grid) scroll horizontally inside their own
  * box rather than wrapping cell contents — which detaches a swatch from its word — or
  * forcing the whole page to scroll sideways. The table is its own scroll box, so a
