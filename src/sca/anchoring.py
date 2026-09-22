@@ -36,6 +36,23 @@ scalar gains) are rotation-equivariant, so a basis vector is a convenience for
 reading the cosine off a component rather than a hint to the model.
 """
 
+ANCHOR_AXES: tuple[int, ...] = (ANCHOR_AXIS,)
+"""The default home of the concept: the one axis. A tuple of several axes anchors to their span (a plane for
+two): every term and readout below takes `axes=` and reads the alignment as `axes_alignment`."""
+
+
+def axes_alignment(states: Float[Array, "... C"] | np.ndarray, axes: tuple[int, ...] = ANCHOR_AXES):
+    """The alignment of unit-norm *states* with the span of *axes*: the component itself for one axis (signed,
+    cos(h, e)), and the length of the projection onto the pair for several (unsigned). Either is the cosine
+    between the state and its nearest point in the subspace, which is what the anchor term pulls toward one, the
+    anti-subspace term squares, and the trajectory reads.
+    """
+    if len(axes) == 1:
+        return states[..., axes[0]]
+    sel = states[..., jnp.asarray(axes)] if isinstance(states, jax.Array) else states[..., list(axes)]
+    return (sel**2).sum(axis=-1) ** 0.5
+
+
 LINE_TOKENS = 6
 """`name + name = name ⏎` at word level, so the packed corpus is periodic in 6."""
 
@@ -92,6 +109,9 @@ class AnchorSpec:
     shape: Shape = "min-jerk"
     """Under `flat` the weight sits at `peak` throughout and the other keyframes
     are unused, so one field ablates the ramp, the anneal and the floor together."""
+    axes: tuple[int, ...] = ANCHOR_AXES
+    """Where the concept is pulled to: one axis, or the span of several (`axes_alignment`). The
+    anti-subspace term and the trajectory's alignment reads take the same axes."""
 
     def __call__(self, epoch) -> np.ndarray:
         return anchor_weight(
@@ -197,12 +217,14 @@ class LabelSpec:
     pull: Literal["span", "slot"] = "span"
 
 
-def anchor_term(states: Float[Array, "L1 B T C"], mask: Float[Array, "B T"]) -> Float[Array, ""]:
+def anchor_term(
+    states: Float[Array, "L1 B T C"], mask: Float[Array, "B T"], axes: tuple[int, ...] = ANCHOR_AXES
+) -> Float[Array, ""]:
     """Mean of (1 − cos(h, e₁)) over pulled positions and residual-stream slices.
 
-    States are unit-norm, so the cosine against a basis vector is just that component. The denominator is the mask's own weight with M1's ε, so a batch holding no labels contributes zero rather than 0/0 — which at this label density is one batch in eight.
+    States are unit-norm, so the cosine against a basis vector is just that component (or, for several *axes*, the length of the projection onto their span). The denominator is the mask's own weight with M1's ε, so a batch holding no labels contributes zero rather than 0/0 — which at this label density is one batch in eight.
     """
-    cos = states[..., ANCHOR_AXIS]  # (L1, B, T)
+    cos = axes_alignment(states, axes)  # (L1, B, T)
     return jnp.sum((1.0 - cos) * mask) / (states.shape[0] * (jnp.sum(mask) + 1e-8))
 
 
@@ -225,6 +247,7 @@ def pooled_anchor_term(
     line_id: Int[Array, "B T"],
     n_lines: int,
     tau: float,
+    axes: tuple[int, ...] = ANCHOR_AXES,
 ) -> Float[Array, ""]:
     """Mean over labeled lines and slices of the mellowmax of (1 − cos) over each line's span.
 
@@ -235,7 +258,7 @@ def pooled_anchor_term(
     sel = (line_id[..., None] == jnp.arange(n_lines)) & (mask[..., None] > 0)  # (B, T, N)
     count = sel.sum(axis=1)  # (B, N) pulled positions per line
     labeled = count > 0
-    x = 1.0 - states[..., ANCHOR_AXIS]  # (L1, B, T)
+    x = 1.0 - axes_alignment(states, axes)  # (L1, B, T)
     if np.isinf(tau):
         pooled = jnp.einsum("lbt,btn->lbn", x, sel.astype(x.dtype)) / jnp.maximum(count, 1)
     else:
@@ -249,12 +272,14 @@ def pooled_anchor_term(
     return jnp.sum(pooled * labeled) / (states.shape[0] * (jnp.sum(labeled) + 1e-8))
 
 
-def anti_subspace_term(states: Float[Array, "L1 B T C"], live: Float[Array, "B T"]) -> Float[Array, ""]:
+def anti_subspace_term(
+    states: Float[Array, "L1 B T C"], live: Float[Array, "B T"], axes: tuple[int, ...] = ANCHOR_AXES
+) -> Float[Array, ""]:
     """Mean of cos²(h, e₁) over every residual-stream slice and every live position.
 
-    M1's anti-subspace penalty with the reserved coordinate axis replaced by our anchor direction: it asks that the cloud as a whole not sit on the axis, without asking any particular point to leave it. *live* selects the non-pad positions — the ones the model is actually shown — and every line counts, labeled or not, which is what makes the term indiscriminate.
+    M1's anti-subspace penalty with the reserved coordinate axis replaced by our anchor direction (or, for several *axes*, the squared length of the projection onto their span): it asks that the cloud as a whole not sit on the axis, without asking any particular point to leave it. *live* selects the non-pad positions — the ones the model is actually shown — and every line counts, labeled or not, which is what makes the term indiscriminate.
     """
-    cos = states[..., ANCHOR_AXIS]  # (L1, B, T)
+    cos = axes_alignment(states, axes)  # (L1, B, T)
     return jnp.sum(cos**2 * live) / (states.shape[0] * (jnp.sum(live) + 1e-8))
 
 
@@ -264,12 +289,13 @@ def make_anchored_train_step(
     n_lines: int = 0,
     slices: tuple[int, ...] | None = None,
     clean_rows: tuple[int, ...] | None = None,
+    axes: tuple[int, ...] = ANCHOR_AXES,
 ):
     """Build a jitted training step for cross-entropy plus the two weighted anchor terms.
 
     The weights are arguments rather than closures, so the schedules move without recompiling; *tau* is fixed per build, since a condition's pooling does not move over training. With `tau=None` the anchor term is the flat per-position mean (`anchor_term`); with a float (∞ allowed) it is the per-line mellowmax (`pooled_anchor_term`), and *n_lines* bounds the local line index the step's `line_id` argument carries. Returns the three loss terms separately: the anchor term is the training-side view of what the alignment measurements read later, and the anti-subspace term is the same view of the mean alignment the containment gates score. Pass `anti_weight=0` for a bare anchor.
 
-    *slices* restricts both terms to the named residual-stream slices (slice 0 is the embedding); `None` is every slice, the term as ex-2.1 and ex-2.2 trained it. *clean_rows* names embeddings that may not carry the anchor axis: after each optimizer step and nGPT's re-normalization, the axis component of those embeddings is zeroed and they are re-normalized, the same kind of hard constraint as the unit norm. It is the tied-table fix for the syntax-embedding leak: those embeddings stay shared between the embedding table and the readout table, and training finds whatever solution it can with them held off the axis.
+    *slices* restricts both terms to the named residual-stream slices (slice 0 is the embedding); `None` is every slice, the term as ex-2.1 and ex-2.2 trained it. *axes* is where both terms read the alignment (`axes_alignment`): one axis, or the span of several. *clean_rows* names embeddings that may not carry the anchor axis: after each optimizer step and nGPT's re-normalization, the axis component of those embeddings is zeroed and they are re-normalized, the same kind of hard constraint as the unit norm. It is the tied-table fix for the syntax-embedding leak: those embeddings stay shared between the embedding table and the readout table, and training finds whatever solution it can with them held off the axis.
     """
     if tau is not None and n_lines < 1:
         raise ValueError(f"pooled anchor (tau={tau}) needs n_lines >= 1, got {n_lines}")
@@ -296,9 +322,11 @@ def make_anchored_train_step(
             if sel is not None:
                 states = states[sel]
             anchor = (
-                anchor_term(states, mask) if tau is None else pooled_anchor_term(states, mask, line_id, n_lines, tau)
+                anchor_term(states, mask, axes)
+                if tau is None
+                else pooled_anchor_term(states, mask, line_id, n_lines, tau, axes)
             )
-            anti = anti_subspace_term(states, live)
+            anti = anti_subspace_term(states, live, axes)
             return task + weight * anchor + anti_weight * anti, (task, anchor, anti)
 
         (_, (task, anchor, anti)), grads = eqx.filter_value_and_grad(loss_fn, has_aux=True)(model)
@@ -393,22 +421,25 @@ def sample_anchored_batches(
 
 
 @eqx.filter_jit
-def _stream_axis(model: LanguageModel, tokens: Int[Array, "N T"]) -> Float[Array, "L1 N T"]:
-    """Jitted at module level so the trajectory's repeated calls compile once."""
-    return model.residual_stream(tokens)[..., ANCHOR_AXIS]
+def _stream_axis(
+    model: LanguageModel, tokens: Int[Array, "N T"], axes: tuple[int, ...] = ANCHOR_AXES
+) -> Float[Array, "L1 N T"]:
+    """Jitted at module level so the trajectory's repeated calls compile once (once per *axes*, a static arg)."""
+    return axes_alignment(model.residual_stream(tokens), axes)
 
 
 def alignment(
     model: LanguageModel,
     tokens: Int[np.ndarray, "N T"],
     batch_size: int = 1024,
+    axes: tuple[int, ...] = ANCHOR_AXES,
 ) -> Float[np.ndarray, "L1 N T"]:
-    """cos(h, e₁) at every residual-stream slice and position, for each line of *tokens*.
+    """cos(h, e₁) at every residual-stream slice and position, for each line of *tokens*; with several *axes*, the alignment with their span (`axes_alignment`).
 
     nGPT is dropout-free, so there is no inference mode to switch into: the training-time and measurement-time forward passes are the same function.
     """
     chunks = [
-        np.asarray(_stream_axis(model, jnp.asarray(tokens[i : i + batch_size])))
+        np.asarray(_stream_axis(model, jnp.asarray(tokens[i : i + batch_size]), tuple(axes)))
         for i in range(0, len(tokens), batch_size)
     ]
     return np.concatenate(chunks, axis=1)
