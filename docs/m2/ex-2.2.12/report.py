@@ -1107,7 +1107,7 @@ sweep_figure(
 f"""
 **What we saw: ᾱ at op1.** The sharper τ lowers it a little: `tau-0.03` reaches {float(res.stat("tau-0.03", "alpha_op1").mean()):.3f} against {float(res.stat(REFERENCE, "alpha_op1").mean()):.3f} for the reference, a drop smaller than the band, and `tau-0.01` barely moves it, at {float(res.stat("tau-0.01", "alpha_op1").mean()):.3f}. The force conditions sit at about the same level as `tau-0.03`, which was not predicted and is also inside the band.
 
-The plane conditions sit higher, at {min(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}. That is the scoring rather than the models, since an unsigned two-dimensional alignment is higher for every state. Measured against the control scored on the plane, their excess is {min(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, below the {prop["ref_alpha"]:.2f} the reference shows over its own control.
+The plane conditions read higher, at {min(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, which is the scoring rather than the models: an unsigned two-dimensional alignment is higher for every state, so the comparison that counts is with the control scored on the plane. Against that, their excess is {min(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, below the {prop["ref_alpha"]:.2f} the reference shows over its own control.
 
 We take that to mean the plane conditions drift no more than the axis ones, rather than that they drift less. The two excesses are over different baselines, and a state that drifts the same distance in the stream shows a smaller excess on a plane than on an axis.
 """
@@ -1169,7 +1169,7 @@ The side split says the surviving lines have G = B, and three grid colors do. Sp
 red_color_table(res)
 
 f"""
-Nearly all of the survival comes from two colors: the darker red and the paler one. Pure red, with the same hue and the highest redness of the seven, is removed about as cleanly as the hue-shifted reds. So what survives is not hue zero as such. It is not the red dose as such either, since two of the hue-shifted reds have the same redness as the surviving pair.
+Nearly all of the survival comes from two colors: the darker red and the paler one. Pure red, with the same hue and the highest redness of the seven, is removed about as cleanly as the hue-shifted reds on the seed mean, though with a wider spread: one seed keeps most of its pure-red lines. So what survives is not hue zero as such. It is not the red dose as such either, since two of the hue-shifted reds have the same redness as the surviving pair.
 
 We do not have a mechanism for the pair. A `{ex.MISSED_OP}` answer takes its hue from the second operand and its saturation and value from the first, so the answer of a surviving line is a hue-zero color at the saturation and value of the first operand.
 
