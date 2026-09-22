@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from types import SimpleNamespace
 from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 from scipy import stats
 
 from mini.lit import memo, stop
@@ -166,6 +167,10 @@ class Results:
         """ᾱ at op1 as a ratio to the un-anchored baseline scored the same way."""
         return float(self.stat(cond, "alpha_op1").mean() / self.stat(self.baseline(cond), "alpha_op1").mean())
 
+    def alpha_excess(self, cond: str) -> float:
+        """ᾱ at op1 as an excess over the un-anchored baseline scored the same way: the ᾱ clause as intended."""
+        return float(self.stat(cond, "alpha_op1").mean() - self.stat(self.baseline(cond), "alpha_op1").mean())
+
     def cost(self, cond: str, key: str) -> np.ndarray:
         """One value per seed of a cost statistic. `task` is the gap from the control on the worst op."""
         match key:
@@ -273,6 +278,7 @@ def gate_status(res: Results, cond: str) -> dict[str, bool]:
 def adoption(res: Results) -> dict:
     """The adoption rule, clause by clause, plus the verdict under ex-2.2.12's fixed band."""
     ref_ratio = res.alpha_ratio(REFERENCE)
+    ref_excess = res.alpha_excess(REFERENCE)
     out: dict[str, dict] = {}
     for c in CONDITIONS:
         g = gate_status(res, c)
@@ -298,21 +304,34 @@ def adoption(res: Results) -> dict:
         # condition misses this clause on the sign alone. The table prints the raw ᾱ and both baselines so
         # the arithmetic is visible. Verify: ᾱ on the axis is a signed cosine, on the plane a length.
         r["alpha_ok"] = r["alpha_ratio"] <= ref_ratio
+        # REVIEW: the review of the first draft read the clause as it was intended rather than to the
+        # letter, so the rule is also scored with the ᾱ clause as an excess over the condition's own
+        # baseline, which is how ex-2.2.12 compared ᾱ across subspaces. Both verdicts are in the table,
+        # and the prose says which one the report acts on. Verify: `plane-0.1` is the only condition
+        # whose upper bounds clear the gate, so the two readings differ on it alone.
+        r["alpha_excess"] = res.alpha_excess(c)
+        r["alpha_ok_intended"] = r["alpha_excess"] <= ref_excess
         r["qualifies"] = r["missed_ok"] and r["others_ok"] and all(g.values()) and r["alpha_ok"]
+        r["qualifies_intended"] = r["missed_ok"] and r["others_ok"] and all(g.values()) and r["alpha_ok_intended"]
         r["old_rule"] = r["mean"] <= OLD_LEVEL and all(g.values()) and r["alpha_ok"]
         out[c] = r
     lam = {c.name: c.lam for c in ex.GRID}
     qual = [c for c in CONDITIONS if out[c]["qualifies"]]
+    intended = [c for c in CONDITIONS if out[c]["qualifies_intended"]]
     old_qual = [c for c in CONDITIONS if out[c]["old_rule"]]
     adopted = min(qual, key=lambda c: (out[c]["ucb"], lam[c])) if qual else None
+    adopted_intended = min(intended, key=lambda c: (out[c]["ucb"], lam[c])) if intended else None
     old_adopted = min(old_qual, key=lambda c: (out[c]["mean"], lam[c])) if old_qual else None
     return {
         "conditions": out,
         "qualifying": qual,
         "adopted": adopted,
+        "qualifying_intended": intended,
+        "adopted_intended": adopted_intended,
         "old_qualifying": old_qual,
         "old_adopted": old_adopted,
         "ref_ratio": ref_ratio,
+        "ref_excess": ref_excess,
     }
 
 
@@ -357,11 +376,23 @@ def dots(ax: Axes, x: float, v: np.ndarray, cond: str, *, rng, ms: float = 6.0, 
     ax.plot(x, v.mean(), m, ms=ms, color=color, zorder=5, mec=light_dark("white", "#111"), mew=0.6, label=label)
 
 
-def band(ax: Axes, v: np.ndarray, color: str, label: str | None = None) -> None:
-    """A condition's seed range as a band across the panel, with its seed mean as a line."""
+def column_box(ax: Axes, x: float, v: np.ndarray, color: str, label: str | None = None, *, half=0.03) -> None:
+    """A control's seed range as a box under one column, with its seed mean as a tick across it."""
     v = np.asarray(v, float)
-    ax.axhspan(v.min(), v.max(), color=color, alpha=0.12, lw=0, zorder=0, label=label)
-    ax.axhline(v.mean(), color=color, lw=0.9, alpha=0.8, zorder=1)
+    ax.add_patch(
+        Rectangle(
+            (x - half, v.min()),
+            2 * half,
+            v.max() - v.min(),
+            facecolor=color,
+            edgecolor=color,
+            alpha=0.2,
+            lw=0.6,
+            zorder=0,
+            label=label,
+        )
+    )
+    ax.plot([x - half, x + half], [v.mean()] * 2, "-", color=color, lw=0.9, alpha=0.8, zorder=1)
 
 
 def gate_line(ax: Axes, y: float, *, partial: float | None = None, fail: str | None = None) -> None:
@@ -424,6 +455,12 @@ def table_html(head: list[str], rows: list[list[str]], caption: str, *, ref_rows
 
 def bold_if(text: str, ok: bool) -> str:
     return f"<b>{text}</b>" if ok else text
+
+
+def verdict_md(status: str, line: str) -> str:
+    """The verdict admonition that closes a hypothesis section; the site hoists its title into the heading."""
+    kind = {"pass": "success", "partial": "warning", "miss": "danger", "unresolved": "info"}[status]
+    return f"/// admonition | {status.capitalize()}\n    type: {kind}\n{line}\n///"
 
 
 # --- H1: the spread of the leftover -------------------------------------------------------------
@@ -718,8 +755,9 @@ def check_alt(res: Results) -> str:
     return f"""
         Two dot panels. Left, the line margin against the anchor weight on a log scale: on the axis it
         {d} from {m["axis"][0]:.2f} at the lowest rung to {m["axis"][-1]:.2f} at the top, with the plane
-        below it, and a grey band marks the un-anchored control. Right, ᾱ at op1 on the same axis, with a
-        grey band for the control scored on the axis and a second for the control scored on the plane.
+        below it, and a tinted box under each column marks the un-anchored control. Right, ᾱ at op1 on the
+        same axis, with the control box under each axis column scored on the axis and the one under each
+        plane column scored on the plane, the plane boxes sitting higher.
     """
 
 
@@ -731,10 +769,11 @@ def check_draw(values: dict, alt_text: str) -> str:
         caption=f"""
             **The two quantities the treatment acts on.** Left, the line margin, which the anchor term
             optimizes: the manipulation check, with a heavier pull expected to raise it. Right, ᾱ at op1, which
-            the anti-subspace term acts on, with no direction attached to it. The grey bands are the
-            un-anchored control's seed range, scored on the axis for the axis conditions and on the plane
-            (`{ex.CONTROL_PLANE}`) for the plane ones: an unsigned two-dimensional alignment sits higher than a
-            signed one-dimensional one for every state, so the two subspaces compare against different bands.
+            the anti-subspace term acts on, with no direction attached to it. The tinted box under each
+            column is the un-anchored control's seed range, scored on that column's subspace: on the axis for
+            the axis conditions and on the plane (`{ex.CONTROL_PLANE}`) for the plane ones. An unsigned
+            two-dimensional alignment sits higher than a signed one-dimensional one for every state, so the
+            two subspaces compare against different boxes.
         """,
     )
     def _plot() -> plt.Figure:
@@ -742,10 +781,10 @@ def check_draw(values: dict, alt_text: str) -> str:
         axes = cast(AxesRow, axes)
         rng = np.random.default_rng(9)
         for ax, k, ylabel in zip(axes, ("m_line", "alpha_op1"), ("line margin m_line", "ᾱ at op1"), strict=True):
-            for ctrl, lab in ((CONTROL, "control (axis)"), (PLANE_CONTROL, "control (plane)")):
-                band(ax, values[ctrl, k], light_dark(*CONTROL_INK), label=lab if k == "m_line" else None)
-            for sub in ex.SUBSPACES:
-                for x, c in zip(xs_of(sub), rungs(sub), strict=True):
+            for sub, ctrl in (("axis", CONTROL), ("plane", PLANE_CONTROL)):
+                for i, (x, c) in enumerate(zip(xs_of(sub), rungs(sub), strict=True)):
+                    lab = f"control, scored on the {sub}" if k == "m_line" and i == 0 else None
+                    column_box(ax, x, values[ctrl, k], ink(rungs(sub)[0]), label=lab)
                     dots(ax, x, values[c, k], c, rng=rng, label=c if k == "m_line" else None)
             ax.set_ylabel(ylabel, fontsize=8)
             ladder_axis(ax)
@@ -801,6 +840,8 @@ def adoption_table(res: Results, a: dict) -> str:
         "ᾱ ratio ↓",
         "qualifies",
         f"under ex-2.2.12's band ({OLD_LEVEL:.2f})",
+        "ᾱ excess ↓",
+        "qualifies, as intended",
     ]
     rows = []
     for c in CONDITIONS:
@@ -815,6 +856,8 @@ def adoption_table(res: Results, a: dict) -> str:
                 bold_if(f"{r['alpha_ratio']:.2f}", r["alpha_ok"]),
                 bold_if("yes" if r["qualifies"] else "no", r["qualifies"]),
                 bold_if("yes" if r["old_rule"] else "no", r["old_rule"]),
+                bold_if(f"{r['alpha_excess']:.2f}", r["alpha_ok_intended"]),
+                bold_if("yes" if r["qualifies_intended"] else "no", r["qualifies_intended"]),
             ]
         )
     return table_html(
@@ -827,7 +870,9 @@ def adoption_table(res: Results, a: dict) -> str:
         f"the axis, where the alignment is signed and the control's five seeds straddle zero, and "
         f"{res.stat(PLANE_CONTROL, 'alpha_op1').mean():+.3f} on the plane, where it is unsigned. The last column "
         f"applies ex-2.2.12's fixed band to the seed mean "
-        f"instead of the upper bound, with the same cost and ᾱ clauses.",
+        f"instead of the upper bound, with the same cost and ᾱ clauses. The last two columns read the ᾱ "
+        f"clause as intended, as an excess over the condition's own baseline, passing when it is no higher "
+        f"than the reference's {a['ref_excess']:.2f}; that reading was adopted at review, after the data.",
         ref_rows=frozenset({CONDITIONS.index(REFERENCE)}),
     )
 
@@ -1149,6 +1194,7 @@ V = SimpleNamespace(
     base=_base,
     ref_ratio=verdicts["ref_ratio"],
     p01=_v["plane-0.1"],
+    intended=verdicts["qualifying_intended"],
     excess={"plane-0.1": _excess["plane-0.1"], REFERENCE: _excess[REFERENCE]},
     n_outside=sum(abs(d[0]) > ex.MEAN_BAND for d in _pair.values()),
 )
@@ -1160,17 +1206,19 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-The recipe from ex-2.2.11 removes *red* on ten of eleven ops. What it leaves behind on the eleventh swings widely from seed to seed. Ex-2.2.12 saw one condition where that leftover varied much less. Here we climb a ladder of anchor weights, on an axis and on a plane, at fresh seeds, and ask whether a heavier anchor gives us a leftover we can predict. It does not. Across a 2.8× heavier anchor the line margin, the quantity the anchor term optimizes, rises by about three percent, and the spread of the leftover across seeds does not narrow on either subspace; the tight condition ex-2.2.12 saw was five lucky seeds. What does move the leftover is where *red* lives: on the plane it is smaller at every rung, and the plane at the recipe's own weight is the lowest in the experiment. It clears every clause of the adoption rule except one whose arithmetic does not compare across subspaces, so the recipe stays at `{ex.REFERENCE}`, and the leftover goes to the anchored-op experiments as a bounded confound rather than a fixed one.
+The recipe from ex-2.2.11 leaves some *red* behind on one op of eleven, and how much swings widely from seed to seed. We climb a ladder of anchor weights, on an axis and on a plane, and ask whether a heavier anchor gives us a leftover we can predict. It does not.
 ///
+
+Making the anchor 2.8× heavier raises the line margin, the quantity the anchor term optimizes, by about three percent. It does not narrow the seed-to-seed spread of the leftover on either subspace; the tight condition ex-2.2.12 saw was five lucky seeds. What does move the leftover is where *red* lives. On the plane the leftover is smaller at every rung, and the plane at the weight used by the recipe is the lowest in the experiment. Read as the adoption rule intended, that condition qualifies. We keep the recipe at `{ex.REFERENCE}` all the same: the gain is small and it costs a second coordinate. The plane is now a validated alternative for a concept that needs more room. The anchored-op experiments inherit the leftover as a bounded confound rather than a fixed one.
 
 ## Findings
 
-- [The leftover gets more predictable (H1)](#the-leftover-gets-more-predictable-h1) — did not hold. On the axis the spread falls a little with the weight, to {V.ratio[_a]:.2f} of the reference's against a gate of {ex.SD_RATIO_GATE:g}; on the plane it widens. Ex-2.2.12's tight plane condition does not replicate at twenty seeds.
-- [The leftover does not get smaller (H2)](#the-leftover-does-not-get-smaller-h2) — held on the axis. The plane lowers the mean at every rung, `plane-{ex.LADDER[0]:g}` by {-V.pair["plane-0.1"][0]:.2f} with an interval clear of zero. The weight moves the mean in no consistent direction.
-- [The worst op improves (H3)](#the-worst-op-improves-h3) — held on the axis, where the worst other op falls by {V.worst_top[_a][1]:.3f} at the top rung; missed on the plane, where it turns back up at the top rung.
-- [What the weight spends (H4)](#what-the-weight-spends-h4) — held. Every cost statistic is inside its gate at every condition. The line margin rises by about three percent across the ladder, so the treatment reaches the model and is close to saturated at the recipe's weight.
+- [The leftover gets more predictable (H1)](#the-leftover-gets-more-predictable-h1) — did not hold. On the axis the spread falls a little as the weight rises, to {V.ratio[_a]:.2f} of the spread at the reference, against a gate of {ex.SD_RATIO_GATE:g}. On the plane it widens. The tight plane condition from ex-2.2.12 does not replicate at twenty seeds.
+- [The leftover does not get smaller (H2)](#the-leftover-does-not-get-smaller-h2) — held on the axis. The plane lowers the mean at every rung, `plane-{ex.LADDER[0]:g}` by {-V.pair["plane-0.1"][0]:.2f}, with an interval clear of zero. The weight moves the mean in no consistent direction.
+- [The worst op improves (H3)](#the-worst-op-improves-h3) — held on the axis, where the worst other op falls by {V.worst_top[_a][1]:.3f} at the top rung. It missed on the plane, where the worst other op turns back up at the top rung.
+- [What the weight spends (H4)](#what-the-weight-spends-h4) — held. Every cost statistic is inside its gate at every condition. The line margin rises by about three percent across the ladder, so the treatment does reach the model, and it is close to saturated at the weight used by the recipe.
 
-[The adoption rule](#the-adoption-rule): no condition qualifies under either rule, and the recipe stays at `{ex.REFERENCE}`. `plane-{ex.LADDER[0]:g}` clears every clause about the leftover and the costs and fails the ᾱ clause on its arithmetic, which is a fault in the rule as written.
+[The adoption rule](#the-adoption-rule): `plane-{ex.LADDER[0]:g}` clears every clause about the leftover and the costs, and fails the ᾱ clause only on that clause's arithmetic, a fault in the rule as written. Read as intended, it is the one condition that qualifies. The recipe stays at `{ex.REFERENCE}` by a decision made after the data: the gain is about {-V.pair["plane-0.1"][0]:.2f} on the leftover's mean, and it costs a second coordinate of the stream.
 
 ## How to read this draft
 
@@ -1238,7 +1286,7 @@ Everything else is unchanged from ex-2.2.11: [table A+](../ex-2.2.4/report.py#th
 
 ## The leftover gets more predictable (H1)
 
-**H1.** Across the ladder, the seed spread of the kept share on the `{ex.MISSED_OP}` removal lines narrows as λ_a rises. The number we score is the ratio of the standard deviation at the top of the ladder to the one at the lowest rung, within a subspace. H1 holds when that ratio falls to {ex.SD_RATIO_GATE:g} or below in both subspaces, and the spread falls monotonically enough that a trend contrast across the four levels has a negative slope at {ex.TREND_ALPHA:g}.[^trend]
+**What we expect.** Across the ladder, the seed spread of the kept share on the `{ex.MISSED_OP}` removal lines narrows as λ_a rises. The number we score is the ratio of the standard deviation at the top of the ladder to the one at the lowest rung, within a subspace. H1 holds when that ratio falls to {ex.SD_RATIO_GATE:g} or below in both subspaces, and the spread falls monotonically enough that a trend contrast across the four levels has a negative slope at {ex.TREND_ALPHA:g}.[^trend]
 
 It holds in part when one subspace does that and the other does not. On the plane alone, that would say the narrowing needs the plane, and the comparison of `plane-{ex.LADDER[0]:g}` with the reference then says whether the plane narrows the spread by itself or only once the weight rises. A flat or rising spread in both would mean the tight condition in ex-2.2.12 was five lucky seeds, and that nothing on this ladder buys predictability.
 
@@ -1257,15 +1305,17 @@ h1_figure(res)
 h1_table(res)
 
 rf"""
-H1 did not hold. On the axis the spread falls a little with the weight: the standard deviation at the top rung is {V.ratio[_a]:.2f} of the reference's, against a gate of {ex.SD_RATIO_GATE:g}, and the trend contrast has a negative slope at one-sided p = {V.p[_a]:.3f}. The trend clause passes and the ratio clause does not, so the narrowing is there and it is small. On the plane the spread widens: the ratio is {V.ratio[_pl]:.2f} and the slope is positive.
+**What we saw.** H1 did not hold. On the axis the spread falls a little with the weight: the standard deviation at the top rung is {V.ratio[_a]:.2f} of the reference's, against a gate of {ex.SD_RATIO_GATE:g}, and the trend contrast has a negative slope at one-sided p = {V.p[_a]:.3f}. The trend clause passes and the ratio clause does not, so the narrowing is there and it is small. On the plane the spread widens: the ratio is {V.ratio[_pl]:.2f} and the slope is positive.
 
 The observation this experiment followed up did not replicate. Ex-2.2.12's `plane-{ex.LADDER[2]:g}` had a standard deviation of {V.p02_earlier[1]:.3f} over five seeds; the same condition at twenty fresh seeds has {V.sd["plane-0.2"]:.3f}, in line with every other rung. Its mean did replicate ({V.p02_earlier[0]:.3f} then, {V.mean["plane-0.2"]:.3f} now), and so did the reference's ({V.ref_earlier[0]:.3f} at ex-2.2.11's seeds, {V.mean[ex.REFERENCE]:.3f} here). A standard deviation from five draws has the wide interval the prereg noted, and this is what the low end of that interval looks like when it comes up.
 
 The sampling-noise reading H1 asked us to rule out does not arise: no mean moved close enough to zero or one to bound its spread. The means themselves are H2.
 
+{verdict_md("miss", "The spread narrows a little on the axis and widens on the plane; neither reaches the gate, and the tight condition from ex-2.2.12 does not replicate.")}
+
 ## The leftover does not get smaller (H2)
 
-**H2.** The seed-mean kept share on `{ex.MISSED_OP}` is flat across the ladder: no level differs from the reference by more than {ex.MEAN_BAND:g}, which is about what twenty paired seeds can resolve at the spread of the reference. H2 is a statement about what we can see at this resolution rather than a claim that the mean is unmoved, and a reviewer reading it as an equivalence test with a wide band is reading it right.
+**What we expect.** The seed-mean kept share on `{ex.MISSED_OP}` is flat across the ladder: no level differs from the reference by more than {ex.MEAN_BAND:g}, which is about what twenty paired seeds can resolve at the spread of the reference. H2 is a statement about what we can see at this resolution rather than a claim that the mean is unmoved, and a reviewer reading it as an equivalence test with a wide band is reading it right.
 
 The evidence for it: the one step ex-2.2.12 took moved the mean up on the axis and down on the plane, and its tight plane condition sits almost exactly on the mean of the five reference seeds it pairs with. A level that does move the mean down by more than {ex.MEAN_BAND:g} would be a better result than we expect, and the adoption rule is written to take it.
 
@@ -1277,13 +1327,15 @@ The means themselves are the large marks of the H1 figure, read along the λ_a a
 h2_table(res)
 
 rf"""
-H2 held on the axis and not on the plane, and the way it fails is the more useful result. On the axis, two of the three rungs sit inside the band and `axis-{ex.LADDER[1]:g}` just outside it, with no trend in the weight: the mean goes down, up, and down again along the ladder. On the plane every rung is below the reference, three of the four by more than the band, and `plane-{ex.LADDER[0]:g}` by {-V.pair["plane-0.1"][0]:.3f} with a 95% interval of {-V.pair["plane-0.1"][2]:.3f} to {-V.pair["plane-0.1"][1]:.3f} below it. That is the comparison ex-2.2.12 could not resolve at five seeds, and at twenty it says the subspace lowers the leftover on its own. Adding weight on top of the plane moves the mean back up a little rather than further down.
+**What we saw.** H2 held on the axis and not on the plane. On the axis, two of the three rungs sit inside the band and `axis-{ex.LADDER[1]:g}` just outside it, with no trend in the weight: the mean goes down, up, and down again along the ladder. On the plane every rung is below the reference, three of the four by more than the band, and `plane-{ex.LADDER[0]:g}` by {-V.pair["plane-0.1"][0]:.3f} with a 95% interval of {-V.pair["plane-0.1"][2]:.3f} to {-V.pair["plane-0.1"][1]:.3f} below it. That is the comparison ex-2.2.12 could not resolve at five seeds, and at twenty it says the subspace lowers the leftover on its own. Adding weight on top of the plane moves the mean back up a little rather than further down.
 
 So the shape of the claim in the prereg, no smaller and the same size every time, came out the other way round: the plane makes the leftover somewhat smaller, and nothing on the ladder makes it more predictable.
 
+{verdict_md("partial", "Flat within the band on the axis; lower than the reference at every rung on the plane.")}
+
 ## The worst op improves (H3)
 
-**H3.** On the ten ops other than `{ex.MISSED_OP}`, the highest per-op seed-mean kept share falls as λ_a rises. The number we score is that highest value at the top of the ladder against the same quantity at the reference, both at twenty seeds; H3 holds when it falls by at least {ex.WORST_OP_MARGIN:g}.
+**What we expect.** On the ten ops other than `{ex.MISSED_OP}`, the highest per-op seed-mean kept share falls as λ_a rises. The number we score is that highest value at the top of the ladder against the same quantity at the reference, both at twenty seeds; H3 holds when it falls by at least {ex.WORST_OP_MARGIN:g}.
 
 Any claim that a recipe removes *red* cleanly is limited by whichever op does worst, and that is not the same op in every condition, so a mean over the ten would hide it.
 
@@ -1296,11 +1348,13 @@ h3_figure(res)
 h3_table(res)
 
 rf"""
-H3 held on the axis and missed on the plane. The frozen wording does not split the top of the ladder by subspace, so we read it with H1's convention and call it partial. On the axis the worst other op falls at every rung, and by {V.worst_top[_a][1]:.3f} at `{_top[_a]}`, twice the margin. On the plane it falls by the margin or more at the two middle rungs and turns back up at `{_top[_pl]}`, to {V.worst_top[_pl][1]:.3f} under the reference, short of the margin. The worst op is `{V.worst_ref[0]}` at the reference and `{V.worst_top[_a][0]}` everywhere else, as the spacing in ex-2.2.12 suggested, and every condition's worst other op is under the gate. The ten ops that already remove *red* have some room to spare, and a heavier anchor on the axis uses a little of it.
+**What we saw.** H3 held on the axis and missed on the plane. The frozen wording does not split the top of the ladder by subspace, so we read it with H1's convention and call it partial. On the axis the worst other op falls at every rung, and by {V.worst_top[_a][1]:.3f} at `{_top[_a]}`, twice the margin. On the plane it falls by the margin or more at the two middle rungs and turns back up at `{_top[_pl]}`, to {V.worst_top[_pl][1]:.3f} under the reference, short of the margin. The worst op is `{V.worst_ref[0]}` at the reference and `{V.worst_top[_a][0]}` everywhere else, as the spacing in ex-2.2.12 suggested, and every condition's worst other op is under the gate. The ten ops that already remove *red* have some room to spare, and a heavier anchor on the axis uses a little of it.
+
+{verdict_md("partial", "The worst other op falls by twice the margin at the top of the axis ladder, and turns back up at the top of the plane's.")}
 
 ## What the weight spends (H4)
 
-**H4.** Every cost statistic stays inside its gate from ex-2.2.11 on the seed mean through the whole ladder: {ex.COST_LIST}. The ladder stops under the level where the six-op survey saw the task give way, so we expect every cost to hold; the one we name as most likely to leave its gate first is the non-red deficit on the plane conditions, which ex-2.2.12 measured four times higher on the plane than on the axis.
+**What we expect.** Every cost statistic stays inside its gate from ex-2.2.11 on the seed mean through the whole ladder: {ex.COST_LIST}. The ladder stops under the level where the six-op survey saw the task give way, so we expect every cost to hold; the one we name as most likely to leave its gate first is the non-red deficit on the plane conditions, which ex-2.2.12 measured four times higher on the plane than on the axis.
 
 If a statistic leaves its gate at or below λ_a = {ex.LADDER[-1]:g}, the useful range of the recipe on this grammar is narrower than the map in ex-2.1.11 suggested, which is worth knowing on its own. If none does, the range is at least this wide, and where it ends stays open.
 
@@ -1316,9 +1370,11 @@ cost_table(res)
 check_figure(res)
 
 rf"""
-H4 held: every statistic is inside its gate at every condition, and none comes near one. The non-red deficit on the plane is two to eight times the axis's, in the direction predicted, and still a factor of three under its gate; it falls with the weight rather than rising. So the useful range of the recipe on this grammar reaches at least λ_a = {ex.LADDER[-1]:g}, and where it ends is still open.
+**What we saw.** H4 held: every statistic is inside its gate at every condition, and none comes near one. The non-red deficit on the plane is two to eight times the axis's, in the direction predicted, and still a factor of three under its gate; it falls with the weight rather than rising. So the useful range of the recipe on this grammar reaches at least λ_a = {ex.LADDER[-1]:g}, and where it ends is still open.
 
-The manipulation check is the finding of this section. The line margin rises with the weight on both subspaces, and by very little: from {V.margin[_a][0]:.3f} to {V.margin[_a][1]:.3f} on the axis and from {V.margin[_pl][0]:.3f} to {V.margin[_pl][1]:.3f} on the plane, about three percent for an anchor 2.8 times heavier. The weight reaches the model, and the quantity it optimizes is close to saturated at the recipe's weight already. That is the likely reason H1 and H2 had so little to respond to: between {ex.LADDER[0]:g} and {ex.LADDER[-1]:g} the recipe sits on a plateau of the thing it trains. ᾱ at op1 falls with the weight on the axis, from {V.alpha[_a][0]:.3f} to {V.alpha[_a][1]:.3f}, which is the anti-subspace term climbing beside the pull, and barely moves on the plane.
+The manipulation check is the finding of this section. The line margin rises with the weight on both subspaces, but by very little: from {V.margin[_a][0]:.3f} to {V.margin[_a][1]:.3f} on the axis and from {V.margin[_pl][0]:.3f} to {V.margin[_pl][1]:.3f} on the plane, about three percent for an anchor 2.8 times heavier. The weight reaches the model, and the quantity it optimizes is close to saturated at the recipe's weight already. That is the likely reason H1 and H2 had so little to respond to: between {ex.LADDER[0]:g} and {ex.LADDER[-1]:g} the recipe sits on a plateau of the thing it trains. ᾱ at op1 falls with the weight on the axis, from {V.alpha[_a][0]:.3f} to {V.alpha[_a][1]:.3f}, which is the anti-subspace term climbing beside the pull, and barely moves on the plane.
+
+{verdict_md("pass", "Every cost statistic is inside its gate at every rung, and the line margin rises with the weight, by about three percent.")}
 
 ## The adoption rule
 
@@ -1332,11 +1388,13 @@ What changed from the rule in ex-2.2.12, and why. {ex.OLD_RULE}
 adoption_table(res, verdicts)
 
 rf"""
-No condition qualifies under either rule, so the recipe stays at `{ex.REFERENCE}`. Under ex-2.2.12's fixed band nothing comes close: the lowest seed mean is `plane-{ex.LADDER[0]:g}` at {V.mean["plane-0.1"]:.3f}, against a band that asks for {ex.KEPT_GATE - ex.OLD_BAND:g}.
+To the letter, no condition qualifies under either rule. Under the fixed band from ex-2.2.12 nothing comes close: the lowest seed mean is `plane-{ex.LADDER[0]:g}` at {V.mean["plane-0.1"]:.3f}, against a band that asks for {ex.KEPT_GATE - ex.OLD_BAND:g}.
 
-Under the rule frozen here, `plane-{ex.LADDER[0]:g}` clears every clause about the leftover and the costs. Its upper bound on `{ex.MISSED_OP}` is {V.p01["ucb"]:.3f} and its worst other op's is {V.p01["others_ucb"]:.3f}, both under the {ex.KEPT_GATE:g} gate, and every cost statistic passes. It fails the ᾱ clause alone, and it fails on arithmetic. The clause compares each condition's ᾱ as a ratio to the un-anchored baseline of its own subspace with the reference's ratio to the axis baseline. The axis baseline is a signed cosine that averages {V.base[_a]:.3f} over the five control seeds, so the reference's ratio is {V.ref_ratio:.1f}; the plane baseline is an unsigned length, {V.base[_pl]:.3f}, so every plane ratio is a small positive number, and no positive number is below a negative one. In raw terms the plane conditions' ᾱ is about {V.alpha[_pl][1]:.2f} to {V.alpha[_pl][0]:.2f} against {V.alpha[_a][1]:.2f} to {V.alpha[_a][0]:.2f} on the axis, a modest difference that the ratio turns into an impossible one.
+Under the rule frozen here, `plane-{ex.LADDER[0]:g}` clears every clause about the leftover and the costs. Its upper bound on `{ex.MISSED_OP}` is {V.p01["ucb"]:.3f} and the upper bound on its worst other op is {V.p01["others_ucb"]:.3f}. Both are under the {ex.KEPT_GATE:g} gate, and every cost statistic passes. The one clause it fails is the ᾱ clause, and it fails on the arithmetic of that clause. The clause takes the ᾱ of each condition as a ratio to the un-anchored baseline of its own subspace, then compares that with the ratio of the reference to the axis baseline. The axis baseline is a signed cosine, and it averages {V.base[_a]:.3f} over the five control seeds, so the ratio for the reference is {V.ref_ratio:.1f}. The plane baseline is an unsigned length, {V.base[_pl]:.3f}, so every plane ratio is a small positive number, and no positive number is below a negative one. In raw terms the ᾱ of the plane conditions runs about {V.alpha[_pl][1]:.2f} to {V.alpha[_pl][0]:.2f}, against {V.alpha[_a][1]:.2f} to {V.alpha[_a][0]:.2f} on the axis. The difference is modest, and the ratio turns it into an impossible one.
 
-We do not adopt `plane-{ex.LADDER[0]:g}` over that clause. The rule's override runs one way, keeping the reference when a qualifying condition looks harmful, and says nothing about waiving a clause a condition fails. The clause was ill-posed across subspaces, which is a mistake in the prereg and says nothing about the plane. Read as an excess over its own baseline, which is how ex-2.2.12 compared ᾱ across subspaces, `plane-{ex.LADDER[0]:g}` sits {V.excess["plane-0.1"]:.2f} above its baseline where the reference sits {V.excess[ex.REFERENCE]:.2f} above the axis one, and would have passed. That reading is post hoc, so it goes into the next preregistration rather than into this verdict: the anchored-op experiment that inherits the recipe is the place to write the plane in as a preregistered alternative, with the ᾱ clause stated as an excess.
+The clause was written badly, so we read it as it was meant. Its purpose was to catch a condition that pulls the other colors toward the home of *red* more than the reference does, and the ratio was an attempt in the prereg to put the two subspaces on one scale. The comparison ex-2.2.12 made across subspaces, and the one the clause was reaching for, is the excess over the baseline of each subspace. On that reading `plane-{ex.LADDER[0]:g}` sits {V.excess["plane-0.1"]:.2f} above its own baseline where the reference sits {V.excess[ex.REFERENCE]:.2f} above the axis one, so it passes. The last column of the table applies that reading to every condition, and `plane-{ex.LADDER[0]:g}` is the one condition that qualifies. Reading a frozen rule by its intent is a decision made after the data, so the table keeps the literal column beside it and a reader can weigh the two.
+
+We keep the recipe at `{ex.REFERENCE}` all the same. That is a second decision made after the data, on grounds the rule does not name. The plane lowers the mean of the leftover by about {-V.pair["plane-0.1"][0]:.2f}. In return the concept takes two coordinates of the stream instead of one, the non-red deficit is a few times the one on the axis, and every anchored-op experiment that follows inherits a two-dimensional home for a hue that one dimension holds well enough on ten ops of eleven. That is a small gain at a standing cost. What the ladder has settled is that the plane works, and by how much, so it is a validated alternative for a concept that turns out to need more room than an axis. If it is preregistered, the ᾱ clause should be stated as an excess.
 
 ## Exploratory analyses
 
@@ -1384,17 +1442,17 @@ r"""
 alpha_figure(res)
 
 r"""
-The response is the same curve at every rung: a clean sigmoid in redness, tight across seeds, with the low-redness floor a little lower and the cloud a little thicker at the heavy rungs on the axis. This is the plateau in the line margin seen from the other side.
+The curve is a sigmoid in redness at every rung, and the clouds differ in texture. At λ_a = 0.1 the cloud is smooth on both subspaces. At 0.2 it is noisier, with more low-alignment strays through the middle of the redness range. At 0.28 it is stepped, and the middle of the curve separates into bands. The rung used by the recipe, `axis-0.1`, has the cleanest response of the eight. This is the plateau in the line margin seen from the other side: the mean curve barely moves as the weight rises, and what the weight changes is the texture across seeds.
 """
 
 rf"""
 ## Discussion
 
-The ladder was built on the premise that we had been running near the bottom of the useful range, and that a heavier anchor would give the downstream measurements something to respond to. What it shows instead is a plateau. Between λ_a {ex.LADDER[0]:g} and {ex.LADDER[-1]:g} the line margin moves by about three percent, every cost stays well inside its gate, and the leftover on `{ex.MISSED_OP}` neither shrinks nor settles. The weight is not the lever we thought it was on this grammar, and the recipe can stay where it is with some confidence that the choice does not matter much.
+The ladder was built on the premise that we had been running near the bottom of the useful range, so a heavier anchor would give the downstream measurements something to respond to. What it shows instead is a plateau. Between λ_a {ex.LADDER[0]:g} and {ex.LADDER[-1]:g} the line margin moves by about three percent, every cost stays well inside its gate, and the leftover on `{ex.MISSED_OP}` neither shrinks nor settles. On this grammar the weight is not the lever we thought it was, so the recipe can stay where it is, with some confidence that the choice does not matter much.
 
-The subspace is a lever, and a small one. The plane lowers the leftover by about {-V.pair["plane-0.1"][0]:.2f} at the recipe's weight, at the cost of a non-red deficit a few times the axis's and still far under its gate. It did not qualify here, for the reason the adoption section gives, so the anchored-op experiments inherit `{ex.REFERENCE}` and can preregister the plane as an alternative with the ᾱ clause written as an excess.
+The subspace *is* a lever, but a small one. At the weight used by the recipe, the plane lowers the leftover by about {-V.pair["plane-0.1"][0]:.2f}. It costs a non-red deficit a few times the one on the axis, still far under the gate. It qualifies under the adoption rule read as intended, and the anchored-op experiments inherit `{ex.REFERENCE}` anyway, for the reasons the adoption section gives. The plane will most likely stay on the shelf. What this ladder adds is that it is a validated shelf: if a concept turns up that a single axis cannot hold, we know the plane works and we know what it costs.
 
-For those experiments the leftover is a bounded confound rather than a fixed one. On the axis it is a kept share near a quarter, with a standard deviation of about {V.sd[ex.REFERENCE]:.2f} across seeds, and no fixed set of lines: about a third of the lines never survive, a second group survives in most seeds, and none survives in every seed. Whatever meets it will have to measure it at its own seeds, which at twenty seeds resolves a shift of about {ex.MEAN_BAND:g}. Where the useful range of the weight ends, and whether τ trades against it as ex-2.1.11's survey found, are open, and neither is needed before the anchored-op work goes ahead.
+For those experiments the leftover is a bounded confound rather than a fixed one. On the axis the kept share is near a quarter, with a standard deviation of about {V.sd[ex.REFERENCE]:.2f} across seeds, and it comes from no fixed set of lines: about a third of the lines never survive, a second group survives in most seeds, and none survives in every seed. Any experiment that meets it will have to measure it at its own seeds, which at twenty seeds resolves a shift of about {ex.MEAN_BAND:g}. Two questions stay open: where the useful range of the weight ends, and whether τ trades against it the way the survey in ex-2.1.11 found. Neither is needed before the anchored-op work goes ahead.
 
 ## Method
 
