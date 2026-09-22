@@ -33,6 +33,7 @@ OVERLAP_PT = 40
 MARGIN_PT = 24
 
 NAMED = {
+    (0.0, 0.0, 0.0): "black",
     (0.76, 0.19, 0.2): "red",
     (0.75, 0.5, 0.82): "purple",
     (0.16, 0.49, 0.23): "green",
@@ -52,7 +53,8 @@ def colour_of(d):
 
 
 def is_plain(col):
-    return col is None or all(c > 0.98 for c in col) or all(c < 0.02 for c in col)
+    # White only: a black pen exports as pure black, so black is not "printed" on its own.
+    return col is None or all(c > 0.98 for c in col)
 
 
 def is_ink(d):
@@ -60,7 +62,8 @@ def is_ink(d):
     if is_plain(col):
         return False
     if d["type"] == "f":
-        return len(d["items"]) > 1  # a pen stroke is many curve segments; a printed box is one rect
+        # A pen stroke is many curve segments; a printed box is one rect, and a rounded code chip is eight.
+        return len(d["items"]) > 8
     return (d.get("width") or 0) > 3  # a highlighter stroke is wide; a printed rule is hairline
 
 

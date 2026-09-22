@@ -22,6 +22,8 @@ Don't hesitate to disagree or point out potential issues. The human values techn
 
 Be proactive. Fix little things as you go, and create todos for larger things.
 
+After opening a PR, subscribe to its activity if you can, and then stop: don't poll it or schedule check-ins to re-read its state. Subscriptions cover CI failures and review comments, and the human will say when something a subscription wouldn't notice (a merge, a base-branch change) needs attention.
+
 Code style & conventions: see the `style-*` skills.
 
 ## Model routing

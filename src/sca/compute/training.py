@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from pathlib import Path
 
 import equinox as eqx
@@ -174,6 +175,7 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     checkpoint_every: int | None = None,
     traj_stride: int = 50,
     n_val_batches: int = 4,
+    on_record: Callable[[int, LanguageModel], None] | None = None,
 ) -> tuple[LanguageModel, list[TrainingMetrics], dict[str, np.ndarray]]:
     """Train with a concept anchor, recording the alignment trajectory as it goes.
 
@@ -222,6 +224,10 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
         traj_stride: Steps between alignment measurements.
         n_val_batches: fixed validation crops behind the trajectory's loss curve,
             drawn once so the curve moves with the model rather than the sample.
+        on_record: called after each trajectory record with the record's index
+            and the model as it stands, so a caller can keep a checkpoint at
+            every trajectory point (a training-dynamics read needs the model
+            through the plateau, where the end checkpoint says nothing).
     """
     data, metadata = load_data(data_dir)
     assert metadata.tokenizer_config.vocab_size <= config.model.vocab_size, "Vocab size mismatch"
@@ -290,6 +296,8 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
             for k, v in window.flush().items():
                 traj[k].append(v)
         emit_metrics(m_op1=m_op1, m_span=m_span)
+        if on_record is not None:
+            on_record(len(traj["step"]) - 1, model)
 
     expected = dict(loss="down", anchor="down", m_op1="up", m_span="up")
     if probe_line_w is not None:

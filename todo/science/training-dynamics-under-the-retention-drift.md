@@ -14,3 +14,7 @@ The proposal is to measure other training-dynamics quantities alongside the alig
 What it needs: checkpoints through training rather than at the end (ex-2.2.9 kept end checkpoints only; the trajectory stride is 100 points), and an estimator run per checkpoint, which is a few hundred SGLD steps on the training loss. Cheap beside a run, and it fits the ex-2.2.11 re-run's train step if the checkpoints are stored on the trajectory stride for a few seeds.
 
 Related: [retention under longer training](retention-under-longer-training.md) (closed; the anneal is not the cause), and the whole-geometry read in PR #190.
+
+## Notes
+
+**2026-09-21, ex-2.2.11 run** — the checkpoints now exist: the first three seeds of `handover`, `handover-slot`, and `handover-tied` store a checkpoint at every trajectory point under `reports/m2/ex-2.2.11/checkpoints/{label}/trajectory` (one tree per run; `TRAJ_CHECKPOINT_REF` in ex-2.2.11's `experiment.py`). At the fresh seeds the drift again shows on `handover` alone: its seed-mean alignment peaks near epoch 23 and loses about 0.05 by the end, while both references peak in or beside the anneal window (post-hoc section of the ex-2.2.11 report). Retention across the anneal is ~1.0 on every condition, so the anneal is not involved.
