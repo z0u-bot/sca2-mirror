@@ -272,9 +272,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.11/report.py -->
 
-- [2.2.12. What the stream holds on `hue-hsv`, and a small recipe sweep](./m2/ex-2.2.12/report.py) (preregistration draft)
+- [2.2.12. What the stream holds on `hue-hsv`, and a small recipe sweep](./m2/ex-2.2.12/report.py) (scouting, complete)
 
-    Scouting in two acts before the anchored-op prereg. Act one scores ex-2.2.11's stored checkpoints: which of `hue-hsv`'s red-dependent answers survive the projection, split by which side of red the operand leans toward, where in the stream the surviving hue is written, and whether the op1 alignment rise comes from the lines the whole-line labeller labelled through their answer. Act two trains seven cells at five seeds on the handover setup: two sharper τ, the two force knobs doubled, and a two-by-two of depth and subspace with *red* anchored to a plane. The promotion rule and the no-fix branch are frozen before the run.
+    Scouting in two parts before the anchored-op prereg. Part 1 scores ex-2.2.11's stored checkpoints: which of `hue-hsv`'s red-dependent answers survive the projection, split by which side of red the operand leans toward, where in the stream the surviving hue is written, and whether the op1 alignment rise comes from the lines the whole-line labeller labelled through their answer. Part 2 trains eight conditions at five seeds on the handover setup: two sharper τ, the two force factors doubled, a two-by-two of depth and subspace with *red* anchored to a plane, and the plane at the doubled weight. The blind-spot story was wrong: the lines that survive are the ones on the red axis, two red colors carry nearly all of it, and the survival is re-derived inside the blocks. No sweep condition qualifies, so the re-run keeps the reference recipe.
 
     <span class="tags">`scouting` `multi-op` `anchoring` `selectivity`</span>
 

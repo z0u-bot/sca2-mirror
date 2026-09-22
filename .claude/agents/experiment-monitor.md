@@ -38,7 +38,7 @@ A subagent re-spawn is a cold start, so don't count on the orchestrator to re-in
    - `3` — attention *now*: a task settled terminally mid-stage (e.g. a watchdog fired) or a worker went stale/wedged — the printed `reason` names the key. Act immediately (step 4 / 5); don't wait for siblings.
    - `124` — timeout, still in flight → re-`watch`, or if you're at your budget, return a progress report.
 
-   The `--json` summary is compact (`outcome`, `reason`, `counts`, `attention`). **Never** write your own `while`/`sleep` polling loop, never grep/regex CLI output, and **never re-`run` to check progress** (that ticks — it launches work and costs money; the wait lives inside `watch`).
+   The `--json` summary is compact (`outcome`, `reason`, `counts`, `attention`). **Never** write your own `while`/`sleep` polling loop (a `pgrep -f` loop matches its own shell and never returns), never grep/regex CLI output, and **never re-`run` to check progress** (that ticks — it launches work and costs money; the wait lives inside `watch`).
 3. For a one-shot snapshot, `bin/mini status <exp> --json --brief` — aggregate `state`/`settled`, counts, and only the tasks needing attention. Use full `status --json` only when digging into one task; parse JSON with `jq` or Python, not grep.
 4. **On a FAILED task**: `bin/mini logs <exp> <key>`, then apply the hotfix rules below or escalate.
    - `!! worker vanished (killed/crashed, no result written)` is a flaky-class infra failure, not a code bug: `bin/mini retry <exp> --key <key>` without editing anything, and mention the incident in your report.

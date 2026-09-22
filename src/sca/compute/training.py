@@ -7,6 +7,7 @@ import jax.random as jr
 import numpy as np
 
 from sca.anchoring import (
+    ANCHOR_AXES,
     LINE_TOKENS,
     PROMPT_SPAN,
     AnchorSpec,
@@ -123,11 +124,11 @@ def _anchored_step(
     """
     if fallback is None:
         step = make_anchored_train_step(
-            optimizer, tau=anchor.tau, n_lines=n_lines, slices=slices, clean_rows=clean_rows
+            optimizer, tau=anchor.tau, n_lines=n_lines, slices=slices, clean_rows=clean_rows, axes=anchor.axes
         )
         return lambda *args: (*step(*args), 0.0, 0.0, 0.0)
-    if slices is not None or clean_rows is not None:
-        raise ValueError("anchor_slices and clean_rows are not supported together with a fallback spec")
+    if slices is not None or clean_rows is not None or tuple(anchor.axes) != ANCHOR_AXES:
+        raise ValueError("anchor_slices, clean_rows, and a multi-axis anchor are not supported with a fallback spec")
     step = make_fallback_train_step(optimizer, fallback, tau=anchor.tau, n_lines=n_lines)
     fb_w_, aa_w_ = jnp.asarray(fb_w), jnp.asarray(aa_w)
     return lambda *args: step(*args, fb_w_, aa_w_)
@@ -266,7 +267,7 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     window = _Window()
 
     def record(step: int, weight: float, anti_weight: float, anchor_loss: float, anti_loss: float) -> None:
-        alpha = alignment(model, probe_tokens)[:, :, :PROMPT_SPAN]  # (L1, C, span roles)
+        alpha = alignment(model, probe_tokens, axes=anchor.axes)[:, :, :PROMPT_SPAN]  # (L1, C, span roles)
         m = margin(alpha, probe_weights)  # (L1, span roles)
         m_op1 = float(m[:, 0].mean())
         m_span = float(m.max(axis=1).mean())

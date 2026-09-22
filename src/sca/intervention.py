@@ -43,6 +43,14 @@ class Subspace:
         return cls.direction(np.eye(width)[axis])
 
     @classmethod
+    def axes(cls, width: int, axes: tuple[int, ...]) -> Subspace:
+        """The span of several basis vectors: a plane for two. `projection` removes the whole span, and
+        `coefficients` reads one coordinate per axis, so the length of that vector is `sca.anchoring.axes_alignment`.
+        """
+        u = np.eye(width, dtype=np.float32)[list(axes)]
+        return cls(basis=u, dual=u, mean=np.zeros(width, dtype=np.float32))
+
+    @classmethod
     def direction(cls, v: Float[np.ndarray, " C"]) -> Subspace:
         """An orthogonal rank-1 subspace along *v*, normalized."""
         u = np.asarray(v, dtype=np.float32)

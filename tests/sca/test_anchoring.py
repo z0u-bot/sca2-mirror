@@ -614,3 +614,88 @@ def test_train_anchored_threads_slices_and_clean_rows(data_dir, tmp_path):
     wte = np.asarray(model.transformer.wte)
     np.testing.assert_allclose(wte[list(rows), ANCHOR_AXIS], 0.0, rtol=0, atol=0)
     assert traj["anchor"][-1] < traj["anchor"][0]
+
+
+# --- Several axes: the plane -------------------------------------------------------------------------
+
+
+def test_axes_alignment_is_the_projection_length_on_a_plane():
+    from sca.anchoring import axes_alignment
+
+    states = np.zeros((2, 1, 3, 8), dtype=np.float32)
+    states[..., 0] = [0.6, 0.0, -0.6]
+    states[..., 1] = [0.8, 1.0, 0.8]
+    # One axis: the signed component. The pair: the unsigned length of the projection onto their span.
+    np.testing.assert_allclose(axes_alignment(states, (0,)), states[..., 0], rtol=0, atol=0)
+    np.testing.assert_allclose(axes_alignment(states, (0, 1)), [[[1.0, 1.0, 1.0]]] * 2, rtol=1e-6, atol=0)
+    np.testing.assert_allclose(
+        np.asarray(axes_alignment(jnp.asarray(states), (0, 1))), axes_alignment(states, (0, 1)), rtol=1e-6, atol=0
+    )
+
+
+def test_plane_terms_read_the_pair_and_are_blind_to_the_direction_within_it():
+    from sca.anchoring import axes_alignment
+
+    states = np.zeros((3, 2, 4, 8), dtype=np.float32)
+    states[:, 0, :, 1] = 1.0  # on e₂: aligned with the plane, orthogonal to the axis
+    states[:, 1, :, 2] = 1.0  # on e₃: off both
+    mask = np.ones((2, 4), dtype=np.float32)
+    plane = (0, 1)
+    s, m = jnp.asarray(states), jnp.asarray(mask)
+    # The axis term sees nothing on e₂; the plane term sees it as fully aligned.
+    np.testing.assert_allclose(anchor_term(s, m), 1.0, rtol=1e-6, atol=0)
+    np.testing.assert_allclose(anchor_term(s, m, plane), 0.5, rtol=1e-6, atol=0)
+    np.testing.assert_allclose(anti_subspace_term(s, m, plane), 0.5, rtol=1e-6, atol=0)
+    # A rotation within the plane changes neither term.
+    rot = states.copy()
+    rot[:, 0, :, 0], rot[:, 0, :, 1] = 0.6, -0.8
+    r = jnp.asarray(rot)
+    np.testing.assert_allclose(anchor_term(r, m, plane), anchor_term(s, m, plane), rtol=1e-6, atol=0)
+    np.testing.assert_allclose(anti_subspace_term(r, m, plane), anti_subspace_term(s, m, plane), rtol=1e-6, atol=0)
+    line_id = jnp.zeros((2, 4), dtype=jnp.int32)
+    np.testing.assert_allclose(
+        pooled_anchor_term(r, m, line_id, 1, np.inf, plane),
+        pooled_anchor_term(s, m, line_id, 1, np.inf, plane),
+        rtol=1e-6,
+        atol=0,
+    )
+    np.testing.assert_allclose(axes_alignment(rot, plane)[:, 0], 1.0, rtol=1e-6, atol=0)
+
+
+def test_alignment_on_a_plane_matches_the_stream_projection_length(data_dir):
+    from sca.anchoring import alignment
+
+    config = model_config()
+    model = build_model(config, key=jr.key(0))
+    tokens = np.arange(12, dtype=np.int32).reshape(2, 6)
+    stream = np.asarray(model.residual_stream(jnp.asarray(tokens)))
+    np.testing.assert_allclose(
+        alignment(model, tokens, axes=(0, 1)), np.linalg.norm(stream[..., :2], axis=-1), rtol=1e-5, atol=1e-6
+    )
+    np.testing.assert_allclose(alignment(model, tokens), stream[..., 0], rtol=1e-5, atol=1e-6)
+
+
+def test_train_anchored_on_a_plane_pulls_the_labeled_color_into_the_plane(data_dir, tmp_path):
+    """A plane run: the spec carries the axes, and the labeled color ends nearer the e₁–e₂ pair than the
+    un-anchored run of the same seed leaves it, with the trajectory reading the same alignment."""
+    label_p = np.zeros(64)
+    label_p[COLORS[0]] = 0.5
+    tokens, weights = probe_set()
+    plane = (0, 1)
+    ends = {}
+    for peak in (0.0, 1.0):
+        model, _, traj = train_anchored(
+            training_config(),
+            data_dir,
+            anchor=AnchorSpec(peak=peak, warmup_epochs=2, anneal_start=13, anneal_end=15, axes=plane),
+            label_p=label_p,
+            probe_tokens=tokens,
+            probe_weights=weights,
+            checkpoint_dir=tmp_path / f"plane{peak}",
+            traj_stride=5,
+        )
+        ends[peak] = float(alignment(model, tokens[:1], axes=plane)[:, 0, 0].mean())
+        np.testing.assert_allclose(
+            traj["alpha_op1"][-1], alignment(model, tokens, axes=plane)[:, :, 0].mean(), rtol=1e-4, atol=1e-5
+        )
+    assert ends[1.0] > ends[0.0] + 0.4
