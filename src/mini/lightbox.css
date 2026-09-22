@@ -1,0 +1,15 @@
+[data-mini-zoom]{cursor:zoom-in}
+dialog.mini-lightbox{border:0;padding:0;margin:auto;max-width:96vw;max-height:96vh;
+  background:Canvas;color:CanvasText;border-radius:.5rem;box-shadow:0 1rem 3rem rgb(0 0 0/.45)}
+dialog.mini-lightbox::backdrop{background:rgb(0 0 0/.62);-webkit-backdrop-filter:blur(3px);backdrop-filter:blur(3px)}
+dialog.mini-lightbox img{display:block;margin:0 auto;max-width:96vw;max-height:84vh;width:auto;height:auto;
+  transition:filter .18s ease-out,opacity .18s ease-out,width .18s ease-out}
+dialog.mini-lightbox img.mini-lightbox-loading{filter:blur(4px) grayscale(.35);opacity:.55}
+@media (prefers-reduced-motion:reduce){dialog.mini-lightbox img{transition:none}}
+dialog.mini-lightbox figcaption{margin:0;padding:.5rem .75rem;max-width:70ch;
+  font:italic .8125rem/1.5 system-ui,sans-serif;color:color-mix(in srgb,CanvasText 70%,transparent)}
+.mini-lightbox-close{position:absolute;top:.35rem;right:.35rem;width:1.9rem;height:1.9rem;
+  font:1.25rem/1 system-ui,sans-serif;cursor:pointer;color:CanvasText;border-radius:50%;
+  background:color-mix(in srgb,Canvas 70%,transparent);
+  border:1px solid color-mix(in srgb,CanvasText 20%,transparent)}
+@media print{dialog.mini-lightbox{display:none}}

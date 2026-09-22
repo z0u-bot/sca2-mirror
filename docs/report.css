@@ -1,15 +1,16 @@
 /* Shared report styles.
  *
- * Single source of truth for cross-report presentation polish. Applied two ways
- * (see eng/ and mini.reports.set_report_styles):
- *   - baked into each export by the exporter, before it prints the PDF, so it ships
- *     in the raw bundle;
+ * Single source of truth for cross-report presentation polish, and the whole of the
+ * print block. Applied two ways (see eng/ and mini.reports.set_report_styles):
+ *   - inlined into every page mini.lit renders (`./go render`, `./go serve`, and the
+ *     export), so it shows live while editing and ships in the raw bundle;
  *   - re-injected from *this* file at site-build time, so central edits here update
  *     every published report without re-exporting anything.
- * Keep it small and selector-scoped; it layers on top of mini.lit's own sheet
- * (`main.lit` is a literate script's content column; that sheet already covers
- * figures, captions, tables, admonitions and footnotes on screen, so the rules here
- * are the report-specific pieces and the print ones). */
+ * Keep it small and selector-scoped; it layers on top of mini.lit's own sheets
+ * (base.css and lit.css, which map where the rest of the CSS lives). `main.lit` is a
+ * literate script's content column; those sheets already cover figures, captions,
+ * tables, admonitions and footnotes on screen, so the rules here are the
+ * report-specific pieces and the print ones. */
 
 /* Colour swatch: a small square tinted via the `--sw` custom property, so each
  * occurrence is just `<span class="sw" style="--sw:#rrggbb">`. See the style-fig skill.
@@ -149,8 +150,10 @@ main.lit details:not(:open) {
     /* 118mm — the line length the 20mm side margins used to give, kept as it was. */
     --measure: 118mm;
   }
-  /* Type. 11pt body on a ~120mm column is about 60 characters a line. */
-  html {
+  /* Type. 11pt body on a ~120mm column is about 60 characters a line. Both elements:
+   * the root sets the rem, and the body's own 0.9rem screen size comes off. */
+  html,
+  body {
     font-size: 11pt;
   }
   main.lit p,
@@ -187,10 +190,14 @@ main.lit details:not(:open) {
   .admonition,
   figure,
   pre,
+  table,
   blockquote,
   main.lit details {
     break-inside: avoid;
   }
+  h1,
+  h2,
+  h3,
   .admonition-title,
   figcaption:first-child {
     break-after: avoid;

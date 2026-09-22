@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.lit.page import FONTS, is_lit_page
+from mini.lit.page import BASE_CSS_PATH, FONTS, is_lit_page
 from mini.report_print import print_bundle, print_stamp
 from mini.reports import (
     PDF_LEAF,
@@ -581,12 +581,18 @@ def site_root(dest: Path) -> str:
 
 
 def copy_md_stylesheet():
-    """Copy the Markdown page stylesheet to _site/."""
+    """Write the Markdown pages' stylesheet to ``_site/md.css``: ``mini.lit``'s base sheet, then ``scripts/md.css`` on top.
+
+    The base sheet (tokens, type, code, tables) is what the reports use too, so a Markdown page and a report page agree on it by construction; ``md.css`` holds only the site's own rules.
+    """
     print("Copying Markdown stylesheet...")
-    css_src = WORKSPACE_ROOT / "scripts" / "md.css"
+    base = BASE_CSS_PATH
+    site = WORKSPACE_ROOT / "scripts" / "md.css"
     css_dest = SITE_DIR / "md.css"
-    shutil.copy2(css_src, css_dest)
-    print(f"  {css_src.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}")
+    css_dest.write_text(f"{base.read_text('utf-8')}\n{site.read_text('utf-8')}", "utf-8")
+    print(
+        f"  {base.relative_to(WORKSPACE_ROOT)} + {site.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}"
+    )
 
 
 def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str, pretty: bool) -> str:

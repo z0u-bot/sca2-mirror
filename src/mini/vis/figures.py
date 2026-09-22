@@ -14,6 +14,7 @@ The relative reference is the point: the *same* HTML works every way it's read. 
 from __future__ import annotations
 
 import logging
+import re
 from functools import wraps
 from textwrap import dedent
 from typing import Callable, ParamSpec, TypeVar, overload
@@ -176,6 +177,31 @@ def figure_html(
     return f"<figure{attrs}>{body}{figcaption}</figure>"
 
 
+_STYLE_BLOCK = re.compile(r"<style\b[^>]*>.*?</style>", re.S)
+
+
+def _collapse_repeated_styles(markup: str) -> str:
+    """Drop each ``<style>`` block that an identical one earlier in *markup* already covers.
+
+    A strip is several SVGs from one generator, so each arrives carrying the same theme.
+    Inside an HTML page an inline SVG's ``<style>`` is not scoped to its own SVG — it
+    joins the document's stylesheets and reaches every element on the page — so the
+    copies after the first change nothing and only add bytes (about 1 KB each; a
+    four-subline strip carries four). The first copy stays, which is what keeps the
+    externalized sidecar self-contained. Blocks that differ are all kept: a caller that
+    themes two SVGs apart means it.
+    """
+    seen: set[str] = set()
+
+    def keep(m: re.Match[str]) -> str:
+        if m[0] in seen:
+            return ""
+        seen.add(m[0])
+        return m[0]
+
+    return _STYLE_BLOCK.sub(keep, markup)
+
+
 def svg_figure(
     body: str | Sequence[str],
     *,
@@ -187,9 +213,9 @@ def svg_figure(
 ) -> str:
     """A figure whose body is inline SVG (a subline strip, a swatch table), externalized the way :func:`themed` externalizes a plot.
 
-    *body* is one SVG string or several, shown in order inside one ``<figure>``. The markup stays inline in the page, where the stylesheet themes it, and the same fragment is written to ``_assets/<name>.html`` through the report's :class:`~mini.reports.Publisher` (or *publish*) so that the Markdown rendition can link it instead of carrying the path data (:func:`~mini.reports.link_externalized`). *alt_text* is the figure's accessible name and that link's text. With no publisher, the figure is returned as it is.
+    *body* is one SVG string or several, shown in order inside one ``<figure>``; a ``<style>`` block repeated across them is kept once (:func:`_collapse_repeated_styles`). The markup stays inline in the page, where the stylesheet themes it, and the same fragment is written to ``_assets/<name>.html`` through the report's :class:`~mini.reports.Publisher` (or *publish*) so that the Markdown rendition can link it instead of carrying the path data (:func:`~mini.reports.link_externalized`). *alt_text* is the figure's accessible name and that link's text. With no publisher, the figure is returned as it is.
     """
-    strip = body if isinstance(body, str) else "".join(body)
+    strip = _collapse_repeated_styles(body if isinstance(body, str) else "".join(body))
     figure = figure_html(strip, caption=caption, aria_label=alt_text, class_=class_)
     return externalize_html(figure, name=name, publish=publish if publish is not None else current_publisher())
 

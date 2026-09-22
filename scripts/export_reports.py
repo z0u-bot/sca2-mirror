@@ -27,14 +27,12 @@ from mini.reports import (  # noqa: E402
     save_pins,
     set_alternate,
     set_provenance,
-    set_report_styles,
     write_thumbnails,
 )
 from mini.store import active_profile  # noqa: E402
 
 ROOT = Path(__file__).parent.parent.resolve()
 DOCS = ROOT / "docs"
-REPORT_CSS = DOCS / "report.css"
 
 
 def reports_to_export(paths: list[str]) -> list[Path]:
@@ -89,7 +87,7 @@ def export_one(path: Path) -> Path:
 def _weave(script: Path, out: Path) -> str:
     """Weave the literate *script* into the bundle holding *out*, and return the page.
 
-    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the report publisher, so the sidecar and the thumbnails read from one place. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The shared stylesheet is inlined here so the bundle stands on its own; the site build re-inlines the current source on top.
+    ``mini.lit.render`` writes the page and the woven Markdown beside it, with figures under the bundle's ``_assets/`` through the report publisher, so the sidecar and the thumbnails read from one place. The Markdown is declared as an alternate rendition, the way the PDF is, so a reader (an agent, mostly) can fetch the text of a published report without parsing the page. The render inlines the shared stylesheet (``docs/report.css``), so the bundle stands on its own; the site build re-inlines the current source on top.
 
     A cell that raised is a failed export: the page would carry the traceback where a figure should be, and the sync would publish it.
     """
@@ -98,8 +96,6 @@ def _weave(script: Path, out: Path) -> str:
         lines = "\n\n".join(f"cell at line {o.cell.line}:\n{o.error}" for o in errors)
         sys.exit(f"export of {script.relative_to(ROOT)} failed: {len(errors)} cell(s) raised\n{lines}")
     html = set_alternate(rendered.html, type=MD_TYPE, href=MD_LEAF)
-    if REPORT_CSS.exists():
-        html = set_report_styles(html, REPORT_CSS.read_text("utf-8"))
     out.write_text(html, "utf-8")
     return html
 
