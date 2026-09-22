@@ -917,19 +917,23 @@ Scouting, in two parts. Part 1 asks what the stored ex-2.2.11 models kept of *re
 
 ## How to read this draft
 
-This is a scouting round with a frozen plan. The measurements and the sweep's conditions were fixed before any run, at commit `007ec39`, and the promotion rule below says in advance what counts as a proposal and what happens if nothing qualifies. Everything after that commit is either observations filled into their sections or exploratory, marked as post hoc. A scouting round scores nothing: the next preregistered experiment adopts what it needs from here and checks it on models it trains itself.
+The measurements and the sweep's conditions were fixed before any run, at commit `007ec39`, and the promotion rule below says in advance what counts as a proposal and what happens if nothing qualifies. Everything after that commit is either observations filled into their sections or exploratory, marked as post hoc. The next preregistered experiment adopts what it needs from here and checks it on models it trains itself.
 
 ## Why this experiment
 
-We have a training setup that nearly works, and the anchored-op experiments that follow will read their results through it. So we should understand it well. Every unexplained leftover in it is a confound waiting for a later experiment, and a blind spot we can name now is one we can design around.
+The anchored-op experiments that follow will read their results through a training setup that nearly works. Every unexplained leftover in it is a confound waiting for a later experiment, and a blind spot we can name now is one we can design around.
 
 [Ex-2.2.11](../ex-2.2.11/report.py) put *red* on one axis of the residual stream of a small transformer,[^rs] taught it eleven color operations, and then projected the axis out. On ten of the eleven ops the model then lost *red*: it could no longer answer the lines whose answer needs the hue of the red operand. On `hue-hsv`, the op that takes its hue from the second operand, the model kept about a quarter of those answers, a little over the gate. The rule we froze then said the setup is not adopted.
 
 [^rs]: The *residual stream* is the running vector of activations that each layer of a transformer reads from and writes back to.
 
-We suspect we know why, and the first part of this experiment checks it. Picture hue as a clock face with red at twelve. The anchored axis measures how red a color is, and that is the same for a color a little clockwise of red (toward orange) and a little anticlockwise (toward pink). So the one thing the axis cannot hold is which side of red a color sits on. Every other op reads the red operand through its channels, and the red channel is what the axis holds. `hue-hsv` with red at op2 is the only case that needs the side. If the model keeps the side somewhere off the axis, that is what survives the projection. Red sitting at zero degrees is only a coincidence; a green anchor would have the same blind spot around green.
+Part 1 checks a candidate explanation. Picture hue as a clock face with red at twelve. The anchored axis measures how red a color is, and that is the same a little clockwise of red (toward orange) and a little anticlockwise (toward pink). So the one thing the axis cannot hold is which side of red a color sits on.
 
-If that holds, pulling harder will not fix it, since one axis cannot hold a two-sided quantity and a plane can. So the second part trains a small sweep on the handover setup. It crosses *red* anchored to a plane against *red* anchored to an axis, at four and at six blocks. It also raises each of the two force factors of the recipe by one step, runs the plane at the higher anchor weight, and tries two sharper settings of the pooling temperature τ. We expect the force factors to do nothing for `hue-hsv`; a null there is worth having. The τ conditions answer a separate question: ex-2.2.11 left the op1 alignment higher than its references and drifting before the anneal, and the τ conditions and one of the stored-checkpoint measurements are there to make progress on that.
+Every other op reads the red operand through its channels, and the red channel is what the axis holds. `hue-hsv` with red at op2 is the only case that needs the side. If the model keeps the side somewhere off the axis, that is what survives the projection. Red sitting at zero degrees is only a coincidence; a green anchor would have the same blind spot around green.
+
+If that holds, pulling harder will not fix it, since one axis cannot hold a two-sided quantity and a plane can. So part 2 trains a small sweep on the handover setup: *red* anchored to a plane crossed against *red* anchored to an axis, at four and at six blocks, each of the two force factors raised by one step, the plane at the higher anchor weight, and two sharper settings of the pooling temperature τ. We expect the force factors to do nothing for `hue-hsv`; a null there is worth having.
+
+The τ conditions answer a separate question. Ex-2.2.11 left the op1 alignment higher than its references and drifting before the anneal, and the τ conditions and one of the stored-checkpoint measurements are there to make progress on that.
 
 The setup we sweep is the `handover` condition of ex-2.2.11: [table A+](../ex-2.2.4/report.py#the-op-set), the stochastic corpus, the whole-line labeller, the untied readout, and the recipe from ex-2.2.3. Its twenty seeds are the reference condition, and memoization makes that condition free.
 
@@ -949,13 +953,15 @@ With the ex-2.2.11 recipe as a base, every condition changes one or two things f
 
 **`{ex.REF.name}`** is ex-2.2.11's candidate at its twenty seeds, and the other conditions train at its first {ex.SWEEP_SEEDS}, so every condition pairs with the reference seed for seed.
 
-**`tau-0.03`** and **`tau-0.01`** sharpen the pool. Mellowmax at τ over the positions of a line is roughly the best position minus τ times the log of the line length, and the pull it returns is a softmax at that τ. So with τ held fixed, a longer label span spreads a little more of the pull onto positions that are not the red operand. The whole-line label made the span longer, so these two conditions ask whether a sharper pool takes ᾱ at op1 back down.
+**`tau-0.03`** and **`tau-0.01`** sharpen the pool. Mellowmax at τ over the positions of a line is roughly the best position minus τ times the log of the line length, and the pull it returns is a softmax at that τ. So with τ held fixed, a longer label span spreads a little more of the pull onto positions that are not the red operand. The whole-line label made the span longer, so a sharper pool may take ᾱ at op1 back down.
 
 **`lam-0.2`** and **`anti-5`** are the force factors: twice the anchor weight, and twice the anti-subspace peak. They are here so that a null can be read: if the plane fixes `hue-hsv` and these do not, the fix was the shape of the home and not its strength.
 
-**`L6`**, **`plane`**, and **`L6-plane`** with the reference are a two-by-two of depth and subspace. Under the plane conditions *red* is pulled toward the span of e₁ and e₂ rather than toward e₁. The alignment of a state with the plane is the length of its projection onto the pair. That is a cosine too, since every state is unit-norm, but it is unsigned: it says how much of the state lies in the plane and nothing about the direction within it. The anchor term pulls that length toward one on the labelled lines, the anti-subspace term is its square over every live position, and the removal projects the whole plane out.
+**`L6`**, **`plane`**, and **`L6-plane`** with the reference are a two-by-two of depth and subspace. Under the plane conditions *red* is pulled toward the span of e₁ and e₂ rather than toward e₁. Alignment with the plane is the length of a state's projection onto the pair: a cosine too,[^cos] since every state is unit-norm, but unsigned, so it says how much of the state lies in the plane and nothing about the direction within it.
 
-Six blocks instead of four is the other capacity factor, in case the HSV ops want more depth. It changes the number of slices too, so every slice-averaged measurement is also reported per slice.
+[^cos]: The *cosine similarity* of two vectors is the cosine of the angle between them: one when they point the same way, zero when they are at right angles.
+
+The anchor term pulls that length toward one on the labelled lines, the anti-subspace term is its square over every live position, and the removal projects the whole plane out. Six blocks instead of four is the other capacity factor, in case the HSV ops want more depth; it changes the number of slices too, so every slice-averaged measurement is also reported per slice.
 
 **`plane-lam-0.2`** is the plane at the doubled anchor weight, in case the plane needs more pull than the axis did. Without it, a null on the force conditions would only say that the axis cannot be pushed harder, and a partial result on `plane` could not be told from a plane pulled too gently.
 
@@ -984,13 +990,15 @@ Two things differ from ex-2.2.11 in how the sweep is scored. First, the plane co
 
 [Ex-2.2.10](../ex-2.2.10/report.py#where-the-answers-go) already saw the two sides. Its answer-cube figure for `{ex.MISSED_OP}` with red at op2 shows the projected answers leaving red in two lobes, one toward orange and one toward pink. `sat-hsv` and `value-hsv` with red at op1 fan the same way, so the side survives the projection on those ops too; it just cannot rescue an answer that needs the saturation or value of red.
 
-That figure pools every line. This measurement instead pairs each answer with the side of its own operand, which is what tells us whether the lobes are the side of red or something else.
+That figure pools every line; this measurement pairs each answer with the side of its own operand, which is what tells us whether the lobes are the side of red.
 """
 
 side_figure(res)
 
 f"""
-**What we saw.** The opposite. The lines whose red operand sits on the red axis, with G = B, are the ones that keep their answer, at a kept share of {side_st["means"]["G = B"]:.2f} on `handover`. The lines on either side of the axis lose theirs: {side_st["means"]["G > B"]:.2f} toward orange and {side_st["means"]["G < B"]:.2f} toward pink, both under the gate. `handover-slot` shows the same shape more strongly, and `handover-tied` more weakly. So the surviving quarter on `{ex.MISSED_OP}` is not the side of red. The side is the one thing the axis cannot hold, and it is the thing the projection removes.
+**What we saw.** The opposite. The lines whose red operand sits on the red axis, with G = B, are the ones that keep their answer, at a kept share of {side_st["means"]["G = B"]:.2f} on `handover`. The lines on either side of the axis lose theirs: {side_st["means"]["G > B"]:.2f} toward orange and {side_st["means"]["G < B"]:.2f} toward pink, both under the gate.
+
+`handover-slot` shows the same shape more strongly, and `handover-tied` more weakly. So the surviving quarter on `{ex.MISSED_OP}` is not the side of red: the side is the one thing the axis cannot hold, and it is the thing the projection removes.
 
 The exploratory section splits the on-axis lines further, by the red operand's color: two of the three on-axis reds survive and the third does not.
 """
@@ -1010,7 +1018,7 @@ bypass_figure(res)
 f"""
 **What we saw.** On `{ex.MISSED_OP}`, removing at the blocks alone keeps {bypass_st["means"]["blocks"]:.2f}, about what the full projection keeps ({bypass_st["means"]["all"]:.2f}), and removing at the embedding alone keeps more, {bypass_st["means"]["embedding"]:.2f}. The two second-operand edits sit with their whole-line counterparts, so where the projection is applied along the line does not matter, and where it is applied in depth does. The blocks-only edit has the widest seed range of any measurement in this report: some seeds keep almost everything under it and some almost nothing.
 
-`{ex.PRIMARY_OP}` behaves as ex-2.2.11 would predict: every edit that touches the embedding removes nearly everything, and the blocks-only edit leaves about a third. That is the pattern the prediction had in mind for `{ex.MISSED_OP}` as well. On `{ex.MISSED_OP}` it is closer to the reverse. The part of the answer that survives the full projection is not written at the embedding; or if it is, the blocks re-derive it from the other channels once the copy at the embedding is gone.
+`{ex.PRIMARY_OP}` behaves as ex-2.2.11 would predict: every edit that touches the embedding removes nearly everything, and the blocks-only edit leaves about a third. That is the pattern the prediction had in mind for `{ex.MISSED_OP}` too, where it is closer to the reverse. The part of the answer that survives the full projection is not written at the embedding; or if it is, the blocks re-derive it from the other channels once the copy at the embedding is gone.
 """
 
 bypass_table(res)
@@ -1028,7 +1036,9 @@ label_figure(res)
 f"""
 **What we saw.** The comparison cannot be made on `{ex.PRIMARY_OP}`. The measurement was designed for an op whose answer can be at the red dose while neither operand is, and `{ex.PRIMARY_OP}` is not one: a mean of two colors reaches the red dose only when one of them is red. So the group labelled through the answer alone is empty, the group labelled through both is small ({res.label_n(ex.PRIMARY_OP, "both")} lines), and the figure shows two groups where the prediction needed three.
 
-The two groups we do have are alike on both conditions. On `handover`, ᾱ at op1 is about {label_st["handover"]["neither"]:.2f} for the lines no color labels and {label_st["handover"]["labelled by operand"]:.2f} for the lines with a red second operand. The eight lines with a red second operand and a red answer sit much higher, at {label_st["handover"]["both"]:.2f}, and are the same on `handover-slot`, whose labeller never reads the answer. So on this op, what raises ᾱ at op1 is having two red colors on the line rather than which of them earned the label. The containment question needs an op such as `hue-hsv` or `darken`, where the answer can be red without a red operand; the measurement is written to take any op.
+The two groups we do have are alike on both conditions. On `handover`, ᾱ at op1 is about {label_st["handover"]["neither"]:.2f} for the lines no color labels and {label_st["handover"]["labelled by operand"]:.2f} for the lines with a red second operand. The eight lines with a red second operand and a red answer sit much higher, at {label_st["handover"]["both"]:.2f}, and are the same on `handover-slot`, whose labeller never reads the answer.
+
+So on this op, what raises ᾱ at op1 is having two red colors on the line rather than which of them earned the label. The containment question needs an op such as `hue-hsv` or `darken`, where the answer can be red without a red operand; the measurement is written to take any op.
 """
 
 label_table(res)
@@ -1063,7 +1073,9 @@ sweep_figure(
 )
 
 f"""
-**What we saw: the kept share.** No condition moves `{ex.MISSED_OP}` under the gate by more than the band. The three plane conditions sit lowest, at {prop["conditions"]["plane-lam-0.2"]["kept"]:.2f} to {prop["conditions"]["plane"]["kept"]:.2f}, and the reference keeps {float(res.kept(REFERENCE, ex.MISSED_OP).mean()):.2f} with a band running from {float(res.kept(REFERENCE, ex.MISSED_OP).min()):.2f} to {float(res.kept(REFERENCE, ex.MISSED_OP).max()):.2f}, so a fifth falls inside it. The force conditions and the sharper τ keep at least as much as the reference, and `L6` keeps the most. Given part 1, this is the shape to expect: the plane was meant to hold the side of red, and the side is not what survives.
+**What we saw: the kept share.** No condition moves `{ex.MISSED_OP}` under the gate by more than the band. The three plane conditions sit lowest, at {prop["conditions"]["plane-lam-0.2"]["kept"]:.2f} to {prop["conditions"]["plane"]["kept"]:.2f}, and the reference keeps {float(res.kept(REFERENCE, ex.MISSED_OP).mean()):.2f} with a band running from {float(res.kept(REFERENCE, ex.MISSED_OP).min()):.2f} to {float(res.kept(REFERENCE, ex.MISSED_OP).max()):.2f}, so a fifth falls inside it.
+
+The force conditions and the sharper τ keep at least as much as the reference, and `L6` keeps the most. Given part 1, this is the shape to expect: the plane was meant to hold the side of red, and the side is not what survives.
 
 On the ten other ops every condition removes cleanly on average. Two conditions, `tau-0.03` and `L6`, leave `darken` a little over the gate on its own, which the rule does not check and which the table below shows.
 """
@@ -1089,7 +1101,9 @@ sweep_figure(
 f"""
 **What we saw: ᾱ at op1.** The sharper τ lowers it a little: `tau-0.03` reaches {float(res.stat("tau-0.03", "alpha_op1").mean()):.3f} against {float(res.stat(REFERENCE, "alpha_op1").mean()):.3f} for the reference, a drop smaller than the band, and `tau-0.01` does not lower it at all. The force conditions sit at about the same level as `tau-0.03`, which was not predicted and is also inside the band.
 
-The plane conditions sit higher, at {min(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}. That is the scoring rather than the models, since an unsigned two-dimensional alignment is higher for every state. Measured against the control scored on the plane, their excess is {min(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, below the {prop["ref_alpha"]:.2f} the reference shows over its own control. We take that to mean the plane conditions drift no more than the axis ones, rather than that they drift less. The two excesses are over different baselines, and a state that drifts the same distance in the stream shows a smaller excess on a plane than on an axis.
+The plane conditions sit higher, at {min(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(float(res.stat(c, "alpha_op1").mean()) for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}. That is the scoring rather than the models, since an unsigned two-dimensional alignment is higher for every state. Measured against the control scored on the plane, their excess is {min(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f} to {max(prop["conditions"][c]["alpha"] for c in ("plane", "L6-plane", "plane-lam-0.2")):.2f}, below the {prop["ref_alpha"]:.2f} the reference shows over its own control.
+
+We take that to mean the plane conditions drift no more than the axis ones, rather than that they drift less. The two excesses are over different baselines, and a state that drifts the same distance in the stream shows a smaller excess on a plane than on an axis.
 """
 
 # REVIEW: the ᾱ excess of a plane condition is not commensurable with an axis condition's, so the prose
@@ -1151,7 +1165,9 @@ red_color_table(res)
 f"""
 Nearly all of the survival comes from two colors: the darker red and the paler one. Pure red, with the same hue and the highest redness of the seven, is removed about as cleanly as the hue-shifted reds. So what survives is not hue zero as such. It is not the red dose as such either, since two of the hue-shifted reds have the same redness as the surviving pair.
 
-We do not have a mechanism for the pair. A `{ex.MISSED_OP}` answer takes its hue from the second operand and its saturation and value from the first, so the answer of a surviving line is a hue-zero color at the saturation and value of the first operand. One candidate is that the model has learnt to answer those lines from how *achromatic* the second operand looks, meaning its G = B.[^achr] The axis does not hold that, and the blocks can read it off the other channels. That is a guess, and the bypass measurement is consistent with it. A follow-up could test it by projecting at the blocks with the second operand replaced by a gray of the same value.
+We do not have a mechanism for the pair. A `{ex.MISSED_OP}` answer takes its hue from the second operand and its saturation and value from the first, so the answer of a surviving line is a hue-zero color at the saturation and value of the first operand.
+
+One candidate is that the model has learnt to answer those lines from how *achromatic* the second operand looks, meaning its G = B.[^achr] The axis does not hold that, the blocks can read it off the other channels, and the bypass measurement is consistent with it. A follow-up could test it by projecting at the blocks with the second operand replaced by a gray of the same value.
 
 [^achr]: An *achromatic* color is one with no hue: a gray, where the three channels are equal or nearly so.
 
@@ -1165,11 +1181,11 @@ side_other_ops_table(res)
 rf"""
 ## Discussion
 
-The blind-spot story was a good story and it is wrong. It predicted which lines would survive on `hue-hsv`, and the lines that survive are the ones it said could not. That settles the plane. The plane was built to hold the one quantity the axis cannot, and that quantity is already removed. The sweep agrees, since every plane condition sits inside the reference band on `hue-hsv`.
+The blind-spot story was a good story and it is wrong. It predicted which lines would survive on `hue-hsv`, and the lines that survive are the ones it said could not. That settles the plane: it was built to hold the one quantity the axis cannot, and that quantity is already removed. The sweep agrees, since every plane condition sits inside the reference band on `hue-hsv`.
 
-The two force conditions and the two τ conditions give the nulls we wanted, and they are nulls on every measurement. So the recipe is not sensitive to a doubling of either force factor, or to a sharper pool. That is a small, useful thing to know about it.
+The two force conditions and the two τ conditions give the nulls we wanted, and they are nulls on every measurement. So the recipe is not sensitive to a doubling of either force factor, or to a sharper pool.
 
-What survives is narrower than we thought: two of the seven red colors, both on the red axis, on one op, re-derived inside the blocks. That makes the leftover easier to characterise for the next experiment, and harder to remove by anchoring, because the model has a route to those answers that does not run through the axis, either at the embedding or after it. Whether that route matters depends on what the anchored-op experiments will ask of the removal. A leftover we can name and bound is what the plan asked this round to find.
+What survives is narrower than we thought: two of the seven red colors, both on the red axis, on one op, re-derived inside the blocks. That makes the leftover easier to characterise for the next experiment, and harder to remove by anchoring, because the model has a route to those answers that does not run through the axis, either at the embedding or after it. Whether that route matters depends on what the anchored-op experiments will ask of the removal.
 
 The containment question is still open, because of the op we chose. The measurement is in the code and takes any op; the next round that looks at op1 drift should run it on an op whose answer can be red on its own.
 
