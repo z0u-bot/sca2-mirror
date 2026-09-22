@@ -280,4 +280,12 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.12/report.py -->
 
+- [2.2.13. Does a heavier anchor make the leftover predictable?](./m2/ex-2.2.13/report.py) (preregistration draft)
+
+    A ladder of five anchor weights on a √2 spacing, crossed with the home of *red* (the first axis, or the plane ex-2.2.12 defined), at twenty seeds a condition on ex-2.2.11's handover setup. The question is the seed spread of the leftover on `hue-hsv` rather than its size: a leftover that arrives the same size every time can be measured once and subtracted by the anchored-op experiments, where one that swings three-fold across seeds has to be re-measured wherever it appears. Four predictions are frozen — the spread narrows, the mean does not move, the worst of the other ten ops improves, and the cost side holds with the non-red deficit giving way first — along with an adoption rule that summarizes each condition by an upper confidence bound and is decided on half the seeds, the adopted condition quoting the other half.
+
+    <span class="tags">`anchoring` `selectivity` `multi-op` `methodology`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.13/report.py -->
+
 </details>
