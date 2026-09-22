@@ -2,8 +2,8 @@
 
 Design constants only, during preregistration. One ladder: the anchor weight λ_a at four levels, crossed
 with the home of *red* (an axis or a plane), at twenty fresh seeds a condition on ex-2.2.11's handover setup.
-The question is the spread of the leftover across seeds rather than its size. Every run is new; nothing is
-served from the store, and no seed here has been trained before.
+The question is the spread of the leftover across seeds rather than its size. Every anchored run is new: no
+seed here has been trained before. The un-anchored control is the one thing served from the store.
 """
 
 from dataclasses import dataclass
@@ -32,10 +32,11 @@ KEPT_GATE = 0.2
 from an op's red-dependent answers. The implementation binds this from ex-2.2.11 and asserts the value."""
 
 CONTROL = "control"
-"""The un-anchored control, ex-2.2.11's `control` retrained at this experiment's seeds: the task reference
-(ex-2.2.11's task gate is a seed-mean within a band of the control's) and the ᾱ baseline for the axis
-conditions. Retraining it keeps every comparison paired within this experiment and keeps the claim that no
-checkpoint here was seen before true; it costs one rung's worth of runs."""
+"""The un-anchored control: ex-2.2.11's `control` checkpoints at seeds 100–119, served from the store rather
+than retrained. It is the task reference (ex-2.2.11's task gate is a seed mean within a band of the
+control's) and the ᾱ baseline for the axis conditions. Neither role touches the observation this experiment
+follows up, which was read off anchored checkpoints, so borrowing it spends nothing the design needs. The
+cost is that comparisons against it are unpaired across seed sets, which a comparison of seed means absorbs."""
 
 CONTROL_PLANE = "control-plane"
 """The same control checkpoints scored on the plane: the comparison for every plane measurement, since an
@@ -72,8 +73,8 @@ about would be resolved by half as many."""
 CONDITIONS = tuple(f"{s}-{lam:g}" for s in SUBSPACES for lam in LADDER)
 assert len(CONDITIONS) == 8
 
-N_RUNS = (len(CONDITIONS) + 1) * SEEDS  # the eight rungs and the control
-assert N_RUNS == 180
+N_RUNS = len(CONDITIONS) * SEEDS  # the eight rungs; the control is not retrained
+assert N_RUNS == 160
 
 
 @dataclass(frozen=True)

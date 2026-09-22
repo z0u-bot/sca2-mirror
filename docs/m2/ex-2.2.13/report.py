@@ -27,7 +27,7 @@ def ladder_html() -> str:
     ]
     rows += [
         f"<tr><td><code>{ex.CONTROL}</code></td><td class=num>0</td><td>none; scored on the axis</td>"
-        f"<td class=num>{ex.SEEDS}</td><td>ex-2.2.11's <code>control</code>, 20 seeds there; the task reference</td></tr>",
+        f"<td class=num>{ex.SEEDS}</td><td>ex-2.2.11's <code>control</code>, served from the store at seeds 100–119; the task reference</td></tr>",
         f"<tr><td><code>{ex.CONTROL_PLANE}</code></td><td class=num>0</td><td>none; scored on the plane</td>"
         f"<td class=num>—</td><td>the same checkpoints, a scoring pass; the ᾱ baseline for the plane</td></tr>",
     ]
@@ -55,7 +55,7 @@ The recipe from ex-2.2.11 removes *red* on ten of eleven ops. What it leaves beh
 
 The ladder, the four predictions, and the adoption rule were fixed before any run, at commit `TODO`. Everything after that commit is either results filled into their sections or exploratory work, marked as post hoc.
 
-Every run is new. The seeds that produced the observation this experiment follows up are not reused, so the reference is trained again here beside the ladder. The adoption rule summarizes a leftover by an upper confidence bound rather than by the fixed band ex-2.2.12 used; the [adoption rule](#the-adoption-rule) section gives both verdicts.
+Every anchored run is new. The seeds that produced the observation this experiment follows up are not reused, so the reference is trained again here beside the ladder. The un-anchored control is borrowed from ex-2.2.11. The adoption rule summarizes a leftover by an upper confidence bound rather than by the fixed band ex-2.2.12 used; the [adoption rule](#the-adoption-rule) section gives both verdicts.
 
 ## Why this experiment
 
@@ -89,7 +89,7 @@ The recipe has two anchoring terms and no anti-anchor term. The pull is one minu
 
 Ex-2.2.12 settled against the plane's first rationale, that a single axis is too small a home for a hue. Two things keep it here. The tight condition that prompted this experiment was a plane *and* a heavier weight, while the heavier weight on the axis was among the loosest on the kept share in that sweep even as its line margin and ᾱ were the tightest, so a ladder on the axis alone could not say whether the narrowing comes from the weight, from the subspace, or from the two together. And the plane at the recipe's own weight has been seen at five seeds only; at twenty, `plane-{ex.LADDER[0]:g}` against `{ex.REFERENCE}` is a test of the subspace on its own, at a resolution ex-2.2.12 did not have.
 
-**The control.** The un-anchored control is trained again here at the same seeds, as ex-2.2.11 defined it. It is the reference for the task gate, which asks for a seed mean within a band of the control's, and the ᾱ baseline for the axis conditions. Every plane condition is compared against the same checkpoints scored on the plane (`{ex.CONTROL_PLANE}`): for every state, anchored or not, an unsigned two-dimensional alignment sits higher than a signed one-dimensional one, so the control has to be scored the same way.
+**The control.** The un-anchored control is ex-2.2.11's, served from the store at its seeds rather than retrained. It is the reference for the task gate, which asks for a seed mean within a band of the control's, and the ᾱ baseline for the axis conditions. Neither role touches the observation this experiment follows up, which was read off anchored checkpoints, so the borrow spends nothing the design needs; comparisons against it are unpaired across seed sets, which a comparison of seed means absorbs. Every plane condition is compared against the same checkpoints scored on the plane (`{ex.CONTROL_PLANE}`): for every state, anchored or not, an unsigned two-dimensional alignment sits higher than a signed one-dimensional one, so the control has to be scored the same way.
 
 **The seeds.** {ex.SEEDS} per condition, all fresh: condition seed *i* trains at model seed {ex.SEED_OFFSET} + *i*, where ex-2.2.11 and ex-2.2.12 used an offset of 100. Every condition pairs with every other one seed for seed within this experiment, and the reference is retrained rather than borrowed, which makes it a replication of ex-2.2.11's `handover` at seeds it never saw.
 
@@ -203,7 +203,7 @@ About 200 words: what the ladder says the weight buys, whether the anchored-op e
 
 ### Fresh seeds
 
-Ex-2.2.11 and ex-2.2.12 trained at model seeds 100–119. The observation this experiment follows up was read off those checkpoints, and a rule written in advance does not make data we have already seen unseen, so nothing here is served from the store: every condition, the reference and the control included, trains at seeds {ex.SEED_OFFSET}–{ex.SEED_OFFSET + ex.SEEDS - 1}. The four conditions that earlier experiments saw appear in the H1 table beside their earlier values, as a replication rather than as data.
+Ex-2.2.11 and ex-2.2.12 trained at model seeds 100–119. The observation this experiment follows up was read off those checkpoints, and a rule written in advance does not make data we have already seen unseen, so no anchored checkpoint here is served from the store: every anchored condition, the reference included, trains at seeds {ex.SEED_OFFSET}–{ex.SEED_OFFSET + ex.SEEDS - 1}. The four conditions that earlier experiments saw appear in the H1 table beside their earlier values, as a replication rather than as data.
 
 We do not hold seeds back to quote the adopted condition from. The search is eight conditions, so the selection bias on the winner is small, and ex-2.2.12 set the pattern this experiment follows: the ladder proposes, and the anchored-op experiment that inherits the recipe confirms it at seeds of its own. Deciding the rule on half the seeds would halve the precision of the upper bound it rests on, for a correction the next experiment pays anyway.
 
@@ -215,7 +215,7 @@ So the concept holds two coordinates of sixty-four rather than one, and its shar
 
 ### Budget
 
-{ex.N_RUNS} runs at d64-L4, each as long as a run in ex-2.2.11, at about three minutes a run on an L4. Scoring adds the eleven ops under the operators from ex-2.2.11, the per-line pass, and the achromatic edit. That is about four times the sweep in ex-2.2.12, which cost six dollars on Modal.
+{ex.N_RUNS} runs at d64-L4, each as long as a run in ex-2.2.11, at about three minutes a run on an L4. Scoring adds the eleven ops under the operators from ex-2.2.11, the per-line pass, and the achromatic edit. That is about three and a half times the sweep in ex-2.2.12, which cost six dollars on Modal.
 
 ### What this experiment does not vary
 
