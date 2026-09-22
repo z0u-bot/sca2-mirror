@@ -649,7 +649,10 @@ def _score_op(
         on = np.ones(n_pos, bool) if positions is None else positions > 0
         np.testing.assert_allclose(theta[:, :, ~on], 0.0, rtol=0, atol=1e-6)
         if OPERATOR_SPEC[name][0] == "projection":
-            np.testing.assert_allclose(theta[:, :, on], write_angle(alpha_pre[:, :, on]), rtol=0, atol=2e-3)
+            # Compared through the sine: near |α| = 1 the angle itself amplifies float32 rounding of the
+            # alignment (d arcsin/dα is unbounded there), and the plane reaches that corner.
+            expect = np.sin(write_angle(alpha_pre[:, :, on]))
+            np.testing.assert_allclose(np.sin(theta[:, :, on]), expect, rtol=0, atol=2e-3)
         r = read(out.logits)
         disp = angle_between(out.post[-1, :, DECODE_POS], clean.post[-1, :, DECODE_POS])
         stats["operators"][name] = {
@@ -699,6 +702,9 @@ def score_one(
     model, _, color_ids, tok2color = _load(trained, workdir)
     width = model.transformer.wte.shape[1]
     sub = Subspace.axis(width, axes[0]) if len(axes) == 1 else Subspace.axes(width, axes)
+    if len(axes) > 1:
+        # The shaped suppression is defined on one direction; the plane runs the two projections only.
+        operators = tuple(o for o in operators if OPERATOR_SPEC[o][0] != "shaped")
     keys = ("tokens", "r1", "r2", "q_idx", "q_p", "move", "hue_move")
     with np.load(get(probes, workdir / "probes.npz")) as z:
         probe = {o: {k: z[f"{o}/{k}"] for k in keys} for o in _probe_ops(z)}
