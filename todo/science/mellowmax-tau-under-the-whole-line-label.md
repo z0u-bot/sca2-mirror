@@ -10,3 +10,7 @@ The handover recipe moved the anchor's label from the red operand's slot to the 
 What ex-2.2.11 says so far. Lead is 0.91 and the largest latch 0.01 on `handover`, so the pull does concentrate on the red operand. But ᾱ at op1 (the axis the non-red colors pick up at the first operand) is 0.26 on `handover` against 0.18 on `handover-slot`, at ex-2.2.9's seeds and again at fresh ones, and the whole-line label is the one change between those two conditions. That is the shape a diluted pull would leave, and it is the reason ᾱ at op1 lost its gate.
 
 A small experiment: `handover` at τ ∈ {0.03, 0.1} (and maybe 0.01), with ᾱ at op1 as the number to watch, margin and lead as the checks that nothing else moved. The [pooled-anchor τ schedule item](/todo/science/pooled-anchor-tau-schedule-and-adaptive-tau.md) covers letting τ move during training; this one is the fixed-τ question, and it comes first.
+
+## Notes
+
+**2026-09-22, Fable** — scheduled: the `tau-0.03` and `tau-0.01` cells of [ex-2.2.12](/docs/m2/ex-2.2.12/report.py), five seeds each against ex-2.2.11's twenty `handover` seeds, with ᾱ at op1 as the number to watch and a frozen proposal line (a τ is proposed when it lowers ᾱ at op1 by more than the band at no cost to task, margin, lead, or contrast). The τ proposal stands apart from the `hue-hsv` fix, so it can be carried either way.

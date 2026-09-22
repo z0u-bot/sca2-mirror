@@ -22,7 +22,8 @@ a1(["suppress red (ex-2.2.1)"])
 a2(["fallback control (ex-2.2.2)"])
 b1(["new grammar (ex-2.2.3)"])
 b2(["scouting and pilots (ex-2.2.4 to 2.2.8)"])
-b3(["grammar handover (ex-2.2.9, re-run pending)"])
+b3(["grammar handover (ex-2.2.9, ex-2.2.11)"])
+b4(["recipe sweep (ex-2.2.12) and re-run"])
 c1(["un-anchored embeddings (ex-2.2.7)"])
 main1(["anchor operation"])
 main2(["suppress operation"])
@@ -31,8 +32,8 @@ comp(["SGTM baseline"])
 w(["write-up"])
 
 a1 --> a2
-b1 --> b2 --> b3
-a2 & b3 & c1 --> main1 --> main2 --> sweep & comp --> w
+b1 --> b2 --> b3 --> b4
+a2 & b4 & c1 --> main1 --> main2 --> sweep & comp --> w
 ```
 
 ### Prep A: Suppression of concrete concepts (operands)
@@ -112,6 +113,16 @@ Ex-2.2.7 proposes that we keep anchoring every slice and untie the readout. The 
 Ex-2.2.8 proposes the plain projection as the removal operator, with `operands` beside it as the selective reference and `shaped-a0.4-p0` as an optional syntax-free row.
 
 The **handover** is the preregistered experiment that adopts all of this, drafted as [ex-2.2.9](../ex-2.2.9/report.py). It runs the recipe from ex-2.2.3 on table A+, with the stochastic corpus, the whole-line labeller, and the untied readout, at twenty seeds against the twenty of ex-2.2.3. `mix` stays as the reference op, with `hsvmix` beside it. Two reference conditions each change one thing back, the either-slot labeller and the tied readout, so the selectivity check on the labeller and the cleaning read on the readout are each a two-condition comparison on the new grammar. Neither is a fallback: the either-slot labeller needs the operand positions, which M3 will not have, so a selectivity cost on the whole-line labeller is something to understand rather than something to switch away from. The removal rows are the ones ex-2.2.8 proposed. The handover ran: *red* lands and the task is unhurt, but removal missed its gate on the three HSV ops, one-sided by slot, so the grammar of record is still the one from ex-2.2.3. [Ex-2.2.10](../ex-2.2.10/report.py) reads the miss off the stored runs: the projection acts like a change of the red operand's hue, and the to-zero rule that picked the removal lines counted the lines whose answer takes only red's saturation or value. The re-run (ex-2.2.11) picks the removal lines by hue, reads retention against the anneal's start, and reports the op1 alignment without a gate; after it, plain `mix` will likely be dropped. The prereg settles the two questions the scouting left open: lines per op stay at the corpus size, with an exploratory condition holding them at the count from ex-2.2.3 to read the E4 confound, and the probe draw walks every color as op2 as well, for the order-sensitive subset.
+
+#### The recipe sweep before the anchored-op prereg
+
+The re-run ([ex-2.2.11](../ex-2.2.11/report.py)) came out almost clean: *red* lands, holds through the anneal, costs the task nothing, and comes out under the projection on ten of the eleven ops. On `hue-hsv` the model keeps about a quarter of the answers that need the red operand's hue, a little over the gate inside a wide seed spread, so the frozen rule said not adopted. Three smaller threads came out with it: ᾱ at op1 sits higher than on either reference and has no named mechanism, the alignment drifts down before the anneal on `handover` alone, and the mellowmax τ was never re-tuned for the longer whole-line span.
+
+Our reading of the miss: hue is a clock face, and the anchored axis measures how red a color is, which is the same a little clockwise of red (toward orange) and a little anticlockwise (toward pink). So the axis cannot hold which side of red a color is on, and `hue-hsv` with red at op2 is the only op that needs the side. If the model keeps the side off the axis, that is what survives the projection, and no force knob will change it; a plane would.
+
+[Ex-2.2.12](../ex-2.2.12/report.py) is the scouting round that checks this and looks for a recipe change, in two acts. Act one scores ex-2.2.11's stored checkpoints, no training: the kept share on `hue-hsv`'s removal lines split by the side of red, the same lines under the projection applied at the embedding only or at the blocks only (the bypass read from the design), and ᾱ at op1 split by whether the whole-line labeller labelled the line through an operand or through its answer. Act two trains seven cells at five seeds on the handover setup, against ex-2.2.11's twenty `handover` seeds as the free reference: τ at 0.03 and 0.01, the anchor weight and the anti-subspace peak each doubled, and a two-by-two of depth (four or six blocks) and subspace (axis or plane). The promotion rule is frozen with the plan: a cell is proposed only if it clears the `hue-hsv` gate by more than the band ex-2.2.11 measured, with every other gate held and ᾱ at op1 no worse. That is the ex-2.1.11 survey lesson applied: a proposal that sits inside the band is not a proposal.
+
+The branch is decided now rather than after the data. If no cell qualifies, the re-run gates removal on the ten other ops and reports `hue-hsv` beside them as the op where a single axis has a known blind spot, and the anchored-op experiments proceed on the reference recipe. Either way a short re-run prereg adopts at fresh seeds, as ex-2.2.11 did.
 
 ### Prep C: Embeddings
 
@@ -205,6 +216,8 @@ Only what the plan above already commits to; everything else stays open until an
 - Which op to anchor is open until the op table lands and its relevance distributions are computed.
 - The second table (A+), stochastic rounding, and the whole-line labeller are proposals from the [scouting round](#scouting-pilots-and-the-grammar-handover), and only the handover prereg adopts them. The removal statistic there is a distance from the correct answer rather than exact match. The labeller goes in with a selectivity check, because of the tail ex-2.2.7 saw on its whole-line arms.
 - The handover ([ex-2.2.9](../ex-2.2.9/report.py)) is not adopted as it stands: removal missed on the HSV ops. [Ex-2.2.10](../ex-2.2.10/report.py) traces the miss to the removal rule rather than the model, so the re-run keeps the recipe and changes the reads: removal lines are the red lines whose answer needs the red operand's hue, retention is the end-of-training alignment over its value at the anneal's start, and ᾱ at op1 is reported beside the reference conditions with no gate.
+- The handover re-run ([ex-2.2.11](../ex-2.2.11/report.py)) is not adopted as it stands: removal missed on `hue-hsv` alone. One more scouting round ([ex-2.2.12](../ex-2.2.12/report.py)) runs before the anchored-op prereg, with its promotion rule and its no-fix branch frozen in advance: a proposal has to clear the missed gate by more than the seed band, and if none does, the re-run gates removal on the ten other ops and reports `hue-hsv` as the op where one axis has a known blind spot.
+- The plane anchor is defined as alignment with the span of e₁ and e₂ (the length of the projection onto the pair, unsigned), with the anchor and anti-subspace terms, the trajectory reads, and the projection operator all taking the pair where they took the axis, and every plane read compared with the control checkpoints read on the same pair. The concept's variance share is charged two coordinates. Settled for the sweep; the [plane item](/todo/science/anchor-red-to-a-plane.md) carries the alternatives.
 - Every slice is anchored, the embedding included, and the readout is untied. [Ex-2.2.7](../ex-2.2.7/report.py) found that leaving the embedding un-anchored does not clean the syntax embeddings and makes removal less complete, while untying the readout cleans them at no visible cost. The handover prereg adopts this and reads it against the hard-zeroed ceiling from ex-2.2.7.
 - The layer sweep takes the shape of a prefix/suffix bracket, following the depth read from ex-2.2.1. The grid question is deferred to the [experiment](#layer-sweep) itself.
 

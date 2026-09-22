@@ -18,3 +18,5 @@ Related: [retention under longer training](retention-under-longer-training.md) (
 ## Notes
 
 **2026-09-21, ex-2.2.11 run** — the checkpoints now exist: the first three seeds of `handover`, `handover-slot`, and `handover-tied` store a checkpoint at every trajectory point under `reports/m2/ex-2.2.11/checkpoints/{label}/trajectory` (one tree per run; `TRAJ_CHECKPOINT_REF` in ex-2.2.11's `experiment.py`). At the fresh seeds the drift again shows on `handover` alone: its seed-mean alignment peaks near epoch 23 and loses about 0.05 by the end, while both references peak in or beside the anneal window (post-hoc section of the ex-2.2.11 report). Retention across the anneal is ~1.0 on every condition, so the anneal is not involved.
+
+**2026-09-22, Sandy, reviewing the ex-2.2.12 prereg** — beside the LLC, per-line influence is worth measuring: a Bayesian influence matrix or similar, to see how much each line updates the model, both in general and toward the anchor. Ex-2.2.12's containment measurement (ᾱ at op1 split by how the whole-line labeller earned the line's label) is a coarse version of the "toward the anchor" half, grouped by labelling rule rather than per line.
