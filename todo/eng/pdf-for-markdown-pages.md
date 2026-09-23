@@ -10,3 +10,5 @@ The site build prints a `report.pdf` for every report (`mini.report_print`, thro
 A stopgap that worked on 2026-09-23: render the body with `build_site.render_markdown`, inline `base.css`, `scripts/md.css`, and `docs/report.css`, load the page in Playwright, and call `print_page`. With the default `fit=True` it prints one tall 158 mm page clipped to its content, the same shape as a report's PDF. Mermaid blocks and `mini:figures` strips were not exercised.
 
 What a proper version needs: `convert_markdown` pulling in the print sheet, a nav chip linking the PDF, the build's print memo covering Markdown pages, `./go preview` accepting a `.md` path, and `review_marks` working on Markdown sources.
+
+**2026-09-23, D2.2 pivot round 2** — Change marks work for a Markdown page as they are: render both versions with `build_site.render_markdown`, wrap each body in `MAIN_OPEN … </main>`, and pass them to `review_marks.mark_changes`. The page then prints one section per page, as a report does. A `--since` on the proper version should take this route.
