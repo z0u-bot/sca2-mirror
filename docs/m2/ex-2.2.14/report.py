@@ -187,7 +187,7 @@ One table: the primary's verdicts on H1 and H2, and per op of the sweep its seed
 
 ## Exploratory analyses
 
-Anything we think of after seeing the data goes here, marked as post hoc. Four analyses are planned in advance as descriptions, with no gate, and run whichever way the predictions come out. Each gets a figure as well as a table.
+Anything we think of after seeing the data goes here, marked as post hoc. Four analyses are planned in advance as descriptions, with no gate, and run whichever way the predictions come out. Each gets a figure as well as a table. When the results come in, each analysis's figure and table go right after the paragraph that defines it, so definition and result read together.
 
 **The sweep.** Every other op of table A+ anchored the same way at {ex.SWEEP_SEEDS} seeds, read on the same task gap, op margin, retention, and use-site contrast. It is the design's "sweep over all ops to see whether they can all be anchored equally well", run cheaply while the machinery is warm, and the rule above falls back on it.
 
