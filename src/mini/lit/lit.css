@@ -146,6 +146,7 @@ body.dark-theme .mini-themed-figure {
 .admonition.warning { border-left-color: #d9822b; }
 .admonition.tip, .admonition.success { border-left-color: #2a9d5c; }
 .admonition.danger, .admonition.error { border-left-color: #c33; }
+.admonition > :first-child { margin-top: 0; }
 .admonition > :last-child { margin-bottom: 0; }
 
 /* Footnotes. */

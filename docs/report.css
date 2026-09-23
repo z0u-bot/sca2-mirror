@@ -64,9 +64,8 @@ main.lit p:has(+ h1) > mark:only-child {
  * hoisted from the section's verdict admonition at page-build time
  * (mini.reports.mark_verdicts). The hoist wraps the heading's words in a span, and the
  * heading becomes a flex row of the two, so the badge sits at the right edge on the
- * first line however the words wrap; a small outlined
- * pill, outlined rather than filled since it also prints, in ink, where the glyph and the
- * word carry it without the colour. */
+ * first line however the words wrap. Plain coloured text, which also prints: in ink the
+ * glyph and the word carry it without the colour. */
 main.lit :is(h2, h3):has(> mark.verdict) {
   display: flex;
   align-items: baseline;
@@ -80,9 +79,7 @@ main.lit :is(h2, h3):has(> mark.verdict) {
 main.lit :is(h2, h3) > mark.verdict {
   flex: none;
   margin-inline-start: auto;
-  padding: 0 0.65em 0.05em;
-  border: 1.5px solid currentColor;
-  border-radius: 1em;
+  padding: 0;
   background: none;
   color: inherit;
   font-family: inherit;
@@ -105,8 +102,12 @@ main.lit :is(h2, h3) > mark.verdict {
   }
 }
 
-/* Authored report tables. Headings left-align with their columns by default; annotate
- * numeric columns (header and cells) with class="num" to right-align on tabular figures. */
+/* Authored report tables, a step smaller than the prose so more columns fit. Headings
+ * left-align with their columns by default; annotate numeric columns (header and cells)
+ * with class="num" to right-align on tabular figures. */
+.report-table {
+  font-size: 0.75em;
+}
 .report-table th {
   text-align: left;
 }
@@ -127,12 +128,6 @@ main.lit :is(h2, h3) > mark.verdict {
 }
 .report-table tr.ref :is(th, td) {
   opacity: 0.65;
-}
-
-/* A design table (conditions, factor levels): reference material rather than a result, so
- * it sits a step smaller than the prose. */
-.report-table.dense {
-  font-size: 0.85em;
 }
 
 /* Wide tables (e.g. a per-seed completions grid) scroll horizontally inside their own
@@ -228,6 +223,8 @@ main.lit details:not(:open) {
   .admonition,
   main.lit details {
     background: none;
+    border-radius: 0;
+    padding-block: 0;
   }
 
   /* Each top-level section starts a fresh page, so the reader swipes between sections and
@@ -235,6 +232,7 @@ main.lit details:not(:open) {
    * findings, and whatever else precedes the first section. */
   main.lit h2 {
     break-before: page;
+    margin-top: 0;
   }
 
   /* Keep things together. A hint rather than a rule: a block taller than a page still
@@ -275,14 +273,12 @@ main.lit details:not(:open) {
 
   /* Tables. Nothing scrolls on paper, so the screen tricks come off: the horizontal
    * scroll box and the nowrap that fed it. The table becomes a real table again, so
-   * auto layout can wrap its cells to fit the column, and the type is a step smaller so
-   * more columns fit before they do. A swatch stays with its word (join them with a
-   * non-breaking space). */
+   * auto layout can wrap its cells to fit the column. A swatch stays with its word (join
+   * them with a non-breaking space). */
   main.lit table.report-table {
     display: table;
     overflow: visible;
     white-space: normal;
-    font-size: 0.75em;
     width: auto;
     max-width: 100%;
     margin-inline: auto;
