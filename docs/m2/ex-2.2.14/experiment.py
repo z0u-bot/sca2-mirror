@@ -50,28 +50,40 @@ pull covers the whole line, as the handover's `line` keying does, so the label n
 carried it (the position-free mechanism of ex-2.1.10). The library today keys on the operands and the
 answer only, so this keying is the one engineering change the experiment needs."""
 
-LABEL_RATE = 1.0
-"""Every line of the anchored op draws: about a tenth of the corpus. The red labeller labels about
-`RED_LABEL_SHARE` of lines, fifty times fewer. The anchor term normalizes by the mask's own weight, so its
-size per batch is unchanged and each labelled line gets a proportionally weaker pull (REVIEW: was "per-line
-pull unchanged"). The matched arm below brackets that, and the label share is recorded per run."""
+LABEL_RATE = 0.02
+"""The anchored op's lines draw at this rate, so about `RED_LABEL_SHARE` of the corpus is labelled, red's
+share, and each labelled line gets the pull a red line got (the anchor term normalizes by the mask's own
+weight). The rate is the primary rather than a pull on every line because the labels the method will have
+further up the ladder — an abstract concept in natural language — will be scarce, so the scarce case is the
+one the hypotheses should be scored on. The every-line arm below brackets it (REVIEW: the two swapped
+places at the human's call; the rate is the more realistic labeller)."""
 
 RED_LABEL_SHARE = 0.0018
 """The share of lines the red labeller labels under `line` keying: three draws per line at redness⁸ × 0.04
 per token, averaged over the grid. Computed from the palette, not measured."""
 
-MATCHED_RATE = 0.02
-"""The arm that matches red's label share: the anchored op's lines draw at this rate, so about
-`RED_LABEL_SHARE` of the corpus is labelled and each labelled line gets the pull a red line got. If the primary
-and this arm agree on the margin, the label share is not what sets it; if they part, the ratio of their
-margins is the price of pulling every line of a categorical concept."""
+FULL_RATE = 1.0
+"""The arm in which every line of the anchored op draws: about a tenth of the corpus, fifty times red's
+share. The term's size per batch is unchanged and each labelled line gets a proportionally weaker pull. If
+it and the primary agree on the margin, the label share is not what sets it; if they part, the ratio of
+their margins is what pulling every line of a categorical concept buys."""
+
+LABEL_PRECISION = 0.8
+FALSE_RATE = LABEL_RATE * (1 / LABEL_PRECISION - 1) / 10
+"""The arm with erroneous labels: the anchored op's lines draw at `LABEL_RATE` as on the primary, and every
+other op's lines draw at `FALSE_RATE`, so a fifth of the labels land on lines that do not carry the op. A
+labeller for an abstract concept in natural language will be wrong some of the time, and this arm says
+what a fifth of wrong labels costs the margin and the task. The precision is a round number, not a
+measurement of any labeller."""
 
 OPWORD_SPAN = 2
-"""The arm that pulls the op word alone: the pull covers position 1 only (a span of two tokens minus the
-first operand, in the library's role terms, or a `slot` pull at role 1 once the keying exists). Under it the
-use sites are outside the mask, so a contrast at `=` or the answer at the final slice is carried there by the
-blocks rather than asked for by the pull. That is the read H3 cannot make on the primary, and it is reported
-beside H3 without a gate."""
+"""The arm that pulls the op word alone, at the primary's rate: the pull covers position 1 only (a span of
+two tokens minus the first operand, in the library's role terms, or a `slot` pull at role 1 once the keying
+exists). Under it the use sites are outside the mask, so a contrast at `=` or the answer at the final slice
+is carried there by the blocks rather than asked for by the pull. H3 is scored on this arm for that reason;
+the primary's use-site contrast is optimized by construction and is reported beside it as a manipulation
+check. One position instead of six also makes each pull about six times stronger under the mask normalizer
+(the ex-2.1.7 lesson), which the arm's op-position contrast beside the primary's will show."""
 
 WHOLE_SPAN = 6
 """The pull covers all six positions of a labelled line."""
@@ -91,10 +103,12 @@ SWEEP_SEEDS = 3
 """Seeds for each of the other ten ops. The sweep describes; it decides nothing unless the primary misses."""
 
 PRIMARY = f"anchor-{ANCHORED_OP}"
-MATCHED_ARM = f"{PRIMARY}-matched"
+FULL_ARM = f"{PRIMARY}-full"
 OPWORD_ARM = f"{PRIMARY}-opword"
-ARMS = (MATCHED_ARM, OPWORD_ARM)
-"""Two arms at the primary's five seeds, outside the hypotheses and the rule."""
+NOISY_ARM = f"{PRIMARY}-noisy"
+ARMS = (FULL_ARM, OPWORD_ARM, NOISY_ARM)
+"""Three arms at the primary's five seeds. H3 is scored on the op-word arm; the other two are outside the
+hypotheses and the rule."""
 SWEEP = tuple(
     f"anchor-{op}"
     for op in (
@@ -112,7 +126,7 @@ SWEEP = tuple(
 )
 CONDITIONS = (PRIMARY, *ARMS, *SWEEP)
 N_RUNS = SEEDS * (1 + len(ARMS)) + SWEEP_SEEDS * len(SWEEP)
-assert N_RUNS == 45
+assert N_RUNS == 50
 
 # --- The measurements ----------------------------------------------------------------------------------
 
@@ -143,11 +157,13 @@ anneal, at `RETENTION_GATE` of that peak. Ex-2.2.11's rule, unchanged."""
 
 USE_CONTRAST_RATIO = 0.5
 USE_CONTRAST_PARTIAL = 0.25
-"""H3: the contrast at the use sites. At `=` and at the answer position the embedding is the same token on
-every line, so any difference in alignment between the anchored op's lines and the others at slices 1..L
-came through the blocks. H3 holds when the seed-mean contrast (mean cosine on the anchored op's lines minus
-mean cosine on the other ops' lines) at the final slice, at each of the two use sites, is at least
-`USE_CONTRAST_RATIO` of the same contrast at the op position; partial from `USE_CONTRAST_PARTIAL`."""
+"""H3, scored on the op-word arm: the contrast at the use sites. At `=` and at the answer position the
+embedding is the same token on every line, so any difference in alignment between the anchored op's lines
+and the others at slices 1..L came through the blocks, and under the op-word pull nothing asked for it. H3
+holds when the arm's seed-mean contrast (mean cosine on the anchored op's lines minus mean cosine on the
+other ops' lines) at the final slice, at each of the two use sites, is at least `USE_CONTRAST_RATIO` of the
+same contrast at the op position; partial from `USE_CONTRAST_PARTIAL`. The primary's use-site contrast is
+reported beside it without a gate."""
 
 CONTAINMENT_REF = 0.264
 """Ex-2.2.11's ᾱ at op1 on `handover` at twenty seeds: the mean alignment over every color at the first
@@ -170,5 +186,5 @@ a miss), margin and retention both. If it does not, the read anchors the op in t
 seed-mean op margin among those that pass the same gates at their three seeds: every op inside the task gate, \
 the margin at or above the H2 bar, and every run clearing the retention rule, and that op is confirmed at the read's own seeds before any \
 number is quoted for it. If no op qualifies, the anchored-op line stops here and the report says what gave \
-way. H3 and the containment read do not enter the rule: they describe what the anchor did, and the read \
-that follows measures them at its own seeds whichever way they came out."""
+way. H3, the arms, and the containment read do not enter the rule: they describe what the anchor did, and \
+the read that follows measures them at its own seeds whichever way they came out."""

@@ -10,11 +10,14 @@ def conditions_html() -> str:
     head = "<tr><th>condition</th><th>anchored op</th><th class=num>seeds</th><th>role</th></tr>"
     rows = [
         f"<tr><td><code>{ex.PRIMARY}</code></td><td><code>{ex.ANCHORED_OP}</code></td>"
-        f"<td class=num>{ex.SEEDS}</td><td>the primary: every hypothesis is scored on it</td></tr>",
-        f"<tr><td><code>{ex.MATCHED_ARM}</code></td><td><code>{ex.ANCHORED_OP}</code></td>"
-        f"<td class=num>{ex.SEEDS}</td><td>arm: the op's lines draw at {ex.MATCHED_RATE:g}, matching the red labeller's share</td></tr>",
+        f"<td class=num>{ex.SEEDS}</td><td>the primary: the op's lines draw at {ex.LABEL_RATE:g}, the red labeller's share; "
+        "H1 and H2 are scored on it</td></tr>",
         f"<tr><td><code>{ex.OPWORD_ARM}</code></td><td><code>{ex.ANCHORED_OP}</code></td>"
-        f"<td class=num>{ex.SEEDS}</td><td>arm: the pull covers the op word alone</td></tr>",
+        f"<td class=num>{ex.SEEDS}</td><td>arm: the pull covers the op word alone; H3 is scored on it</td></tr>",
+        f"<tr><td><code>{ex.FULL_ARM}</code></td><td><code>{ex.ANCHORED_OP}</code></td>"
+        f"<td class=num>{ex.SEEDS}</td><td>arm: every line of the op draws</td></tr>",
+        f"<tr><td><code>{ex.NOISY_ARM}</code></td><td><code>{ex.ANCHORED_OP}</code></td>"
+        f"<td class=num>{ex.SEEDS}</td><td>arm: the primary's labeller, plus a fifth of the labels on other ops' lines</td></tr>",
         f"<tr><td><code>anchor-&lt;op&gt;</code> ×{len(ex.SWEEP)}</td><td>each other op of table A+</td>"
         f"<td class=num>{ex.SWEEP_SEEDS}</td><td>the sweep: the same reads, reported as a description</td></tr>",
         f"<tr><td><code>{ex.CONTROL}</code></td><td>none</td><td class=num>{ex.CONTROL_SEEDS}</td>"
@@ -56,7 +59,7 @@ If anchoring an op works, the suppression experiment that follows can ask whethe
 
 The label is new in kind: it has always been drawn off a color, and here it is drawn off the op word. The pull covers the whole line, so the label says which lines carry the concept, but not where on the line it sits.
 
-Anchoring the op word's embedding places the op token on the axis by construction, and the whole-line pull also asks for the axis at `=` and the answer, so none of the alignment reads here can tell an anchored op from an anchored token. They say whether the pull landed. Whether the anchor captured the operation itself is a question for suppression, and we don't ask it here.
+Anchoring the op word's embedding places the op token on the axis by construction, and the whole-line pull also asks for the axis at `=` and the answer, so on the primary none of the alignment reads can tell an anchored op from an anchored token. They say whether the pull landed. One arm pulls the op word alone, and the axis at its use sites is the one read here the pull did not ask for. Whether the anchor captured the operation itself is a question for suppression, and we don't ask it here.
 
 ## Conditions
 
@@ -68,15 +71,21 @@ It is total on the grid, so each line has one answer, and the control learns it 
 
 [^op-relevance]: The term is the design's. The sweep reads every other op the same way, so the choice can be revisited on data.
 
-**The labeller.** A line draws a label when its op word is the anchored op, and every such line draws. The pull covers all six positions of a labelled line, as the handover's whole-line labeller does.
+**The labeller.** A line whose op word is the anchored op gets a label at a rate of {ex.LABEL_RATE:g}. The pull covers all six positions of a labelled line, as the handover's whole-line labeller does.
 
-About a tenth of the corpus is labelled, against a fifth of a percent for the red labeller, fifty times fewer. The anchor term is normalized by the mask's weight, so its size per batch is unchanged, but it is now shared over five to ten times as many lines: each labelled line gets a weaker pull than a red line did, and the term is non-zero in almost every batch. So the op and *red* differ in label share as well as in kind, and a gap between them in H2 could come from either. The label share is recorded per run.
+That labels a fifth of a percent of the corpus, the red labeller's share, so each labelled line gets the same pull a red line got, and the op differs from *red* in kind rather than in label share.
 
-<!-- REVIEW: replaced "the pull per line is unchanged" — a mask-normalized term spread over ~5-10x more labelled lines gives each line a proportionally weaker pull. Verify against the anchor term's normalizer in the training code; if it normalizes by a fixed count instead, the old sentence was right. -->
+The primary uses this sparse rate because it resembles the labels the method will have further up the ladder: for an abstract concept in natural language, labels will be scarce and sometimes wrong. One arm below labels every line of the op instead. We record the label share for each run.
 
-**The arms.** Two arms bracket what the labeller changes, at the primary's seeds and outside the hypotheses. One draws the anchored op's lines at {ex.MATCHED_RATE:g} instead of every one, so the labelled share and the pull per line match red's. If it and the primary agree on the margin, the label share is not what sets it; if they part, the ratio of their margins is the price of pulling every line of a categorical concept.
+<!-- REVIEW: the rate-0.02 labeller and the every-line labeller swapped places at the human's call, the realistic labeller as the primary. The every-line arm keeps the bracket: its share is fifty times red's, and the anchor term is normalized by the mask's weight, so each of its labelled lines gets a proportionally weaker pull. -->
 
-The other pulls the op word alone. Under it the use sites are outside the mask, so a contrast at `=` or the answer at the final slice was carried there by the blocks rather than asked for by the pull. That is the read H3 cannot make on the primary, and it is reported beside H3.
+**The arms.** All three run at the primary's seeds. The op-word arm pulls only the op word, at the primary rate, so the use sites fall outside the mask: any contrast at `=` or the answer at the final slice was carried there by the blocks, with nothing in the pull asking for it. H3 is scored on this arm.
+
+Pulling one position instead of six also makes each of this arm's pulls about six times stronger, because the anchor term is normalized by the mask. So we report its contrast at the op position beside the primary's.
+
+The every-line arm labels every line of the anchored op, a tenth of the corpus. If its margin agrees with the primary's, label share does not set the margin; if they differ, the ratio of the two margins shows what pulling every line of a categorical concept gains.
+
+The noisy arm uses the primary labeller and also labels lines of the other ops, at a rate that makes a fifth of all labels wrong. It shows what a labeller of that precision costs the margin and the task. Neither the every-line arm nor the noisy arm enters a hypothesis or the rule.
 
 **The seeds.** {ex.SEEDS} for the primary and each arm, and {ex.SWEEP_SEEDS} for each op of the sweep, all fresh. The control is served from the store at its own five seeds; comparisons against it are between seed means, which absorbs the unpaired seed sets.
 
@@ -123,16 +132,18 @@ One figure, two panels: the op margin over training for each primary seed with t
 
 ## The blocks carry it to the use sites (H3)
 
-**H3.** A manipulation check on the blocks. At the final slice, the contrast at `=` and at the answer position is each at least {ex.USE_CONTRAST_RATIO:.0%} of the contrast at the op position on the seed mean; partial from {ex.USE_CONTRAST_PARTIAL:.0%}.
+**H3.** On the op-word arm at the final slice, the contrast at `=` and the contrast at the answer position are each at least {ex.USE_CONTRAST_RATIO:.0%} of the contrast at the op position, on the seed mean. It holds in part from {ex.USE_CONTRAST_PARTIAL:.0%}.
 
-At the op position, the contrast at slice 0 is the op word's own embedding on e₁, which the pull puts there by construction. At the use sites the embedding is `=` or the answer, the same token on every line, so the contrast there at slice 0 is zero. Whatever appears at later slices came through attention.
+At the op position, the contrast at slice 0 is the op word's embedding projected on e₁, which the pull puts there by construction. At the use sites the token (`=` or the answer) is the same on every line, so the contrast at slice 0 is zero, and any contrast at later slices came through attention. On this arm nothing requested it.
 
-The whole-line pull asks for this directly: it pulls `=` and the answer toward e₁ on the anchored op's lines, and the anti-subspace term pushes the other lines off it, so the contrast at the use sites is part of what the treatment optimizes, and a pass is expected from the method alone. A miss would say the recipe did not reach the use sites at this weight, the anchor naming the op without the blocks carrying it there; it would not say the model computes the op elsewhere. Whether the blocks carry the op to the use sites on their own would need a pull on the op position alone, which this experiment does not run.
+A pass would mean that once the op word is on the axis, the blocks carry the op to where it is used, which an intervention at the op word would rely on. A miss would mean that, at this weight, the anchor marks the op but the blocks do not carry it to the use sites; it would not mean the model computes the op somewhere else.
 
-<!-- REVIEW: H3 relabelled from "manipulation check on the blocks rather than a discovery" with a meaningful miss, to a plain manipulation check. The whole-line span pulls positions 3 and 4 of labelled lines directly, so the use-site contrast is optimized, not carried. Verify: if the anchor or anti-subspace term excludes the use sites from the mask, H3 becomes a real test again. -->
+On the primary the whole-line pull covers the use sites too, so the contrast there is part of what the treatment optimizes and we expect a pass from the method alone. We report it beside the op-word arm as a manipulation check.
+
+<!-- REVIEW: H3 was a manipulation check on the primary, where the whole-line span pulls positions 3 and 4 of labelled lines. It is now scored on the op-word arm, whose mask excludes the use sites, so the contrast there is carried rather than optimized. The primary stays the whole-line labeller because that is the realistic one; the narrower arm is where this hypothesis means something. -->
 
 /// admonition | TODO
-One figure: contrast as a map over position (six) and slice (five), seed mean, with the three sites marked, for the primary and for the op-word arm side by side. One table: contrast at the op position and at the two use sites at the final slice, per seed, and the two ratios.
+One figure: contrast as a map over position (six) and slice (five), seed mean, with the three sites marked, for the op-word arm and for the primary side by side. One table: contrast at the op position and at the two use sites at the final slice, per seed of the arm, and the two ratios.
 ///
 
 ## Containment, reported without a gate
@@ -163,7 +174,7 @@ Whether the three order-sensitive ops behave differently is the one pattern wort
 
 **The op-identity scan.** The op-identity R² at every site, anchored against control. The design's equivalence claim is that anchoring does not change how readable the op is anywhere the anchor does not reach. The read that follows has to declare a margin for that, and this scan gives it an observed spread rather than a guess. It carries no gate here.
 
-**The arms.** The matched-share arm and the op-word arm, read on the same statistics as the primary. The op-word arm's use-site contrast at the final slice is the one number here that says whether the blocks carry the op without being asked; a value near zero would say the whole-line pull is what put the op at the use sites on the primary.
+**The arms.** The every-line arm and the noisy-label arm, read on the same statistics as the primary: the task gap, the op margin, retention, and the use-site contrast. The every-line arm's margin against the primary's is the price or gain of the label share; the noisy arm's margin and task gap against the primary's are the cost of a fifth of wrong labels. The op-word arm carries H3 and is read there.
 
 **The alignment map.** The primary's mean cosine with e₁ over position and slice on the anchored op's lines and on the others, as a picture of where the anchor put the op.
 
@@ -177,7 +188,7 @@ About 200 words: whether an op anchors as readily as a color, what the use-site 
 
 ### The labeller
 
-The library's labeller draws a label off a line's operands and, under the whole-line keying, its answer; the op word never draws. This experiment adds a keying that draws off the op word, at a per-op rate of one for the anchored op and zero otherwise, and pulls the whole line. It consumes the random stream differently from the color labellers, so the control's batches are not this experiment's; hence the seed-mean comparison, as in ex-2.2.13.
+The library's labeller draws a label off a line's operands and, under the whole-line keying, its answer; the op word never draws. This experiment adds a keying that draws off the op word against a per-op rate table: {ex.LABEL_RATE:g} for the anchored op and zero otherwise on the primary, one for the anchored op on the every-line arm, and {ex.FALSE_RATE:.4g} for each other op on the noisy arm. The pull covers the whole line, or the op word alone on the op-word arm. It consumes the random stream differently from the color labellers, so the control's batches are not this experiment's; hence the seed-mean comparison, as in ex-2.2.13.
 
 ### The measurements
 
