@@ -212,11 +212,6 @@ def table_html(head: list[str], rows: list[list[str]], caption: str) -> str:
     return figure_html(table, caption=caption, class_="report-figure")
 
 
-def mean_range(v: np.ndarray, digits: int = 2) -> str:
-    v = np.asarray(v, float)
-    return f"{v.mean():+.{digits}f} ({v.min():+.{digits}f}–{v.max():+.{digits}f})"
-
-
 def runs_table() -> str:
     rows = [
         [
