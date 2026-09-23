@@ -73,3 +73,34 @@ def test_a_redrawn_figure_is_barred_although_its_name_is_the_same(browser, tmp_p
     (tmp_path / "_assets" / "fig.png").write_bytes(b"new pixels")
     fig = '<h2>Results</h2><figure><img src="_assets/fig.png"><figcaption>The spread.</figcaption></figure>'
     assert _barred(browser, fig, fig, tmp_path) == ["img"]
+
+
+def _counts(browser, head: str, base: str, tmp_path: Path) -> list[str]:
+    """The change count at the top of each section of the marked *head* page, in document order."""
+    html = mark_changes(_page(head), _page(base), note="since abc", root=tmp_path, base_root=tmp_path / "base")
+    page = browser.new_page()
+    page.set_content(html)
+    counts = page.evaluate("() => [...document.querySelectorAll('main.lit .rv-count')].map(c => c.textContent)")
+    page.close()
+    return counts
+
+
+def test_each_section_counts_the_words_added_and_removed_in_it(browser, tmp_path: Path):
+    base = "<h1>Title</h1><p>A lede.</p>" + _TWO + "<h2>Method</h2><p>We fit a line.</p>"
+    head = "<h1>Title</h1><p>A lede.</p>" + _TWO.replace("a little", "a lot") + "<h2>Method</h2><p>We fit a line.</p>"
+    assert _counts(browser, head, base, tmp_path) == ["unchanged", "+1 −1", "unchanged"]
+
+
+def test_a_changed_table_row_has_one_bar_as_tall_as_the_row(browser, tmp_path: Path):
+    table = "<h2>Results</h2><table><tr><td>seed</td><td>{}</td></tr><tr><td>mean</td><td>0.5</td></tr></table>"
+    html = mark_changes(
+        _page(table.format("0.12")), _page(table.format("0.13")), note="", root=tmp_path, base_root=tmp_path
+    )
+    page = browser.new_page()
+    page.set_content(html)
+    bars, row = page.evaluate("""() => [
+      [...document.querySelectorAll('main.lit .rv')].map(b => b.getBoundingClientRect().height),
+      document.querySelector('tr').getBoundingClientRect().height,
+    ]""")
+    page.close()
+    assert bars == [pytest.approx(row)]

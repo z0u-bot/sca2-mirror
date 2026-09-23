@@ -4,7 +4,7 @@ The reader reviews a report on paper or e-ink, rounds apart. From the second rou
 
 The comparison is between two *rendered* pages, the report's and the baseline's (:func:`mark_changes`), rather than two sources, so a number an f-string prints is compared too. It runs in the page, in the browser that prints it (:data:`_JS`): leaf blocks (paragraphs, list items, table cells, captions, headings) are aligned first, anchored on the ones that match word for word, with the rest paired by similarity; each changed pair is then diffed word by word. Math and figures are one word each, and a figure is compared by a digest of its file, since a redrawn figure keeps its name.
 
-A bar is drawn without measuring anything: before each changed word the script inserts an empty span that is absolutely positioned with ``top: auto``, so it sits on the line the word is on, wherever the print's layout puts that line, and its ``right`` reaches across the ``@page`` margin to the edge of the paper. Each bar is a line tall and opaque, and overlaps its neighbours by a hair, so the bars of consecutive lines join into one without a seam (a PDF reader anti-aliases each edge, and two abutting edges would show a faint gap). A changed figure's bar is as tall as the image, through CSS anchor positioning. A note at the top of the first page, on the same edge, names the two versions.
+A bar is drawn without measuring anything: before each changed word the script inserts an empty span that is absolutely positioned with ``top: auto``, so it sits on the line the word is on, wherever the print's layout puts that line, and its ``right`` reaches across the ``@page`` margin to the edge of the paper. Each bar is a line tall and opaque, and overlaps its neighbours by a hair, so the bars of consecutive lines join into one without a seam (a PDF reader anti-aliases each edge, and two abutting edges would show a faint gap). A changed figure's bar is as tall as the image, and a table row with any change in it has one bar as tall as the row, through CSS anchor positioning. Each section's page carries a count at the top of its margin, words added and removed (``+12 −3``) or ``unchanged``, so the reader can skip a page at a glance; it is indicative, a sense of how much moved rather than a tally of the bars. A note under the first page's count, on the same edge, names the two versions.
 """
 
 from __future__ import annotations
@@ -25,15 +25,25 @@ main.lit { position: relative; }
 main.lit .rv {
   position: absolute;
   right: calc(-1 * var(--rv-edge, 0px));
-  width: 3px;
+  width: 6px;
   height: calc(1lh + 1px);
   margin-top: -0.5px;
   background: #f3a978;
   pointer-events: none;
 }
+main.lit .rv-count {
+  position: absolute;
+  right: calc(3mm - var(--rv-edge, 0px));
+  font: 600 0.8rem/1.6 'PT Sans', sans-serif;
+  font-variant-numeric: tabular-nums;
+  color: #c4621f;
+  white-space: nowrap;
+}
+main.lit .rv-count.rv-same { font-weight: 400; color: #aaa; }
+main.lit > .rv-count { top: 0; }
 main.lit .rv-note {
   position: absolute;
-  top: 0;
+  top: 8mm;
   right: calc(3mm - var(--rv-edge, 0px));
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -113,6 +123,9 @@ _JS = r"""
   };
   // A removal marks the line it leaves a gap in: the next word, or the last one when nothing follows.
   const removed = (bi, wi) => bi < H.length ? mark(bi, wi) : mark(H.length - 1, Infinity);
+  // Words added and removed, per block of the page (a removal counts where it would be marked), for each section's count.
+  const plus = new Array(H.length).fill(0), minus = new Array(H.length).fill(0);
+  const tally = (bi, p, m) => { const k = Math.min(bi, H.length - 1); if (k >= 0) { plus[k] += p; minus[k] += m; } };
   const exact = lcs(H, B, (x, y) => x.key === y.key ? 1 : 0);
   let hi = 0, bi = 0;
   for (const [he, be] of [...exact, [H.length, B.length]]) {
@@ -121,12 +134,14 @@ _JS = r"""
     for (const [x, y] of [...pairs, [he, be]]) {
       // A removal with something new in its place is marked by the new; one without, by the line it leaves.
       if (bj < y && hj === x) removed(x, 0);
-      for (; hj < x; hj++) H[hj].tk.forEach((_, k) => mark(hj, k));  // a new block
+      for (let k = bj; k < y; k++) tally(x, 0, B[k].w.length);
+      for (; hj < x; hj++) { H[hj].tk.forEach((_, k) => mark(hj, k)); tally(hj, H[hj].w.length, 0); }  // a new block
       if (x < he) {                                                    // an edited block: its words
         const words = lcs(H[x].w, B[y].w, same);
         let i = 0, j = 0;
         for (const [wi, wj] of [...words, [H[x].w.length, B[y].w.length]]) {
           if (j < wj && i === wi) removed(x, wi);
+          tally(x, wi - i, wj - j);
           for (; i < wi; i++) mark(x, i);
           i = wi + 1; j = wj + 1;
         }
@@ -137,20 +152,41 @@ _JS = r"""
   }
 
   // Insert the bars, last word first within a block, so splitting a text node never moves a word still to come.
+  // A figure, and a table row with a change anywhere in it, get one bar as tall as they are, through anchor positioning.
   let anchors = 0;
   const bar = () => { const s = document.createElement('span'); s.className = 'rv'; return s; };
+  const spanned = new Set();
+  const span = box => {
+    if (spanned.has(box)) return;
+    spanned.add(box);
+    const name = `--rv-${anchors++}`, s = bar();
+    box.style.anchorName = name;
+    Object.assign(s.style, { top: `anchor(${name} top)`, bottom: `anchor(${name} bottom)`, height: 'auto', marginTop: '0' });
+    main.appendChild(s);
+  };
   for (const [b, words] of marked) {
+    const row = H[b].b.closest('tr');
+    if (row) { span(row); continue; }
     for (const k of [...words].sort((p, q) => q - p)) {
-      const t = H[b].tk[k], s = bar();
-      if (t.atom && t.atom.matches('img')) {
-        const name = `--rv-img-${anchors++}`;
-        t.atom.style.anchorName = name;
-        Object.assign(s.style, { top: `anchor(${name} top)`, bottom: `anchor(${name} bottom)`, height: 'auto', marginTop: '0' });
-        main.appendChild(s);
-      } else if (t.atom) t.atom.before(s);
-      else t.node.splitText(t.off).before(s);
+      const t = H[b].tk[k];
+      if (t.atom && t.atom.matches('img')) span(t.atom);
+      else if (t.atom) t.atom.before(bar());
+      else t.node.splitText(t.off).before(bar());
     }
   }
+  // Each section's count, at the top of its page's margin, so an unchanged page can be skipped at a glance.
+  // It counts words (+ added or edited, − removed), so it tells a touched-up page from a rewritten one.
+  const heads = H.map((h, i) => h.b.matches('h1, h2') ? i : -1).filter(i => i >= 0);
+  heads.forEach((start, n) => {
+    const from = n ? start : 0, to = heads[n + 1] ?? H.length;
+    let p = 0, m = 0;
+    for (let i = from; i < to; i++) { p += plus[i]; m += minus[i]; }
+    const label = document.createElement('span');
+    label.className = 'rv-count' + (p + m ? '' : ' rv-same');
+    label.textContent = p + m ? `+${p} \u2212${m}` : 'unchanged';
+    // The title's page starts at the top of the column; a section's page starts at its heading.
+    if (n) H[start].b.prepend(label); else main.prepend(label);
+  });
   // A bar sits on the paper's edge, across the @page rule's right margin. Chromium paints nothing in a
   // page margin, so the margin moves inside the page as padding: the column stays where it was, and
   // the strip beside it can be drawn on.
