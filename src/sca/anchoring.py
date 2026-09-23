@@ -5,7 +5,7 @@ M1 anchored *red* to axis 0 of an autoencoder bottleneck (`sca.colorcube`). This
 Three pieces, kept separate so an experiment can use them independently:
 
 - **The pull.** `anchor_term` is the cosine term itself, and `pooled_anchor_term` its mellowmax variant that asks each labeled line to align *somewhere* in its span rather than everywhere; `make_anchored_train_step` folds either into a training step at a scheduled weight, and `anchor_weight` is that schedule (ramp, hold, anneal to a floor above zero — the M1/ex-2.9.3 lesson that protection withdrawn entirely lets the task loss reclaim the axis). `anti_subspace_term` is its repulsive companion from M1: an indiscriminate penalty on the mean-square alignment of *every* state, labeled or not, so the pull has to buy alignment against a headwind.
-- **The labels.** `sample_anchored_batches` crops packed token blocks exactly as `sca.data.batches.sample_batches` does, and adds the (B, T) mask of positions the term pulls: the prompt span of lines that drew a label this visit. `LabelSpec` says which operands draw (op1 alone, or either independently) and whether the pull covers the span or just the operand(s) that drew.
+- **The labels.** `sample_anchored_batches` crops packed token blocks exactly as `sca.data.batches.sample_batches` does, and adds the (B, T) mask of positions the term pulls: the prompt span of lines that drew a label this visit. `LabelSpec` says what draws (op1 alone, either operand, the answer too, or the op word) and whether the pull covers the span or just the operand(s) that drew.
 - **The readout.** `alignment` reads cos(h, e₀) off the residual stream, and `margin` contracts it to the label-affinity-weighted margin the hypotheses score.
 
 The architecture is what makes the cosine term transfer unmodified: every residual-stream state of our simplified nGPT is already unit-norm, so a direction constraint needs no companion term to keep activation scale in hand.
@@ -210,10 +210,12 @@ class LabelSpec:
     """Which lines draw a label each visit, and which of their positions the pull covers.
 
     *p* is a per-token probability. Under `op1` keying it is P(line labeled), read off the first operand alone — the ex-2.1.6..9 labeller, and what a bare array passed in its place means. Under `either` keying it is the per-operand rate: op1 and op2 draw independently and the line is labeled when either does, so the label no longer says which position carried it. Under `line` keying the answer draws too, at the same per-token rate as the operands, so a line is labeled when any of its three colors draws — the labeller a whole-line pull needs, since a pull that covers the answer with no way for the answer to earn the label would still read the label off the operands. *pull* picks the masked positions of a labeled line: the first *span* roles (the prompt span by default, or the whole line at `span=LINE_TOKENS`), or just the slot(s) that drew (`slot`) — the pull of a labeller that names the slot, which the span pull has to match without being told.
+
+    Under `op` keying the colors play no part: *p* is a per-op rate table, indexed by the op word at role 1, and each line draws once against its op's rate. It labels an operation rather than a color, so `span` covers the first *span* roles as for the others (the whole line at `span=LINE_TOKENS`) and `slot` marks the op word alone.
     """
 
     p: Float[np.ndarray, " V"]
-    keying: Literal["op1", "either", "line"] = "op1"
+    keying: Literal["op1", "either", "line", "op"] = "op1"
     pull: Literal["span", "slot"] = "span"
 
 
@@ -391,33 +393,51 @@ def sample_anchored_batches(
         absolute = starts[:, None] + offsets
         line = absolute // LINE_TOKENS
         local = line - line[:, :1]
-        op1 = data[line * LINE_TOKENS]  # every line's first operand, wherever the crop landed
-        if spec.keying == "op1":
-            draw = rng.random((len(starts), n_lines))
-            drew1 = np.take_along_axis(draw, local, axis=1) < spec.p[op1]
-            drew2 = drew3 = np.zeros_like(drew1)
-        else:
-            op2 = data[line * LINE_TOKENS + 2]
-            draw = rng.random((len(starts), n_lines, 2))
-            drew1 = np.take_along_axis(draw[..., 0], local, axis=1) < spec.p[op1]
-            drew2 = np.take_along_axis(draw[..., 1], local, axis=1) < spec.p[op2]
-            drew3 = np.zeros_like(drew1)
-        if spec.keying == "line":
-            # A separate draw after the operands', so `either` keying consumes the stream as it always has.
-            at = line * LINE_TOKENS + 4  # the answer may sit past the end of the corpus for the last crop
-            answer = data[np.minimum(at, len(data) - 1)]
-            draw3 = rng.random((len(starts), n_lines))
-            drew3 = (np.take_along_axis(draw3, local, axis=1) < spec.p[answer]) & (at < len(data))
         role = absolute % LINE_TOKENS
+        draw_mask = _op_mask if spec.keying == "op" else _color_mask
         # Padded positions are not shown to the model, so they are not pulled either.
-        if spec.pull == "span":
-            mask = (drew1 | drew2 | drew3) & (role < span) & (x != 0)
-        else:
-            mask = ((drew1 & (role == 0)) | (drew2 & (role == 2)) | (drew3 & (role == 4))) & (x != 0)
+        mask = draw_mask(data, spec, rng, line, local, role, span, n_lines) & (x != 0)
         if lines:
             yield x, y, mask.astype(np.float32), local.astype(np.int32)
         else:
             yield x, y, mask.astype(np.float32)
+
+
+def _color_mask(
+    data, spec: LabelSpec, rng: np.random.Generator, line, local, role, span: int, n_lines: int
+) -> np.ndarray:
+    """The pulled positions under the color keyings (`op1`, `either`, `line`), padding aside. *n_lines* sizes
+    the draw, so it fixes how much of the stream a batch consumes.
+    """
+    n_rows = line.shape[0]
+    op1 = data[line * LINE_TOKENS]  # every line's first operand, wherever the crop landed
+    if spec.keying == "op1":
+        draw = rng.random((n_rows, n_lines))
+        drew1 = np.take_along_axis(draw, local, axis=1) < spec.p[op1]
+        drew2 = drew3 = np.zeros_like(drew1)
+    else:
+        op2 = data[line * LINE_TOKENS + 2]
+        draw = rng.random((n_rows, n_lines, 2))
+        drew1 = np.take_along_axis(draw[..., 0], local, axis=1) < spec.p[op1]
+        drew2 = np.take_along_axis(draw[..., 1], local, axis=1) < spec.p[op2]
+        drew3 = np.zeros_like(drew1)
+    if spec.keying == "line":
+        # A separate draw after the operands', so `either` keying consumes the stream as it always has.
+        at = line * LINE_TOKENS + 4  # the answer may sit past the end of the corpus for the last crop
+        answer = data[np.minimum(at, len(data) - 1)]
+        draw3 = rng.random((n_rows, n_lines))
+        drew3 = (np.take_along_axis(draw3, local, axis=1) < spec.p[answer]) & (at < len(data))
+    if spec.pull == "span":
+        return (drew1 | drew2 | drew3) & (role < span)
+    return (drew1 & (role == 0)) | (drew2 & (role == 2)) | (drew3 & (role == 4))
+
+
+def _op_mask(data, spec: LabelSpec, rng: np.random.Generator, line, local, role, span: int, n_lines: int) -> np.ndarray:
+    """The pulled positions under `op` keying, padding aside: one draw per line off the op word at role 1."""
+    word = data[line * LINE_TOKENS + 1]
+    draw = rng.random((line.shape[0], n_lines))
+    drew = np.take_along_axis(draw, local, axis=1) < spec.p[word]
+    return drew & ((role < span) if spec.pull == "span" else (role == 1))
 
 
 @eqx.filter_jit
