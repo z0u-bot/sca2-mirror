@@ -2,7 +2,7 @@
 
 A plan for the second deliverable of M2, laid out several ways: the claims we want to be able to make, the experiments in order, the engineering that has to come first, the risks each experiment retires, and what is out of scope.
 
-Inputs: the D2.1 close-out ([ex-2.1.11](../ex-2.1.11/report.py), [ex-2.1.12](../ex-2.1.12/report.py), and the [post](/references/d2.1-anchored-transformer.md)), the first D2.2 result ([ex-2.2.1](../ex-2.2.1/report.py)), the D2.2-tagged backlog (`./go todo --tag D2.2`), the D2.1 kickoff lessons carried over from the autoencoders, and the [related-work delta](/references/related-work-delta-2026.md).
+Inputs: the D2.1 close-out ([ex-2.1.11](../ex-2.1.11/report.py), [ex-2.1.12](../ex-2.1.12/report.py), and the [post](/references/d2.1-anchored-transformer.md)), the first D2.2 result ([ex-2.2.1](../ex-2.2.1/report.py)), the anchored-op smoke test ([ex-2.2.14](../ex-2.2.14/report.py)), the D2.2-tagged backlog (`./go todo --tag D2.2`), the D2.1 kickoff lessons carried over from the autoencoders, and the [related-work delta](/references/related-work-delta-2026.md).
 
 ## What we want to be able to say
 
@@ -25,15 +25,16 @@ b2(["scouting and pilots (ex-2.2.4 to 2.2.8)"])
 b3(["grammar handover (ex-2.2.9, ex-2.2.11)"])
 b4(["recipe sweep (ex-2.2.12) and the weight ladder (ex-2.2.13)"])
 c1(["un-anchored embeddings (ex-2.2.7)"])
-main1(["anchor operation: smoke test (ex-2.2.14), then the equivalence read"])
-main2(["suppress operation"])
+main1(["anchor operation: smoke test (ex-2.2.14)"])
+main2a(["suppress difference on the stored runs"])
+main2(["suppress operation, with the equivalence read"])
 sweep(["layer sweep"])
 comp(["SGTM baseline"])
 w(["write-up"])
 
 a1 --> a2
 b1 --> b2 --> b3 --> b4
-a2 & b4 & c1 --> main1 --> main2 --> sweep & comp --> w
+a2 & b4 & c1 --> main1 --> main2a --> main2 --> sweep & comp --> w
 ```
 
 ### Prep A: Suppression of concrete concepts (operands)
@@ -153,6 +154,10 @@ What we hope to see from the scan is approx. _no change_ against control — an 
 
 Nice to have: Sweep over all ops to see whether they can all be anchored equally well.
 
+*Note, 2026-09-23.* Ran as [ex-2.2.14](../ex-2.2.14/report.py), five seeds of `difference` with the other ten ops at three seeds each. The op lands at twice the margin *red* reached, holds through the anneal, and costs the task nothing (the largest gap on any op is 0.005); all ten other ops anchor the same way, so `difference` stands. The margin saturates within three epochs because the pull puts the op word's embedding on e₁ at a cosine near 1, and the op position stays there at every slice. With the op word alone pulled, the blocks carry about a twentieth of that alignment to `=` and none to the answer; the whole-line pull puts about 0.1 at both. A labeller at a fiftieth of the op's lines, or with a fifth of its labels wrong, lands the op as well as one that labels every line. The probe scan leaves the op about as readable as the control has it, within ±0.1 in R² at every site but the newline at slice 1, where the control's own seeds spread by 0.4. One loose end: under the whole-line pull the first operand of every line leans toward e₁ (0.19 at the final slice), a candidate mechanism for the [containment item](/todo/science/containment-rises-under-the-untied-readout.md).
+
+The equivalence read moves into the [suppression prereg](#suppress-the-operation-and-the-operands). It needs fresh many-seed anchored checkpoints beside the control, which that experiment trains anyway, and the smoke test has already sized its margin.
+
 ### Suppress the operation (and the operands)
 
 The centre of D2.2.
@@ -169,7 +174,15 @@ Read the response off the probability mass on the correct answer, or off the dec
 
 Conditions test the contrast from m1/ex-2.9.2: control, no-fallback, fallback — plus a filtered-corpus row, a control trained with the anchored op's lines held out. The fallback trains toward the *op-averaged* distribution — the designed null itself, as soft labels — so fallback and no-fallback share the per-line prediction, and the fallback condition's claim is tighter adherence to it: less seed scatter, more mass on the mixture. That is the removal reference the [baselines item](/todo/science/baseline-comparisons-sca-plan-related-work-delta.md) wanted placed, and the eval contract scores it like any other triple.
 
-The same models have an operand anchor too (or a companion condition does), so operand suppression runs beside operation suppression with the machinery from [suppress red](#suppress-red-on-the-existing-checkpoints).
+Operand suppression beside operation suppression, with *red* anchored in the same models, is a follow-up. The first suppression experiments anchor the op alone, as ex-2.2.14 did, so the *red* leftover on `hue-hsv` stays out of their reads; the two-anchor experiment measures that confound at its own seeds.
+
+**What ex-2.2.14 changes.** The anchor landed as the op word's state: on the anchored op's lines the op position sits on e₁ at a cosine near 1 at every slice, and holds little else. Three consequences for the plan above.
+
+1. *The projection has no defined landing at the op word.* Projecting e₁ out of a state that is almost all e₁ leaves a small remainder, which the re-projection onto the sphere scales up by $1/\sqrt{1-x_1^2}$; the contract's own `gain` is infinite in the limit. So the edited state is whatever the remainder happens to be. The dose by $γ$ does not grade there either: the state keeps pointing along e₁ until $1-γ$ falls to about the size of the remainder, so the whole dose-response curve sits in the last few percent of $γ$. The reflection ($γ = 2$) is well defined, and so is a [repulsion](/todo/science/repulsion-onto-the-fallback.md) onto a declared landing state, whose dose is the alignment it lands at. The dose axis for the op is one of these, chosen on data.
+2. *An edit at the op word removes the token.* Since the op word's state is the concept, suppressing it there should remove the op, and so would masking the word. Removal at the op word therefore cannot tell an anchored op from an anchored token, which is the risk the [risk table](#risks-and-mitigations) names. Every suppression read carries a token-mask row as the reference: the op word's state replaced by a neutral one (the mean over the eleven op words), at the same slices. What the anchor adds over knowing which token names the op is read off the edits away from the op word: at the use sites, and in the blocks only, which is the bypass test below. Ex-2.2.14's contrast predicts little from the use sites on the op-word arm, and some on the whole-line primary, which puts about 0.1 there.
+3. *A full-position edit touches every line.* Under the whole-line pull the first operand of every line leans toward e₁, so an edit at every position reaches lines of every op, as the syntax embeddings did for *red* before the readout was untied. Edits at the op word alone avoid it, and play the part the `operands` edit played for *red*.
+
+**A scoring-only pass comes first**, as ex-2.2.1 came before the fallback term and ex-2.2.8 before the handover. It suppresses `difference` on ex-2.2.14's stored checkpoints (the primary, the op-word and every-line arms, the ten sweep ops, and the control), with no training: the projection, the reflection, a repulsion, and the token mask, each at the op word, the use sites, and every position, at the embedding, in the blocks only, and at every slice. It reads per-line damage against *op-relevance*, and selectivity on the other ten ops. From that the prereg takes its operator and dose axis, its effect sizes, and whether the use-site edits are worth gating. The prereg then trains fresh seeds with the conditions above (control, no-fallback, fallback, filtered corpus) and carries the equivalence read from [anchor operation](#anchor-one-operation).
 
 
 The **bypass test** the D1.3 post left open: suppress at the op-token position only, at all positions, at one slice, at all slices. Where suppression fails to bite, the model is reading the op from somewhere the axis does not reach. That is a finding about anchoring, and it feeds the [layer sweep](#layer-sweep).
@@ -209,13 +222,14 @@ Only what the plan above already commits to; everything else stays open until an
 - [Suppress red](#suppress-red-on-the-existing-checkpoints) ran before the op grammar was ready: no training, and the highest information per dollar in the plan. Done.
 - The intervention for the op experiments is chosen by a scoring-only tuning pass on stored runs, before the [anchor-op](#anchor-one-operation) prereg; until then the fallback experiment carries all three as ride-along rows. Done, as [ex-2.2.8](../ex-2.2.8/report.py) on ex-2.2.3's checkpoints: the plain projection on the adopted point, with `operands` beside it and `shaped-a0.4-p0` recorded as the syntax-free candidate.
 - The bound claim is layer-local from the start. The geometry bounds the write; what the behavior does in response is a prediction, so a behavioral miss feeds the [layer sweep](#layer-sweep) rather than falsifying the bound.
-- [Anchor operation](#anchor-one-operation) opens with a small smoke test, before the many-seed equivalence read.
+- [Anchor operation](#anchor-one-operation) opens with a small smoke test, before the many-seed equivalence read. Done, as [ex-2.2.14](../ex-2.2.14/report.py); the equivalence read then rides with the suppression prereg, which trains the fresh seeds it needs.
+- The first operation suppression is a scoring-only pass on ex-2.2.14's stored checkpoints, with a token-mask row as the reference for every edit, before the suppression prereg fixes its operator and dose axis. The op is anchored alone; *red* beside it waits for the two-anchor follow-up.
 - The survey is confirmed on the new grammar as a set of proposals, and not replicated literally first.
 - The dose axis for the categorical concept is intervention strength; the stimulus side (*op-relevance*) supplies the per-line predictions and the bound.
 - The fallback mechanism is the antipode redirect at the first anchored slice, which is the embedding while the embeddings are anchored, with a stop-gradient at the reflected state. Rehearsing the intervention during training is refiled as an [auditing question](/todo/science/rehearsal-fallback-as-auditing-probe.md).
 - The fallback answer for a continuous concept is the center of the operand-averaged null; for *red* that is the visible operand mixed with mid-gray. A categorical concept takes the mode of its null instead. Either is a design choice, since the answer can be any function of the line: to have *red* read as *black* under intervention, we would use the same term with black mixed with the visible operand as its answer.
 - Auditing rows: off-axis recoverability in [ex-2.2.2](../ex-2.2.2/report.py) as an exploratory row; ActPert and relearning rebound at D2.3.
-- Which op to anchor: `difference`, chosen on paper for [ex-2.2.14](../ex-2.2.14/report.py) from table A+'s relevance distributions ([ex-2.2.4](../ex-2.2.4/report.py)). On 75% of its lines its answer names it alone, the most of any commutative op; it is total on the grid, so its task read is not capped by stochastic rounding (the control reaches 0.97 held-out on it against 0.43 on `mix`); and it is commutative, so operand order plays no part. The smoke test reads every other op the same way at fewer seeds, with a frozen fallback rule, so the choice can be revisited on data. The reference op for the *red* gates (`mix`, with `hsvmix` beside it since ex-2.2.9) is a separate question and is untouched.
+- Which op to anchor: `difference`, chosen on paper for [ex-2.2.14](../ex-2.2.14/report.py) from table A+'s relevance distributions ([ex-2.2.4](../ex-2.2.4/report.py)). On 75% of its lines its answer names it alone, the most of any commutative op; it is total on the grid, so its task read is not capped by stochastic rounding (the control reaches 0.97 held-out on it against 0.43 on `mix`); and it is commutative, so operand order plays no part. The smoke test read every other op the same way at three seeds, with a frozen fallback rule; all ten qualified with margins inside 0.04 of each other, so the choice stands. The reference op for the *red* gates (`mix`, with `hsvmix` beside it since ex-2.2.9) is a separate question and is untouched.
 - The second table (A+), stochastic rounding, and the whole-line labeller are proposals from the [scouting round](#scouting-pilots-and-the-grammar-handover), and only the handover prereg adopts them. The removal statistic there is a distance from the correct answer rather than exact match. The labeller goes in with a selectivity check, because of the tail ex-2.2.7 saw on its whole-line arms.
 - The handover ([ex-2.2.9](../ex-2.2.9/report.py)) is not adopted as it stands: removal missed on the HSV ops. [Ex-2.2.10](../ex-2.2.10/report.py) traces the miss to the removal rule rather than the model, so the re-run keeps the recipe and changes the reads: removal lines are the red lines whose answer needs the red operand's hue, retention is the end-of-training alignment over its value at the anneal's start, and ᾱ at op1 is reported beside the reference conditions with no gate.
 - The handover re-run ([ex-2.2.11](../ex-2.2.11/report.py)) is not adopted as it stands: removal missed on `hue-hsv` alone. One more scouting round ([ex-2.2.12](../ex-2.2.12/report.py)) runs before the anchored-op prereg, with its promotion rule and its no-fix branch frozen in advance: a proposal has to clear the missed gate by more than the seed band, and if none does, the re-run gates removal on the ten other ops and reports `hue-hsv` as the op where one axis has a known blind spot.
@@ -233,8 +247,8 @@ Only what the plan above already commits to; everything else stays open until an
 | Recipe is grammar-specific | The proposals from the survey do not reproduce on the new grammar | Retired at [ex-2.2.3](../ex-2.2.3/report.py): the recipe and every proposal reproduce (H2, H3), at a plateau 0.05 lower than the survey's; the frozen rule adopted `t00`, and a post hoc read with the lead and selectivity gates narrows the choice to the recipe, whose short arm D2.2 builds on (`recipe-short`, by decision after the twenty-seed E6 read) |
 | The syntax embeddings hold the axis, so a full-position edit costs the non-red lines | Non-red lines lose accuracy under the plain projection, at the op-word and `=` positions | Found at [ex-2.2.1](../ex-2.2.1/report.py) and [ex-2.2.3](../ex-2.2.3/report.py); the mechanism is the tied readout, at [ex-2.2.7](../ex-2.2.7/report.py); the untied readout is confirmed on the new grammar at the [handover](#scouting-pilots-and-the-grammar-handover) and again at fresh seeds in [ex-2.2.13](../ex-2.2.13/report.py) |
 | The *red* leftover on `hue-hsv` confounds the anchored-op reads | A removal read on a model carrying both anchors moves with which lines survived on *red* | Measured at [ex-2.2.11](../ex-2.2.11/report.py) and [ex-2.2.13](../ex-2.2.13/report.py): about a quarter of those answers, from no fixed set of lines. [Ex-2.2.14](../ex-2.2.14/report.py) carries no *red* anchor; the two-anchor follow-up measures it at its own seeds |
-| Task cost grows with an abstract concept anchor | Gate misses in [anchor operation](#anchor-one-operation) that [new grammar](#the-multi-op-grammar-with-red-anchored-again) did not have | [anchor operation](#anchor-one-operation) |
-| Anchoring an op captures the token, not the operation | Alignment lands, and suppression is inert | [suppress operation](#suppress-the-operation-and-the-operands) |
+| Task cost grows with an abstract concept anchor | Gate misses in [anchor operation](#anchor-one-operation) that [new grammar](#the-multi-op-grammar-with-red-anchored-again) did not have | Retired at [ex-2.2.14](../ex-2.2.14/report.py): no op moves by more than 0.005, on the anchored op or any other |
+| Anchoring an op captures the token, not the operation | Suppression at the op word removes the op no better than masking the word, and edits away from it are inert | [suppress operation](#suppress-the-operation-and-the-operands); [ex-2.2.14](../ex-2.2.14/report.py) found the op word on e₁ and little carried to the use sites, so this is the likely reading to rule out |
 | Bypass through attention or the residual | Suppression works only when applied at every site | [suppress operation](#suppress-the-operation-and-the-operands), [layer sweep](#layer-sweep) |
 
 The first experiments all change one thing from D2.1, so a negative there should be interpretable.

@@ -288,9 +288,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.13/report.py -->
 
-- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (preregistration draft)
+- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (done)
 
-    The first anchored-op experiment: `difference` goes on e₁ with no _red_ anchor beside it, on the handover setup at five fresh seeds, and is read against the task gate, the op margin and its retention, and the contrast the blocks carry to `=` and the answer. The other ten ops ride along at three seeds each as a description, with a frozen fallback rule for which op the many-seed equivalence read anchors. The op-identity probe scan runs without a gate, to size that read's margin.
+    The first anchored-op experiment: `difference` goes on e₁ with no _red_ anchor beside it, on the handover setup at five fresh seeds, with the other ten ops at three seeds each. The op lands at twice the margin _red_ reached, holds through the anneal, and costs the task nothing, and every other op anchors the same way, so `difference` stands. The margin saturates in a few epochs because the pull puts the op word's embedding on the axis. With the op word alone pulled, the blocks carry a twentieth of its alignment to `=` and none to the answer. A sparse or noisy labeller lands the op as well as one that labels every line, and the probe scan leaves the op about as readable as the control has it.
 
     <span class="tags">`anchoring` `operation` `smoke-test` `preregistration`</span>
 
