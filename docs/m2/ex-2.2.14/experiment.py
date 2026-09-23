@@ -1,9 +1,9 @@
 """Ex-2.2.14: anchoring an operation — the smoke test.
 
 The first anchored-op experiment of D2.2. One operation of table A+ is anchored to e₁ on the handover setup,
-with no *red* anchor, at a few seeds, and read against the alignment and task gates alone. It says whether
+with no *red* anchor, at a few seeds, and scored against the alignment and task gates alone. It says whether
 anchoring an op works at all before the many-seed equivalence read spends its budget, and it fixes which op
-that read anchors. The other ten ops ride along at fewer seeds as a description, not a test.
+that experiment anchors. The other ten ops ride along at fewer seeds as a description, not a test.
 
 Design constants only while the preregistration is in review; the DAG lands when the hypotheses freeze.
 """
@@ -25,7 +25,7 @@ CONTROL_EXPERIMENT = "m2/ex-2.2.11"
 CONTROL = "control"
 CONTROL_SEEDS = 5
 """The un-anchored control: ex-2.2.11's `control` checkpoints at model seeds 100–104, served from the store.
-It is the task reference and the baseline for every alignment read. Its labeller differs from this
+It is the task reference and the baseline for every alignment measurement. Its labeller differs from this
 experiment's (the control drew red labels it never used), so the comparison carries corpus-draw noise on
 top of seed noise, as every cross-labeller comparison since ex-2.1.10 has."""
 
@@ -35,10 +35,25 @@ ANCHORED_OP = "difference"
 """The op anchored to e₁. Chosen on paper from table A+ before any run, by three criteria the design named
 and one the calibration look added. Op-relevance: on 75% of its lines its answer names it alone, the most
 of any commutative op in the table (`mix` 63%, `hsvmix` 59%). Rounding: it is total on the grid, so every
-line has one answer and the task read is not capped by stochastic rounding (the control learns it to 0.97
-held-out expected exact match against 0.43 on `mix`). Order: it is commutative, so nothing in its read
+line has one answer and the task score is not capped by stochastic rounding (the control learns it to 0.97
+held-out expected exact match against 0.43 on `mix`). Order: it is commutative, so nothing in its measurement
 depends on which operand is which. The sweep below reads the other ten ops the same way so the choice can
 be revisited on data rather than on paper."""
+
+SHORT_NAMES = {
+    "difference": "diff",
+    "multiply": "mult",
+    "exclusion": "excl",
+    "hue-hsv": "hue",
+    "sat-hsv": "sat",
+    "value-hsv": "val",
+}
+"""Condition names carry the op's short name, so that `anchor-diff-opword` fits a table cell."""
+
+
+def short(op: str) -> str:
+    return SHORT_NAMES.get(op, op)
+
 
 ANCHOR_AXIS = 0
 """e₁. The op takes the axis *red* had; there is no *red* anchor in this experiment. A model that carries
@@ -69,12 +84,14 @@ it and the primary agree on the margin, the label share is not what sets it; if 
 their margins is what pulling every line of a categorical concept buys."""
 
 LABEL_PRECISION = 0.8
-FALSE_RATE = LABEL_RATE * (1 / LABEL_PRECISION - 1) / 10
-"""The arm with erroneous labels: the anchored op's lines draw at `LABEL_RATE` as on the primary, and every
-other op's lines draw at `FALSE_RATE`, so a fifth of the labels land on lines that do not carry the op. A
-labeller for an abstract concept in natural language will be wrong some of the time, and this arm says
-what a fifth of wrong labels costs the margin and the task. The precision is a round number, not a
-measurement of any labeller."""
+NOISY_TRUE_RATE = LABEL_RATE * LABEL_PRECISION
+FALSE_RATE = LABEL_RATE * (1 - LABEL_PRECISION) / 10
+"""The arm with erroneous labels: the anchored op's lines draw at `NOISY_TRUE_RATE` and every other op's
+lines at `FALSE_RATE`, so the labelled share of the corpus is the primary's and a fifth of the labels land
+on lines that do not carry the op (REVIEW: was a fifth added on top of the primary's labels, which would
+have raised the total pull as well; the wrong labels now replace true ones). A labeller for an abstract
+concept in natural language will be wrong some of the time, and this arm says what a fifth of wrong labels
+costs the margin and the task. The precision is a round number, not a measurement of any labeller."""
 
 OPWORD_SPAN = 2
 """The arm that pulls the op word alone, at the primary's rate: the pull covers position 1 only (a span of
@@ -102,7 +119,7 @@ five seeds resolve at the spreads ex-2.2.11 saw (the line margin's standard devi
 SWEEP_SEEDS = 3
 """Seeds for each of the other ten ops. The sweep describes; it decides nothing unless the primary misses."""
 
-PRIMARY = f"anchor-{ANCHORED_OP}"
+PRIMARY = f"anchor-{short(ANCHORED_OP)}"
 FULL_ARM = f"{PRIMARY}-full"
 OPWORD_ARM = f"{PRIMARY}-opword"
 NOISY_ARM = f"{PRIMARY}-noisy"
@@ -110,7 +127,7 @@ ARMS = (FULL_ARM, OPWORD_ARM, NOISY_ARM)
 """Three arms at the primary's five seeds. H3 is scored on the op-word arm; the other two are outside the
 hypotheses and the rule."""
 SWEEP = tuple(
-    f"anchor-{op}"
+    f"anchor-{short(op)}"
     for op in (
         "mix",
         "screen",
@@ -151,19 +168,25 @@ lines and zero elsewhere (the einsum needs a normalized weight): per slice, the 
 averaged over every slice — is at least `MARGIN_RATIO` of `REF_M_LINE` on the seed mean; partial from
 `MARGIN_PARTIAL`. The same bar the handover set against ex-2.1.10."""
 
+RETENTION_FLOOR = 0.2
 RETENTION_GATE = 0.8
-"""H2 (retention): every primary run whose op margin peaks at 0.2 or more ends, after the anchor weight's
-anneal, at `RETENTION_GATE` of that peak. Ex-2.2.11's rule, unchanged."""
+"""H2 (retention): every primary run whose op margin reaches `RETENTION_FLOOR` at the start of the anchor
+weight's anneal ends training at `RETENTION_GATE` of that value. Ex-2.2.11's rule and denominator (REVIEW:
+the draft said "of its peak", which is the rule ex-2.2.10 replaced; a noisy plateau's high point is not a
+level to hold). The learning rate is low over the anneal, so a tighter share would be defensible; one
+`handover` seed in twenty ended under 0.8 in ex-2.2.11, so the bar stays where a known failure sits and
+the per-seed values are reported for the equivalence experiment to set its own."""
 
-USE_CONTRAST_RATIO = 0.5
-USE_CONTRAST_PARTIAL = 0.25
-"""H3, scored on the op-word arm: the contrast at the use sites. At `=` and at the answer position the
-embedding is the same token on every line, so any difference in alignment between the anchored op's lines
-and the others at slices 1..L came through the blocks, and under the op-word pull nothing asked for it. H3
-holds when the arm's seed-mean contrast (mean cosine on the anchored op's lines minus mean cosine on the
-other ops' lines) at the final slice, at each of the two use sites, is at least `USE_CONTRAST_RATIO` of the
-same contrast at the op position; partial from `USE_CONTRAST_PARTIAL`. The primary's use-site contrast is
-reported beside it without a gate."""
+USE_CONTRAST_FLOOR = 0.05
+"""H3, scored on the op-word arm, a prediction with no decision hanging on it: some of the op reaches the
+use sites. At `=` and at the answer position the embedding is the same token on every line, so any
+difference in alignment between the anchored op's lines and the others at slices 1..L came through the
+blocks, and under the op-word pull nothing asked for it. H3 holds when the arm's seed-mean contrast (mean
+cosine on the anchored op's lines minus mean cosine on the other ops' lines) at the final slice, at each of
+the two use sites, is at least `USE_CONTRAST_FLOOR` above the control's. The ratio to the contrast at the op
+position is reported with no bar (REVIEW: the draft gated the ratio at 0.5, a number with no observation
+behind it; the model has so far been seen to put the answer color at the use sites, not a copy of the op).
+The primary's use-site contrast is reported beside it as a manipulation check."""
 
 CONTAINMENT_REF = 0.264
 """Ex-2.2.11's ᾱ at op1 on `handover` at twenty seeds: the mean alignment over every color at the first
@@ -181,10 +204,11 @@ equivalence read declares."""
 # REVIEW: the sweep fallback checked only the task gate and ranked by margin, so it could adopt an op that
 # misses the H2 bar or retention; it now carries every gate the primary does, and "passes" excludes partials.
 ADOPTION = f"""\
-The equivalence read anchors `{ANCHORED_OP}` if the primary passes H1 and H2 in full (a partial counts as \
-a miss), margin and retention both. If it does not, the read anchors the op in the sweep with the largest \
-seed-mean op margin among those that pass the same gates at their three seeds: every op inside the task gate, \
-the margin at or above the H2 bar, and every run clearing the retention rule, and that op is confirmed at the read's own seeds before any \
-number is quoted for it. If no op qualifies, the anchored-op line stops here and the report says what gave \
-way. H3, the arms, and the containment read do not enter the rule: they describe what the anchor did, and \
-the read that follows measures them at its own seeds whichever way they came out."""
+The equivalence experiment anchors `{ANCHORED_OP}` if the primary passes H1 and H2 in full (a partial \
+counts as a miss), margin and retention both. If it does not, it anchors the op in the sweep with the \
+largest seed-mean op margin among those that pass the same gates at their three seeds: every op inside the \
+task gate, the margin at or above the H2 bar, and every run clearing the retention rule, and that op is \
+confirmed at the equivalence experiment's own seeds before any number is quoted for it. If no op qualifies, \
+the anchored-op line stops here and the report says what gave way. H3, the arms, and the containment \
+measure do not enter the rule: they describe what the anchor did, and the equivalence experiment measures \
+them at its own seeds whichever way they came out."""
