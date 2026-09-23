@@ -602,3 +602,29 @@ def test_the_printable_page_links_to_production_from_a_preview():
     bundle = build_site._Bundle('<html><body><a href="../other/report.py">other</a></body></html>')
     out = build_site._printable(bundle, links, from_dir="probe", key="probe", report_css="")
     assert 'href="https://z0u.github.io/mi-ni/other/"' in out
+
+
+def test_a_review_marks_a_text_only_report(tmp_path: Path, monkeypatch):
+    """A report with no figures exports without an `_assets/` dir; its print is stamped (and barred, with a baseline) like any other, since the review reads it the same way."""
+    monkeypatch.setattr(build_site, "WORKSPACE_ROOT", tmp_path)
+    monkeypatch.setattr(build_site, "DOCS_DIR", tmp_path / "docs")
+    monkeypatch.setattr(build_site, "SITE_DIR", tmp_path / "_site")
+    monkeypatch.setattr(build_site, "REPORT_CSS", tmp_path / "docs" / "report.css")
+    (tmp_path / "pyproject.toml").write_text("")
+    (nb := tmp_path / "docs" / "ex-1" / "report.py").parent.mkdir(parents=True)
+    nb.write_text("# title: Ex 1\n")
+    (bundle := tmp_path / ".mini" / "exports" / "ex-1").mkdir(parents=True)
+    (bundle / "index.html").write_text('<html><body><main class="lit"><p>one</p></main></body></html>')
+    links = build_site.LinkResolver(
+        render_map={"ex-1/report.py": "ex-1/index.html"},
+        source_files=frozenset(),
+        site_base="https://o.github.io/r/",
+        source_base="https://github.com/o/r/blob/main/",
+    )
+    printer = _Printer()
+    memo = build_site.PdfMemo(tmp_path / "pdfs", stamp="t", printer=printer)
+    review = build_site.Review(since=None, printed="abc1234")
+
+    build_site.build_reports(links, None, False, memo=memo, review=review)
+
+    assert len(printer.calls) == 1 and "Printed from abc1234" in printer.calls[0]
