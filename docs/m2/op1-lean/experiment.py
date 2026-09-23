@@ -415,7 +415,9 @@ def publish_results(table: dict, arrays: list[dict], logits: list[dict], exposed
         by_label[r["label"]] |= {k: r[k] for k in ("n_lines", "op1_redness")}
     for r in logits:
         by_label[r["label"]] |= {"s_z": r["s_z"]}
-        assert r["vocab"] == table["vocab"], f"{r['label']}: vocabulary differs from the run table's"
+        # The checkpoint's vocabulary is the run table's plus the padding token at index 0, so the arrays'
+        # e₁ columns have one more row than the table's `e1_full` lists.
+        assert [w for w in r["vocab"] if w] == table["vocab"], f"{r['label']}: vocabulary differs from the run table's"
     metrics: dict[str, Any] = {
         "source": SOURCE,
         "conditions": [c._asdict() for c in CONDITIONS],

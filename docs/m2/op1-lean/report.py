@@ -5,7 +5,7 @@ r"""
 
 /// tip |
 <!-- tl;dr -->
-A reanalysis of ex-2.2.11's 54 stored runs, asking where the containment rise (ᾱ at op1) comes from. The lean is not in the embedding table: it grows block by block, and at the last block it sits at the three positions whose next token is a syntax word, and nowhere else. Under an untied readout, the readout vectors of every color move to −e₁ and those of the syntax words to +e₁, so the e₁ coordinate of a state becomes a *syntax word comes next* feature that raises the syntax log-odds at op1 by a few nats. The tied readout cannot move the color rows and gets none of that. The whole-line labeller's half is not the pull landing on op1 through answer-labelled lines: the rise it adds is the same size on every color.
+A reanalysis of ex-2.2.11's 54 stored runs, asking where the containment rise (ᾱ at op1) comes from. The lean is not in the embedding table: it grows block by block, and at the last block it sits at the three positions whose next token is a syntax word, and nowhere else. Under an untied readout, the readout vectors of every color move to −e₁ and those of the syntax words to +e₁, so the e₁ coordinate of a state becomes a *syntax word comes next* feature that raises the syntax log-odds at op1 by a few nats. The tied readout cannot move the color rows and gets little of it. The whole-line labeller's half is not the pull landing on op1 through answer-labelled lines: the rise it adds is the same size on every color.
 ///
 
 ## Observations
@@ -15,9 +15,9 @@ Each line is a measurement on stored runs, with no gate. None is a result; the [
 - [Where in the stream](#where-in-the-stream): ᾱ at op1 is near zero at the embedding on every condition and grows with depth. The three anchored conditions separate from the first block on and are furthest apart at the last.
 - [Which positions](#which-positions): at the last block the lean sits at op1, op2, and the answer, the positions whose next token is a syntax word (the op word, `=`, `⏎`). At the op word, `=`, and `⏎` it is near zero on every condition, the control's answer position aside.
 - [The readout table](#the-readout-table): with a readout of its own, the model puts every color's readout vector at about −0.2 on e₁ and the syntax words' at +0.1 to +0.2, red and non-red colors alike. The tied readout moves only the syntax rows. The embedding rows of the non-red colors are flat on every condition.
-- [What e₁ contributes](#what-e-contributes-to-the-next-token): removing the e₁ coordinate from the state's contribution to the logits lowers the syntax-against-color log-odds at op1 by a few nats on `handover`, by less on `handover-slot`, and raises it a little on `handover-tied`. On the control it changes nothing.
+- [What e₁ contributes](#what-e-contributes-to-the-next-token): removing the e₁ coordinate from the state's contribution to the logits lowers the syntax-against-color log-odds at op1 by a few nats on `handover`, by less on `handover-slot`, and by a fraction of a nat on `handover-tied` and on the control.
 - [Between seeds](#between-seeds): within `handover` and within `handover-slot`, the seeds with a wider readout gap lean more at op1. The two conditions have the same gap and different leans, so the labeller's half is not through the gap.
-- [Per color](#per-color): every color leans, graded by redness above an intercept. The rise from the slot labeller to the whole-line one is about the same on every color, and the color's own embedding row predicts its lean where its exposure to answer-earned labels does not.
+- [Per color](#per-color): every color leans, graded by redness above an intercept. The rise from the slot labeller to the whole-line one is about the same on every color, and the color's own embedding row predicts its lean better than its exposure to answer-earned labels does.
 - [The labeller's half](#the-labellers-half): on lines with two non-red operands and a red answer, the pull lands on op1 at a small share of the line's budget, and the op1 state on those lines leans no more than on lines with a non-red answer. The direct pull through the answer is not the mechanism.
 
 ## Scope
@@ -390,7 +390,7 @@ The readout gap, the syntax words' mean e₁ less the colors', is {S["handover"]
 
 **What we expected.** A readout that puts colors at −e₁ and syntax at +e₁ turns the e₁ coordinate of a state into a vote for *a syntax word comes next*. If the model uses that vote, taking the e₁ coordinate out of the logits should lower the syntax-against-color log-odds at the positions that predict syntax, and the more so the wider the gap.
 
-**What we saw.** That is what it does. The logits are linear in the state, so the share of every logit that the e₁ coordinate carries can be removed and the log-odds recomputed from the other 63 coordinates. At op1 the removal lowers the syntax log-odds by a few nats on `handover`, by less on `handover-slot`, and not at all on the control. On `handover-tied` it goes the other way: the tied table has the red colors at +e₁ and the rest of the colors near zero, so a state's e₁ coordinate there votes for *red* rather than for syntax, and removing it raises the syntax log-odds a little.
+**What we saw.** That is what it does. The logits are linear in the state, so the share of every logit that the e₁ coordinate carries can be removed and the log-odds recomputed from the other 63 coordinates. At op1 the removal lowers the syntax log-odds by a few nats on `handover`, by less on `handover-slot`, and not at all on the control. On `handover-tied` the contribution at op1 is a fraction of a nat, about the control's, and at op2 and the answer it goes the other way: the tied table has the red colors at +e₁ and the rest of the colors near zero, so a state's e₁ coordinate there votes for *red* as much as for syntax, and removing it raises the syntax log-odds a little at those positions.
 
 The log-odds themselves are large at every position, tens of nats, so the model is in no doubt about which kind of token comes next; e₁'s few nats are a part of a margin the rest of the state also supplies. What the measurement says is what the readout has recruited the axis for, not that the model needs it.
 """
@@ -400,7 +400,7 @@ The log-odds themselves are large at every position, tens of nats, so the model 
 def delta_figure(res: Results) -> str:
     @themed(
         name="delta",
-        alt_text="Two dot charts by position: left, the syntax-against-color log-odds of the next token, alternating between large positive and large negative; right, what the e₁ coordinate contributes to it, positive at op1, op2 and the answer on the untied anchored conditions, slightly negative on the tied one, and zero on the control.",
+        alt_text="Two dot charts by position: left, the syntax-against-color log-odds of the next token, alternating between large positive and large negative; right, what the e₁ coordinate contributes to it, positive at op1, op2 and the answer on the untied anchored conditions, near zero at op1 and slightly negative at op2 on the tied one, and zero on the control.",
         caption="**The next-token log-odds and e₁'s part of it, by position, at the last block.** Left: log P(syntax word next) − log P(color next), mean over `mix`'s probe lines. Right: the change in that log-odds when the e₁ coordinate's share of every logit is removed, so a positive value means e₁ argued for a syntax word.",
     )
     def _plot() -> plt.Figure:
@@ -425,7 +425,7 @@ At op1, e₁ contributes {S["handover"]["delta_op1"]:+.2f} nats on `handover`, {
 
 **What we expected.** If the readout gap is what pulls the non-red colors onto the axis, the seeds of one condition that open a wider gap should lean more at op1.
 
-**What we saw.** They do, within each untied condition. The correlation is moderate rather than tight, and it is the same on `handover` and `handover-slot`. What the scatter also shows is that the two conditions occupy the same range of gaps and different ranges of lean: at a given gap `handover` leans more. So the readout's half is visible in the gap, and the labeller's half is something else.
+**What we saw.** They do, within each untied condition. The correlation is moderate rather than tight, it is the same on `handover` and `handover-slot`, and it is weaker on `handover-tied`, whose gap is only in the syntax rows. What the scatter also shows is that the two conditions occupy the same range of gaps and different ranges of lean: at a given gap `handover` leans more. So the readout's half is visible in the gap, and the labeller's half is something else.
 """
 
 
@@ -470,7 +470,7 @@ seeds_figure(res)
 
 **What we expected.** A lean recruited by the readout as a vote for *syntax next* has no reason to prefer one color over another, so it should be a shift shared by every color, with the anchor's own grading on top of it. A lean that comes from answer-earned labels should be largest on the colors whose lines most often have a red answer.
 
-**What we saw.** Every color leans, and the lean is a shift plus a grade: the non-red colors sit above zero by a nearly constant amount and the grade with redness is the anchor's. The rise from `handover-slot` to `handover` is close to the same on every color, so whatever the whole-line labeller adds, it adds to every color alike. A color's own embedding row on e₁ predicts its lean well, and its exposure to answer-earned labels predicts it poorly.
+**What we saw.** Every color leans, and the lean is a shift plus a grade: the non-red colors sit above zero by a nearly constant amount and the grade with redness is the anchor's. The rise from `handover-slot` to `handover` is close to the same on every color, so whatever the whole-line labeller adds, it adds to every color alike. A color's own embedding row on e₁ predicts its lean well. Its exposure to answer-earned labels predicts the rise less well: the colors form a flat band, and the correlation that remains rests on a few colors at the highest exposure, which are also the ones that rose most.
 """
 
 
@@ -500,6 +500,8 @@ def colors_figure(res: Results) -> str:
 
 
 colors_figure(res)
+
+# %%
 
 
 @memo
@@ -540,7 +542,7 @@ def rise_figure(res: Results) -> str:
 
     @themed(
         name="rise",
-        alt_text="Two scatter panels over the non-red colors, marks in the color itself: left, the color's embedding row on e₁ against its op1 lean on handover, a clear upward trend; right, its exposure to answer-earned labels against the rise from the slot labeller to the whole-line one, a flat band with little trend.",
+        alt_text="Two scatter panels over the non-red colors, marks in the color itself: left, the color's embedding row on e₁ against its op1 lean on handover, a clear upward trend; right, its exposure to answer-earned labels against the rise from the slot labeller to the whole-line one, a flat band, with the few highest-exposure colors also the highest.",
         caption=f"**What predicts a non-red color's lean, on `handover`.** Left: the color's own embedding row on e₁ against its last-block alignment at op1 (r = {r_row:+.2f}). Right: the color's exposure to labels earned through the answer (its per-line probability as op1, mean over the eleven ops and every partner) against the rise in its lean from `handover-slot` to `handover` (r = {r_expo:+.2f}; the rise has a spread of {rise_sd:.2f} over colors). Non-red colors only, seed means.",
     )
     def _plot() -> plt.Figure:
@@ -568,7 +570,7 @@ The left panel is the embedding table doing what a table does: a color whose emb
 
 **What we expected.** Under the whole-line labeller a line with two non-red operands can earn its label through a red answer, and the pull then pools over the whole line, op1 included. If that pull lands on op1, the softmin weight the anchor term assigns op1 on such lines should be a fair share of the line's budget, and the op1 state on those lines should lean more than on lines that earn no label.
 
-**What we saw.** Neither. The lines are `hue-hsv`'s, where the answer takes op2's hue at op1's saturation and value, so two non-red operands can produce a red answer; the two groups have both operands at or under the non-red dose and differ only in the answer, which keeps the color composition at op1 the same. On those lines the share the pull assigns op1 is small at every slice on the whole-line conditions, and the pull goes to the answer and `⏎` instead, where the alignment is cheapest. The op1 alignment on the answer-labelled lines is the same as on the unlabelled ones, to within the seed spread, on every condition. The `hue-hsv` lines are the ones the pull would land on through the answer, and it does not land on op1 there.
+**What we saw.** Neither. The lines are `hue-hsv`'s, where the answer takes op2's hue at op1's saturation and value, so two non-red operands can produce a red answer; the two groups have both operands at or under the non-red dose and differ only in the answer, which keeps the color composition at op1 the same. On those lines the share the pull assigns op1 is small at every slice on the whole-line conditions, and the pull goes to the answer and `⏎` instead, where the alignment is cheapest. The op1 alignment on the answer-labelled lines is the same as on the unlabelled ones, to within the seed spread, on every condition. That group is small, nineteen lines, so its seed bands are wide and a small difference would hide in them; what the read can say is that the share landing on op1 is near zero there, and that nothing in the alignment sets those lines apart. The `hue-hsv` lines are the ones the pull would land on through the answer, and it does not land on op1 there.
 """
 
 
