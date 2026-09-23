@@ -2,6 +2,8 @@
 
 A plan for the second deliverable of M2, laid out several ways: the claims we want to be able to make, the experiments in order, the engineering that has to come first, the risks each experiment retires, and what is out of scope.
 
+*Note, 2026-09-23.* A change of concept is under discussion in the [pivot draft](pivot.md): after ex-2.2.14, anchor an op the model infers from context rather than one named by a word. The plan below stands until that is settled.
+
 Inputs: the D2.1 close-out ([ex-2.1.11](../ex-2.1.11/report.py), [ex-2.1.12](../ex-2.1.12/report.py), and the [post](/references/d2.1-anchored-transformer.md)), the first D2.2 result ([ex-2.2.1](../ex-2.2.1/report.py)), the anchored-op smoke test ([ex-2.2.14](../ex-2.2.14/report.py)), the D2.2-tagged backlog (`./go todo --tag D2.2`), the D2.1 kickoff lessons carried over from the autoencoders, and the [related-work delta](/references/related-work-delta-2026.md).
 
 ## What we want to be able to say
