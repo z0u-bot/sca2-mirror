@@ -25,6 +25,7 @@ import markdown as md_lib
 
 from mini.lit.page import BASE_CSS_PATH, FONTS, is_lit_page
 from mini.report_print import print_bundle, print_stamp
+from mini.review_marks import baseline_dir, mark_changes
 from mini.reports import (
     PDF_LEAF,
     PDF_TYPE,
@@ -442,14 +443,44 @@ def _printable(bundle: _Bundle, links: LinkResolver, *, from_dir: str, key: str,
     return html
 
 
+def _git(*args: str) -> str:
+    return subprocess.run(["git", *args], cwd=WORKSPACE_ROOT, check=True, capture_output=True, text=True).stdout.strip()
+
+
+@dataclass(frozen=True)
+class Review:
+    """A re-review print: each report with a baseline at ``since`` (``scripts/review_base.py``) prints with its changes barred in the margin (:mod:`mini.review_marks`)."""
+
+    since: str  # full commit id
+    printed: str  # what the print is of, for the margin note: a short commit id, and whether the tree has edits past it
+
+    @classmethod
+    def at(cls, ref: str) -> "Review":
+        head = _git("rev-parse", "--short", "HEAD")
+        dirty = _git("status", "--porcelain", "--untracked-files=no", "--", "docs", "src")
+        return cls(_git("rev-parse", "--verify", f"{ref}^{{commit}}"), f"{head} + uncommitted edits" if dirty else head)
+
+    def mark(self, printable: str, key: str, *, root: Path) -> str:
+        """*printable* with its change bars, or as it is when report *key* has no baseline."""
+        base = baseline_dir(self.since, key)
+        if not (base / "index.html").is_file():
+            print(
+                f"  ! {key}: no baseline at {self.since[:7]} — run `scripts/review_base.py {self.since[:7]} <report>` (printing unmarked)"
+            )
+            return printable
+        base_html = mark_verdicts((base / "index.html").read_text("utf-8"))
+        note = f"Bars mark changes since {self.since[:7]} · printed from {self.printed}"
+        return mark_changes(printable, base_html, note=note, root=root, base_root=base)
+
+
 def build_reports(
-    links: LinkResolver, store, externalizing: bool, memo: PdfMemo | None = None
+    links: LinkResolver, store, externalizing: bool, memo: PdfMemo | None = None, review: Review | None = None
 ) -> dict[str, FigureStrip]:
     """Assemble each report bundle into ``_site/<key>/index.html``, with its PDF beside it.
 
     Externalize: read the synced HTML from the bucket, insert one ``<base>`` at ``exports/<key>/`` so its relative ``_assets/`` resolve there, and write only the HTML into ``_site`` (the bytes stay on the bucket CDN). Localize: read the bundle from ``.mini/exports`` and copy its ``_assets/`` beside the HTML so it works offline. Author links are resolved to absolute/relative targets either way.
 
-    The PDF (``report.pdf``, for reading on paper or e-ink) is printed here from the assembled page, through *memo* (:class:`PdfMemo`, opened from the environment when not given) so an unchanged report is not printed again. The page links it from the nav chip and declares it as an alternate rendition; when nothing can print (no browser), the page carries neither.
+    The PDF (``report.pdf``, for reading on paper or e-ink) is printed here from the assembled page, through *memo* (:class:`PdfMemo`, opened from the environment when not given) so an unchanged report is not printed again. The page links it from the nav chip and declares it as an alternate rendition; when nothing can print (no browser), the page carries neither. With a *review*, a report that has a baseline prints with its changes marked (:class:`Review`); the page itself is unmarked.
 
     Returns each built report's :class:`FigureStrip` by key, so :func:`convert_markdown` can expand ``mini:figures`` markers from the HTML this pass already fetched.
     """
@@ -487,6 +518,8 @@ def build_reports(
         # spelled out against under the <base>, which would otherwise send both to the bucket.
         page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True) if bundle.base_href else None
         printable = _printable(bundle, links, from_dir=from_dir, key=key, report_css=report_css)
+        if review is not None and bundle.assets is not None:
+            printable = review.mark(printable, key, root=bundle.assets.parent)
         # Localizing, the print serves the bundle's own _assets/; externalizing, the printable
         # names them on the CDN, so the serve root holds the page alone.
         pdf = memo.pdf(key, printable, serve_from=bundle.assets.parent if bundle.assets else dest.parent)
@@ -772,7 +805,14 @@ def main():
     mode.add_argument(
         "--localize", action="store_true", help="assemble from .mini/exports/ with assets copied in; works offline"
     )
+    ap.add_argument(
+        "--since",
+        metavar="REF",
+        help="with --localize: print each report that has a baseline at REF (scripts/review_base.py) with its changes barred in the margin",
+    )
     args = ap.parse_args()
+    if args.since and not args.localize:
+        ap.error("--since needs --localize")
 
     # Resolve the store *before* wiping _site, so a missing token can't destroy a build.
     if args.externalize:
@@ -782,7 +822,8 @@ def main():
         store = None
         print("  asset mode: localize (.mini/exports/)")
     links = prepare_dirs_and_resolver()
-    strips = build_reports(links, store, args.externalize)
+    review = Review.at(args.since) if args.since else None
+    strips = build_reports(links, store, args.externalize, review=review)
     copy_assets()
     copy_md_stylesheet()
     convert_markdown(links, args.externalize, strips)
