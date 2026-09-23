@@ -59,7 +59,8 @@ show_help() {
 		                       every PDF names the commit it was printed from, and
 		                       --since REF bars the margin of each named report's PDF
 		                       beside every line changed since REF (the round last
-		                       reviewed; exporting the baseline reads the store)
+		                       reviewed; the baseline is exported from a checkout
+		                       of REF, reading the store)
 		  publish <reports|--all>:
 		                       export reports and sync their bundles to the publish tier
 		  site:                assemble the public site from *published* bundles into _site/

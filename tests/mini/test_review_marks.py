@@ -27,13 +27,16 @@ def _page(body: str) -> str:
 
 
 def _barred(browser, head: str, base: str, tmp_path: Path) -> list[str]:
-    """The word after each bar on the marked *head* page (``img`` for a figure), in document order."""
+    """The word each bar sits in on the marked *head* page (``img`` for a figure), in document order."""
     html = mark_changes(_page(head), _page(base), note="since abc", root=tmp_path, base_root=tmp_path / "base")
     page = browser.new_page()
     page.set_content(html)
     words = page.evaluate("""() => [...document.querySelectorAll('main.lit .rv')].map(bar => {
       const img = [...document.images].find(i => i.style.anchorName && bar.style.top.includes(i.style.anchorName));
-      return img ? 'img' : (bar.nextSibling?.textContent ?? '').trim().split(/\\s+/)[0];
+      if (img) return 'img';
+      if (bar.parentElement.matches('.arithmatex, mark')) return bar.parentElement.textContent;  // inside an atom
+      // Inside a word, after its first character.
+      return bar.previousSibling.textContent.slice(-1) + (bar.nextSibling?.textContent ?? '').split(/\\s+/)[0];
     })""")
     page.close()
     return words
@@ -136,3 +139,58 @@ def test_an_unmarked_print_still_names_its_version():
     html = stamp(_page("<h2>Results</h2><p>Text.</p>"), note="Printed from abc1234")
     assert '<main class="lit"><div class="rv-note">Printed from abc1234</div><h2>' in html
     assert "<style>" in html
+
+
+def test_a_word_at_the_start_of_a_wrapped_line_is_barred_on_its_own_line(browser, tmp_path: Path):
+    """The bar sits inside the word: before it, at a line break, its static position is the end of the line above."""
+    words = [f"w{i}" for i in range(40)]
+    base = "<h2>R</h2><p>" + " ".join(words) + "</p>"
+    html = mark_changes(_page(base.replace("w13", "edited")), _page(base), note="", root=tmp_path, base_root=tmp_path)
+    page = browser.new_page()
+    page.set_content("<style>main.lit { width: 300px; font: 16px sans-serif }</style>" + html)
+    top, word_top = page.evaluate("""() => {
+      const bar = document.querySelector('main.lit .rv');
+      const r = document.createRange(); r.selectNodeContents(bar.previousSibling);
+      return [bar.getBoundingClientRect().top, r.getBoundingClientRect().top];
+    }""")
+    page.close()
+    assert top == pytest.approx(word_top, abs=2)
+
+
+@pytest.mark.parametrize(
+    "head, base, expected",
+    [
+        pytest.param(
+            "<h2>R</h2><ul><li>Foo baz<ul><li>bar</li></ul></li></ul>",
+            "<h2>R</h2><ul><li>Foo bar<ul><li>bar</li></ul></li></ul>",
+            ["baz"],
+            id="a list item's own words, before its sub-list",
+        ),
+        pytest.param(
+            "<h2>R</h2><p>So:</p><div class='arithmatex'>\\[x+1\\]</div>",
+            "<h2>R</h2><p>So:</p><div class='arithmatex'>\\[x\\]</div>",
+            ["\\[x+1\\]"],
+            id="display math",
+        ),
+        pytest.param(
+            "<h2>A</h2><p>One two.</p><h2>B</h2><p>Three four.</p>",
+            "<h2>A</h2><p>One two.</p><p>Gone now.</p><h2>B</h2><p>Three four.</p>",
+            ["two."],
+            id="a paragraph removed from the end of a section marks that section",
+        ),
+        pytest.param(
+            "<h2>R</h2><p>One two.</p>",
+            "<h2>R</h2><p>One two.</p><p>Gone now.</p>",
+            ["two."],
+            id="a paragraph removed from the end of the page",
+        ),
+    ],
+)
+def test_bars_reach_the_blocks_that_were_missed(browser, tmp_path: Path, head: str, base: str, expected: list[str]):
+    assert _barred(browser, head, base, tmp_path) == expected
+
+
+def test_a_removal_at_the_end_of_a_section_counts_on_that_section(browser, tmp_path: Path):
+    head = "<h2>A</h2><p>One two.</p><h2>B</h2><p>Three four.</p>"
+    base = "<h2>A</h2><p>One two.</p><p>Gone now.</p><h2>B</h2><p>Three four.</p>"
+    assert _counts(browser, head, base, tmp_path) == ["+0 −2", "unchanged"]

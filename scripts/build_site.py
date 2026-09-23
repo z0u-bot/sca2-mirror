@@ -451,7 +451,9 @@ def _git(*args: str) -> str:
 class Review:
     """A print for review on paper, rounds apart (:mod:`mini.review_marks`).
 
-    Every such print names the commit it is of on the edge of its first page, so the next round can be marked against it: with ``since`` (a ref the reader last reviewed, exported by ``scripts/review_base.py``), each report that has a baseline there prints with its changes barred in the margin. The note is part of the printed page, so a local preview prints a report again after each commit; the memo (:class:`PdfMemo`) still spares the reprint within one.
+    Every such print names the commit it is of on the edge of its first page, so the next round can be marked against it: with ``since`` (a ref the reader last reviewed), each report that has a baseline there prints with its changes barred in the margin. The note is part of the printed page, so a local preview prints a report again after each commit; the memo (:class:`PdfMemo`) still spares the reprint within one.
+
+    The baseline is ``scripts/review_base.py``'s export of the report at ``since``.
     """
 
     since: str | None  # full commit id
@@ -461,20 +463,20 @@ class Review:
     def at(cls, ref: str | None) -> "Review":
         head = _git("rev-parse", "--short", "HEAD")
         dirty = _git("status", "--porcelain", "--untracked-files=no", "--", "docs", "src")
-        since = _git("rev-parse", "--verify", f"{ref}^{{commit}}") if ref else None
+        try:
+            since = _git("rev-parse", "--verify", "--quiet", f"{ref}^{{commit}}") if ref else None
+        except subprocess.CalledProcessError:
+            sys.exit(f"--since: unknown git ref {ref!r}")
         return cls(since, f"{head} + uncommitted edits" if dirty else head)
 
     def mark(self, printable: str, key: str, *, root: Path) -> str:
-        """*printable* with its change bars, or with the note alone when there is no ``since`` or report *key* has no baseline at it."""
+        """*printable* with its change bars, or with the note alone when there is no ``since`` or report *key* has no baseline at it (``review_base.py`` says which reports it exported)."""
         since = self.since
         unmarked = stamp(printable, note=f"Printed from {self.printed}")
         if since is None:
             return unmarked
         base = baseline_dir(since, key)
         if not (base / "index.html").is_file():
-            print(
-                f"  ! {key}: no baseline at {since[:7]} — run `scripts/review_base.py {since[:7]} <report>` (printing unmarked)"
-            )
             return unmarked
         base_html = mark_verdicts((base / "index.html").read_text("utf-8"))
         note = f"Bars mark changes since {since[:7]} · printed from {self.printed}"
