@@ -528,8 +528,11 @@ def build_reports(
         # spelled out against under the <base>, which would otherwise send both to the bucket.
         page_url = links.resolve(key, from_dir="", out_dir=key, externalizing=True) if bundle.base_href else None
         printable = _printable(bundle, links, from_dir=from_dir, key=key, report_css=report_css)
-        if review is not None and bundle.assets is not None:
-            printable = review.mark(printable, key, root=bundle.assets.parent)
+        # A local export is the only kind a review marks; a text-only report has no _assets/
+        # beside its page, and its printable is marked all the same (the root is where the
+        # figures would resolve, and there are none to look up).
+        if review is not None and not externalizing:
+            printable = review.mark(printable, key, root=export_dir(report))
         # Localizing, the print serves the bundle's own _assets/; externalizing, the printable
         # names them on the CDN, so the serve root holds the page alone.
         pdf = memo.pdf(key, printable, serve_from=bundle.assets.parent if bundle.assets else dest.parent)

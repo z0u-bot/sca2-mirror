@@ -37,7 +37,7 @@ Example:
 
 ## Short name for H1 (H1)
 
-**H1.** The prediction: the measurement, the gate, the partial band, and what a contrary result would mean.
+**What we expect.** The prediction: the measurement, the gate, the partial band, and what a contrary result would mean.
 <!-- Note: outdated; see todo/style/lighter-preregistration-hypotheses.md -->
 
 /// admonition | TODO
