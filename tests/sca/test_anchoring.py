@@ -235,6 +235,74 @@ def test_slot_pull_marks_only_the_operands_that_drew(corpus):
     assert not (pulled & ~span_mask.astype(bool)).any()  # a subset of the span pull, same label draws
 
 
+OP_WORDS = np.arange(12, 15)
+"""Three op words for the `op` keying's corpus; the anchored one is the first."""
+
+
+@pytest.fixture
+def op_corpus() -> tuple[np.ndarray, np.ndarray]:
+    """`op1 <op> op2 = ans ⏎` lines with the op word varying, and each line's op word."""
+    rng = np.random.default_rng(1)
+    colors = rng.choice(COLORS, size=(N_LINES, 3))
+    words = rng.choice(OP_WORDS, size=N_LINES)
+    eq, nl = np.full(N_LINES, EQ), np.full(N_LINES, NEWLINE)
+    lines = np.stack([colors[:, 0], words, colors[:, 1], eq, colors[:, 2], nl], axis=1)
+    return lines.reshape(-1).astype(np.int32), words
+
+
+def _crop_starts(corpus: np.ndarray, x: np.ndarray) -> np.ndarray:
+    """Where each unpadded crop of *x* starts in *corpus*, found by search."""
+    windows = np.lib.stride_tricks.sliding_window_view(corpus, x.shape[1])
+    return np.array([int(np.flatnonzero((windows == row).all(axis=1))[0]) for row in x])
+
+
+def test_op_keying_pulls_every_position_of_the_anchored_ops_lines_and_nothing_else(op_corpus):
+    corpus, words = op_corpus
+    p = np.zeros(64)
+    p[OP_WORDS[0]] = 1.0
+    mc, dc = model_config(), data_config(0.0)
+    for x, _, mask in sample_anchored_batches(
+        corpus, dc, mc, 4, np.random.default_rng(0), LabelSpec(p, keying="op"), span=6
+    ):
+        line = (_crop_starts(corpus, x)[:, None] + np.arange(x.shape[1])) // 6
+        # Every position of an anchored-op line is pulled, including lines the crop cut before the op word,
+        # and no position of any other line.
+        assert (mask.astype(bool) == (words[line] == OP_WORDS[0])).all()
+
+
+def test_op_keying_slot_pull_marks_the_op_word_alone(op_corpus):
+    corpus, _ = op_corpus
+    p = np.zeros(64)
+    p[OP_WORDS[0]] = 1.0
+    mc, dc = model_config(), data_config(0.0)
+    x, _, span_mask = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(3), LabelSpec(p, keying="op"), span=6)
+    )
+    x2, _, slot_mask = next(
+        sample_anchored_batches(corpus, dc, mc, 1, np.random.default_rng(3), LabelSpec(p, keying="op", pull="slot"))
+    )
+    assert (x == x2).all()
+    slot = slot_mask.astype(bool)
+    assert set(np.unique(x[slot])) == {OP_WORDS[0]}
+    assert (slot == (x == OP_WORDS[0])).all()  # every anchored op word, and nothing else
+    assert not (slot & ~span_mask.astype(bool)).any()  # the same draws as the span pull
+
+
+def test_op_keying_draws_at_the_op_rate(op_corpus):
+    corpus, _ = op_corpus
+    p = np.zeros(64)
+    p[OP_WORDS[0]] = 0.3
+    mc, dc = model_config(), data_config(0.0)
+    drew = []
+    for x, _, mask in sample_anchored_batches(
+        corpus, dc, mc, 200, np.random.default_rng(4), LabelSpec(p, keying="op", pull="slot")
+    ):
+        words = x == OP_WORDS[0]
+        drew.append(mask.astype(bool)[words])
+    rate = np.concatenate(drew).mean()
+    assert abs(rate - 0.3) < 0.02
+
+
 def test_anchor_term_is_zero_when_aligned_and_two_when_opposed():
     states = np.zeros((3, 2, 4, 8), dtype=np.float32)
     states[..., 0] = 1.0

@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, anchoring, labeller, ex-2.2.14]
 opened: 2026-09-23
-priority: high
+closed: 2026-09-23
 ---
 # A labeller keying that draws off the op word
 
@@ -11,3 +11,7 @@ priority: high
 The shape that fits the existing code: a fourth `keying` value, `op`, whose draw is one uniform per line compared against `p[op_word]`, consuming the stream in its own way (it is a new labeller, so cross-labeller comparisons carry corpus-draw noise as they always have). The `slot` pull needs a role for position 1 as well: ex-2.2.14's op-word arm pulls the op word alone, so under `op` keying `slot` should mask role 1 of a drawn line and nothing else.
 
 Two reads change beside it: the line margin takes its labelled group from the op word rather than from redness, and the per-op probe sets of ex-2.2.9 already exist, so the group is a mask over them. Worth a unit test on the mask: every position of every anchored-op line in a crop is pulled, and no position of any other line is.
+
+## Notes
+
+**2026-09-23, ex-2.2.14** — Landed as `LabelSpec(keying="op")` in `sca.anchoring`: one uniform per line against `p[op word]`, drawn off the stream on a branch of its own, so the three color keyings draw exactly as before (checked by hashing their masks over every keying, pull, and span before and after the edit). `span` covers the first *span* roles; `slot` marks role 1 alone. Tests in `tests/sca/test_anchoring.py` (`test_op_keying_*`). The edit changes the code evidence of every task that reaches `LabelSpec` or `sample_anchored_batches`, as any edit to them does; memo keys are unchanged.
