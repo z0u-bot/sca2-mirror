@@ -654,7 +654,7 @@ def rule_table(res: Results) -> str:
             bold_if(f"H1 {h1_status(res)}, H2 margin {margin_status(res)}", a["primary_ok"]),
         ]
     ]
-    for c, q in sorted(a["sweep"].items(), key=lambda kv: -kv[1]["margin"]):
+    for c, q in sorted(a["sweep"].items(), key=lambda kv: ex.OP_NAMES.index(res.op_of(kv[0]))):
         wo, wg = res.worst_gap(c)
         rows.append(
             [
@@ -694,11 +694,11 @@ def sweep_figure(res: Results) -> str:
         )
         for c in conds
     }
-    order = sorted(conds, key=lambda c: -margin[c].mean())
+    order = sorted(conds, key=lambda c: ex.OP_NAMES.index(res.op_of(c)))
     names = {c: ex.short(res.op_of(c)) for c in conds}
-    top = order[0]
+    top = max(conds, key=lambda c: margin[c].mean())
     alt = f"""
-        Two panels sharing the ops along the bottom, sorted by seed-mean op margin. Top, the op margin per
+        Two panels sharing the ops along the bottom, in the order of table A+. Top, the op margin per
         seed with the seed mean, the anchored op of the primary at {ex.SEEDS} seeds and each sweep op at
         {ex.SWEEP_SEEDS}; dashed and dotted lines mark the H2 bar and its partial level. The highest is
         {names[top]} at {margin[top].mean():.3f}. Bottom, the worst absolute task gap per seed, with the gate
@@ -713,7 +713,7 @@ def sweep_draw(order: list, margin: dict, gap: dict, names: dict, alt_text: str)
         name="sweep",
         alt_text=alt_text,
         caption="""
-            **The sweep.** Each column is one op anchored on e₁, sorted by seed-mean op margin; the primary's
+            **The sweep.** Each column is one op anchored on e₁, in the order of table A+; the primary's
             op is in its ink, the sweep ops in gold, and the order-sensitive ops' labels are italic. Top: the op
             margin, with the H2 bar (dashed) and partial level (dotted), hatched below. Bottom: per run, the
             largest absolute gap in held-out expected exact match from the control over the eleven ops, with
@@ -744,7 +744,7 @@ def sweep_draw(order: list, margin: dict, gap: dict, names: dict, alt_text: str)
 
 def sweep_table(res: Results) -> str:
     head = ["op", "seeds", "op margin ↑", "worst task gap", "retention (min)", "`=` contrast", "answer contrast"]
-    conds = sorted([ex.PRIMARY, *[c for c in ex.SWEEP if res.runs(c)]], key=lambda c: -res.margin(c).mean())
+    conds = sorted([ex.PRIMARY, *[c for c in ex.SWEEP if res.runs(c)]], key=lambda c: ex.OP_NAMES.index(res.op_of(c)))
     rows = []
     for c in conds:
         con = res.contrast(c)[:, -1].mean(0)
@@ -765,7 +765,7 @@ def sweep_table(res: Results) -> str:
     return table_html(
         head,
         rows,
-        "Every op anchored the same way, sorted by seed-mean op margin: the primary's op at its seeds, the rest "
+        "Every op anchored the same way, in the order of table A+: the primary's op at its seeds, the rest "
         "at the sweep's. The worst task gap is the seed-mean gap on the op furthest from the control; retention "
         "is the lowest over the op's runs; the contrasts are at the final slice, seed mean (the whole-line pull "
         "covers `=` on every one of these, so they are manipulation checks). Post hoc description; no gate.",
@@ -1035,12 +1035,12 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-Every anchor so far has held a property of one token: how red a color is. Here we anchor an *operation* instead, `{ex.ANCHORED_OP}`, on the axis *red* used to have. It lands, at twice the margin *red* reached, and the task does not move. Every other op of the table anchors the same way. The blocks carry a little of the op to `=` and none to the answer position.
+Every anchor so far has held a property of one token: how red a color is. Here we anchor an *operation*, `{ex.ANCHORED_OP}`, on the axis *red* used to have. It lands at twice the margin *red* reached, the task does not move, and every other op of the table anchors the same way.
 ///
 
-There is no *red* anchor beside it. An op is a step up in abstraction from a color: a color is defined by what one token looks like, an op by what it does to a pair of operands.
+There is no *red* anchor beside it. An op is a step up in abstraction from a color: a color is defined by what one token looks like, an op by what it does to a pair of operands. The abstraction made no difference to the anchor, because the op is named by one token and the pull can read that token's embedding.
 
-This is a few-seed smoke test, run before the many-seed equivalence experiment spends its budget. It also asks whether the blocks carry the op forward to where the answer is computed.
+This was a few-seed smoke test, run before the many-seed equivalence experiment spends its budget, so the equivalence experiment can go ahead. It also asked whether the blocks carry the op forward to where the answer is computed: they carry a little of it to `=` and none to the answer position.
 
 ## Findings
 
@@ -1237,7 +1237,7 @@ sweep_figure(res)
 sweep_table(res)
 
 rf"""
-All ten anchor alike. The margins span {N["sweep_hi"] - N["sweep_lo"]:.2f}, every retention is at or above 0.99, and every seed-mean task gap is inside the gate, with single seeds of `sat` and `screen` touching it. The three order-sensitive ops (italic in the figure) sit at the low end of the margins, `{N["sweep_lo_op"]}` lowest at {N["sweep_lo"]:.3f}, but the spread is within what three seeds resolve, and their task gaps are the table's. Nothing sets them apart here. The margin's saturation at the op word is why: an anchor that reads the op's own embedding does not care what the op does to its operands.
+All ten anchor alike. The margins span {N["sweep_hi"] - N["sweep_lo"]:.2f}, every retention is at or above 0.99, and every seed-mean task gap is inside the gate, with single seeds of `sat` and `screen` touching it. The three order-sensitive ops (italic in the figure) have the three lowest margins, `{N["sweep_lo_op"]}` lowest at {N["sweep_lo"]:.3f}, but the spread is within what three seeds resolve, and their task gaps are the table's. Nothing sets them apart here. The margin's saturation at the op word is why: an anchor that reads the op's own embedding does not care what the op does to its operands.
 
 **The op-identity scan.** The op-identity R² at every site, anchored against control. The design's equivalence claim is that anchoring does not change how readable the op is anywhere the anchor does not reach. The equivalence experiment has to declare a margin for that, and this scan gives it an observed spread. It carries no gate here.
 
@@ -1279,7 +1279,7 @@ This is a candidate mechanism for the rise the [containment item](/todo/science/
 
 ## Discussion
 
-An op anchors at least as readily as a color, and the reason is worth keeping in view. A color is a graded property spread over three tokens of a line, so *red*'s margin had to be assembled from many partial alignments. An op is named by one token, and the pull puts that token's embedding on the axis in the first epochs. So the margin saturates, the task never feels it, all ten other ops do the same, and label share and label precision hardly matter. The alignment measurements here confirm that the pull landed, which is all the design asked of them.
+An op anchors at least as readily as a color. A color is a graded property spread over three tokens of a line, so *red*'s margin had to be assembled from many partial alignments. An op is named by one token, and the pull puts that token's embedding on the axis in the first epochs. So the margin saturates, the task never feels it, all ten other ops do the same, and label share and label precision hardly matter. The alignment measurements here confirm that the pull landed, which is all the design asked of them.
 
 The use-site contrast says where that leaves the op. With only the op word pulled, `=` picks up a twentieth of its alignment and the answer position none. The blocks carry a trace of the op to where it is applied and the answer position holds the answer. Whether the anchor captured the *operation* is still the question for suppression, and this result sets the expectation: an intervention at the op word will have little to work with downstream on its own, and the whole-line pull is what puts the op at the use sites.
 
