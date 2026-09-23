@@ -5,12 +5,25 @@ with no *red* anchor, at a few seeds, and scored against the alignment and task 
 anchoring an op works at all before the many-seed equivalence read spends its budget, and it fixes which op
 that experiment anchors. The other ten ops ride along at fewer seeds as a description, not a test.
 
-Design constants only while the preregistration is in review; the DAG lands when the hypotheses freeze.
+The design constants come first; the DAG follows, binding everything it does not change from ex-2.2.11's
+module (the grammar, the corpus, the recipe, the probe sets, the retention read).
+
+    bin/mini run docs/m2/ex-2.2.14/experiment.py --app modal --max-containers 8 --budget 3h
+    bin/mini status ex-2.2.14
 """
 
 from __future__ import annotations
 
-DESIGN_ONLY = True
+import importlib.util
+import sys
+from dataclasses import asdict, dataclass
+from typing import Any
+
+import numpy as np
+
+from mini import Ctx, Experiment, get_data_dir
+
+DESIGN_ONLY = False
 
 # --- What is inherited ---------------------------------------------------------------------------------
 
@@ -212,3 +225,484 @@ confirmed at the equivalence experiment's own seeds before any number is quoted 
 the anchored-op line stops here and the report says what gave way. H3, the arms, and the containment \
 measure do not enter the rule: they describe what the anchor did, and the equivalence experiment measures \
 them at its own seeds whichever way they came out."""
+
+
+# =============================================================================================
+# The DAG
+# =============================================================================================
+
+
+def _load_ex2211():
+    """Ex-2.2.11's module (which loads ex-2.2.9's and ex-2.2.3's the same way), by path and left out of
+    `sys.modules`, so the task bodies here still cloudpickle by value for a remote worker.
+    """
+    from pathlib import Path
+
+    path = Path(__file__).resolve().parent.parent / "ex-2.2.11" / "experiment.py"
+    spec = importlib.util.spec_from_file_location("ex2211", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        del sys.modules[spec.name]
+    return module
+
+
+ex2211 = _load_ex2211()
+ex229 = ex2211.ex229
+
+# --- What stays as ex-2.2.11 had it -------------------------------------------------------------
+# Bound by name so a task body never references the module objects themselves.
+
+OP_NAMES: tuple[str, ...] = ex2211.OP_NAMES
+ORDER_SENSITIVE: tuple[str, ...] = ex2211.ORDER_SENSITIVE
+N_LINES = ex2211.N_LINES
+EPOCHS = ex2211.EPOCHS
+CORPUS_SEED = ex2211.CORPUS_SEED
+HOLDOUT_FRAC = ex2211.HOLDOUT_FRAC
+N_PROBE = ex2211.N_PROBE
+PROBE_SEED = ex2211.PROBE_SEED
+PROBE_BOTH_SLOTS = ex2211.PROBE_BOTH_SLOTS
+RED_DOSE = ex2211.RED_DOSE
+NONRED_DOSE = ex2211.NONRED_DOSE
+FAR_MOVE = ex2211.FAR_MOVE
+ROUNDING = ex2211.ROUNDING
+PER_SLOT_RATE = ex2211.PER_SLOT_RATE
+RED_RATE = ex2211.RED_RATE
+TRAJ_STRIDE = ex2211.TRAJ_STRIDE
+LAM = ex2211.LAM
+TAU = ex2211.TAU
+ANNEAL_WEIGHT_RATIO = ex2211.ANNEAL_WEIGHT_RATIO
+N_EMBD = ex229.N_EMBD
+N_LAYER = ex229.N_LAYER
+"""The grammar, the corpus, the probe sets, and the recipe: as ex-2.2.11 froze them. Only the labeller, the
+anchored concept, and the seed offset move here."""
+
+assert ex2211.TASK_GATE == TASK_GATE and ex2211.TASK_PARTIAL == TASK_PARTIAL, "ex-2.2.11's task gate moved"
+assert ex2211.RETENTION_FLOOR == RETENTION_FLOOR and ex2211.RETENTION_GATE == RETENTION_GATE
+assert ex2211.MARGIN_RATIO == MARGIN_RATIO and ex2211.MARGIN_PARTIAL == MARGIN_PARTIAL
+assert ex229.WHOLE_SPAN == WHOLE_SPAN and ex2211.ANCHOR_AXIS == ANCHOR_AXIS
+assert ex229.ANSWER_POS == ANSWER_POSITION
+assert REFERENCE_EXPERIMENT.endswith("ex-2.2.11") and CONTROL_EXPERIMENT.endswith("ex-2.2.11")
+
+SWEEP_OPS: tuple[str, ...] = tuple(o for o in OP_NAMES if o != ANCHORED_OP)
+"""The ten other ops of table A+, in table order."""
+
+assert ANCHORED_OP in OP_NAMES and len(SWEEP_OPS) == 10
+assert set(SWEEP) == {f"anchor-{short(o)}" for o in SWEEP_OPS}, "the sweep's names and the table disagree"
+
+_npz = ex229._npz
+_load = ex229._load
+_make_config = ex229._make_config
+_answer_logprobs = ex229._answer_logprobs
+_stochastic_reads = ex229._stochastic_reads
+_slim = ex229._slim
+line_margin = ex229.line_margin
+schedules = ex229.schedules
+Condition229 = ex229.Condition
+anneal_retention = ex2211.anneal_retention
+ex229_prepare_corpus = ex229.prepare_corpus
+
+# --- Conditions -----------------------------------------------------------------------------------
+
+
+@dataclass(frozen=True)
+class Arm:
+    """One training condition: which op is anchored, the labeller's rate table, and the pull."""
+
+    name: str
+    op: str
+    seeds: int
+    rate: float
+    """The anchored op's per-line label rate."""
+    false_rate: float = 0.0
+    """Each other op's per-line label rate: zero but on the noisy arm."""
+    pull: str = "span"
+    """`span` covers the whole line; `slot` the op word alone (the op-word arm)."""
+    span: int = WHOLE_SPAN
+
+
+GRID: tuple[Arm, ...] = (
+    Arm(PRIMARY, ANCHORED_OP, SEEDS, LABEL_RATE),
+    Arm(FULL_ARM, ANCHORED_OP, SEEDS, FULL_RATE),
+    Arm(OPWORD_ARM, ANCHORED_OP, SEEDS, LABEL_RATE, pull="slot", span=OPWORD_SPAN),
+    Arm(NOISY_ARM, ANCHORED_OP, SEEDS, NOISY_TRUE_RATE, false_rate=FALSE_RATE),
+    *(Arm(f"anchor-{short(o)}", o, SWEEP_SEEDS, LABEL_RATE) for o in SWEEP_OPS),
+)
+assert tuple(a.name for a in GRID) == CONDITIONS and sum(a.seeds for a in GRID) == N_RUNS
+
+TRAJ_LINES_PER_COLOR = 1
+"""The trajectory reads one probe line per palette color per op (216 lines an op, 2,376 in all), as ex-2.2.11's
+trajectory read one per color on `mix`. The end-of-training reads take every probe line."""
+
+N_SCAN = 512
+"""Probe lines per op for the op-identity scan, drawn once with `SCAN_SEED`; a fifth of them (`SCAN_HOLDOUT`),
+split by line, are held out for the R²."""
+SCAN_SEED = 14
+SCAN_HOLDOUT = 0.2
+
+# --- Refs -----------------------------------------------------------------------------------------
+
+EX2211_CHECKPOINT_REF = ex2211.CHECKPOINT_REF
+METRICS_REF = "reports/m2/ex-2.2.14/metrics"
+TRAJ_REF = "reports/m2/ex-2.2.14/trajectories"
+CHECKPOINT_REF = "reports/m2/ex-2.2.14/checkpoints/{label}"
+
+
+def rates_of(arm: Arm) -> dict[str, float]:
+    """The labeller's per-op rate table for *arm*."""
+    return {o: (arm.rate if o == arm.op else arm.false_rate) for o in OP_NAMES}
+
+
+def prepare_corpus(*args) -> dict:
+    """Ex-2.2.9's corpus, eval sets, and probe set (the corpus ex-2.2.11 trained on), under this memo."""
+    return ex229_prepare_corpus(*args)
+
+
+def cells(arms: tuple[Arm, ...], prep: dict, epochs: int = EPOCHS) -> list[dict]:
+    """One row per run: ex-2.2.11's handover row with the op labeller and this experiment's seeds."""
+    from sca.utils import align
+
+    tc = prep["meta"].tokenizer_config
+    rows = []
+    for a in arms:
+        base = Condition229(a.name, a.seeds, a.name, lam=LAM, tau=TAU, epochs=epochs, ops=OP_NAMES, n_lines=N_LINES)
+        anchor, anti = schedules(base)
+        anchor = anchor | {"span": a.span}
+        for seed in range(a.seeds):
+            config = _make_config(align(tc.vocab_size, 64), SEED_OFFSET + seed, epochs, N_EMBD, N_LAYER)
+            config.tokenizer = tc.model_copy()
+            config.model = config.model.model_copy(update={"tie_embeddings": False})
+            rows.append(
+                {
+                    "config": config,
+                    "anchor": anchor,
+                    "anti": anti,
+                    "op": a.op,
+                    "rates": rates_of(a),
+                    "pull": a.pull,
+                    "condition": a.name,
+                    "seed": seed,
+                    "model_seed": SEED_OFFSET + seed,
+                    "label": f"{a.name}-s{seed}",
+                }
+            )
+    return rows
+
+
+def probe_walk(z, op: str) -> np.ndarray:
+    """The op's probe lines with the walked color as op1: every op contributes the same count, so the pool
+    over ops weighs each op equally and the anchored op is one eleventh of it.
+    """
+    tokens, walk = z[f"{op}/tokens"], z[f"{op}/walk"]
+    return tokens[walk == 0]
+
+
+def traj_probe(z, op: str) -> tuple[np.ndarray, np.ndarray]:
+    """The trajectory's probe lines (one per color per op, every op) and the op margin's line weights on
+    them: uniform over *op*'s lines, summing to one, zero elsewhere.
+    """
+    blocks = [probe_walk(z, o)[::N_PROBE] for o in OP_NAMES]
+    w = np.concatenate([np.full(len(b), 1.0 if o == op else 0.0) for o, b in zip(OP_NAMES, blocks, strict=True)])
+    return np.concatenate(blocks), w / w.sum()
+
+
+def label_share(train_data, config, spec, span: int) -> dict[str, float]:
+    """The share of line visits labelled, and of live positions pulled, over the first epoch's crops.
+
+    Replays the sampler on the training run's own stream: `train_anchored` draws nothing from it before the
+    first epoch's batches, so these are the draws that run saw.
+    """
+    from sca.anchoring import sample_anchored_batches
+    from sca.data.batches import batches_per_epoch
+
+    n = batches_per_epoch(len(train_data), config.data, config.model)
+    rng = np.random.default_rng(config.seed)
+    lines = labelled = pulled = live = 0
+    for x, _, mask, local in sample_anchored_batches(
+        train_data, config.data, config.model, n, rng, spec, span, lines=True
+    ):
+        seen = np.zeros((len(x), int(local.max()) + 1), bool)
+        hit = np.zeros_like(seen)
+        rows = np.arange(len(x))[:, None].repeat(x.shape[1], 1)
+        seen[rows[x != 0], local[x != 0]] = True
+        hit[rows[mask > 0], local[mask > 0]] = True
+        lines += int(seen.sum())
+        labelled += int(hit.sum())
+        pulled += int((mask > 0).sum())
+        live += int((x != 0).sum())
+    return {"lines": labelled / lines, "positions": pulled / live}
+
+
+def train_one(config, anchor: dict, anti: dict, corpus, traj_stride: int, probes, op: str, rates, pull, label):
+    """Train one run under the op labeller, recording the op margin on the trajectory probe lines."""
+    from sca.anchoring import AnchorSpec, AntiSpec, LabelSpec
+    from sca.compute.data_pipelines import load_data
+    from sca.compute.training import train_anchored
+    from sca.data.batches import split_data
+    from sca.data.named_colors import WordTokenizer
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "cells" / label
+    corpus_dir = get(corpus, workdir / "corpus")
+    tokenizer = WordTokenizer(config.tokenizer)
+    p = np.zeros(config.model.vocab_size)
+    for o, r in rates.items():
+        p[tokenizer.stoi[o]] = r
+    spec = LabelSpec(p=p, keying="op", pull=pull)
+    with np.load(get(probes, workdir / "probes.npz")) as z:
+        tokens, line_w = traj_probe(z, op)
+
+    _, metrics, traj = train_anchored(
+        config,
+        corpus_dir,
+        anchor=AnchorSpec(**anchor),
+        anti=AntiSpec(**anti),
+        label_p=spec,
+        probe_tokens=tokens,
+        probe_weights=line_w,
+        probe_line_w=line_w,
+        checkpoint_dir=workdir,
+        traj_stride=traj_stride,
+    )
+    data, _ = load_data(corpus_dir)
+    train_data, _ = split_data(data, config.data.train_split)
+    return {
+        "label": label,
+        "val_loss": [m.val_loss for m in metrics],
+        "train_loss": [m.train_loss for m in metrics],
+        "traj": {
+            k: traj[k].tolist()
+            for k in ("epoch", "m_line", "alpha_op1", "val_loss", "weight", "anti_weight")
+            if k in traj
+        },
+        "label_share": label_share(train_data, config, spec, anchor["span"]),
+        "checkpoint": put(workdir / "model", name=f"ex-2.2.14-{label}-ckpt"),
+    }
+
+
+def _behavior(model, tokenizer, lines_by_op: dict) -> dict[str, dict[str, dict]]:
+    """Ex-2.2.9's behavior reads, per op and split: one teacher-forced pass read at the pre-answer position,
+    against the answer distribution of every line.
+    """
+    from sca.data import ops as grammar
+
+    by_name = grammar.OP_BY_NAME | grammar.CANDIDATE_BY_NAME
+    palette_index = {c: i for i, c in enumerate(grammar.colors())}
+    color_ids = np.array([tokenizer.stoi[n] for n in grammar.PALETTE])
+    sets: dict[str, dict[str, dict]] = {}
+    for op, splits in lines_by_op.items():
+        sets[op] = {}
+        for split, lns in splits.items():
+            lp = _answer_logprobs(model, tokenizer, [ln.prompt for ln in lns])
+            p = np.exp(lp[:, color_ids])
+            q = np.zeros_like(p)
+            for i, ln in enumerate(lns):
+                for c, pc in grammar.answer_dist(by_name[op], ln.lhs, ln.rhs).items():
+                    q[i, palette_index[c]] = pc
+            mode = np.array([palette_index[by_name[op](ln.lhs, ln.rhs)] for ln in lns])
+            drawn = np.array([palette_index[ln.result] for ln in lns])
+            line = _stochastic_reads(p, q, mode, drawn)
+            sets[op][split] = {"n": len(lns), **{k: float(v.mean()) for k, v in line.items()}}
+    return sets
+
+
+def op_scan(model, lines: dict[str, np.ndarray], ridge: float, seed: int, holdout: float) -> np.ndarray:
+    """Op-identity R² per (slice, position): a ridge probe from the state to the one-hot op word, fit on
+    four fifths of the lines and scored on the rest, split by line.
+    """
+    import jax.numpy as jnp
+
+    from sca.compute.evaluation import ridge_probe
+
+    rng = np.random.default_rng(seed)
+    tokens = np.concatenate(list(lines.values()))
+    y = np.concatenate([np.full(len(v), i) for i, v in enumerate(lines.values())])
+    onehot = np.eye(len(lines))[y]
+    test = rng.random(len(tokens)) < holdout
+    states = np.concatenate(
+        [np.asarray(model.residual_stream(jnp.asarray(tokens[i : i + 512]))) for i in range(0, len(tokens), 512)],
+        axis=1,
+    )  # (L1, N, T, C)
+    n_slices, _, n_pos, _ = states.shape
+    r2 = np.zeros((n_slices, n_pos))
+    for s in range(n_slices):
+        for t in range(n_pos):
+            x = states[s, :, t].astype(np.float64)
+            r2[s, t] = ridge_probe(x[~test], onehot[~test], x[test], onehot[test], ridge)[2]
+    return r2
+
+
+def eval_one(trained: dict, evals, probes, condition: str, op: str | None, seed: int, label: str) -> dict:
+    """The eval: behavior per op, the alignment per op's probe lines, the op margin for every op, retention
+    across the anneal, and the op-identity scan.
+
+    The alignment is kept as each op's mean cosine with e₁ per (slice, position): the op margin, the
+    contrast, containment, and the alignment map are all contractions of it, since every op contributes the
+    same number of probe lines. The op margin is also computed directly, with `line_margin` on the pooled lines.
+    """
+    from sca.anchoring import alignment
+    from sca.data import ops as grammar
+    from mini.store import get
+
+    workdir = get_data_dir() / "eval" / label
+    model, tokenizer, _, _ = _load(trained, workdir)
+    sets = _behavior(model, tokenizer, grammar.load_lines(get(evals, workdir / "evals.json").read_bytes()))
+
+    with np.load(get(probes, workdir / "probes.npz")) as z:
+        lines = {o: probe_walk(z, o) for o in OP_NAMES}
+    cos = {o: alignment(model, t) for o, t in lines.items()}  # each (L1, N, T)
+    pooled = np.concatenate([cos[o] for o in OP_NAMES], axis=1)
+    counts = [cos[o].shape[1] for o in OP_NAMES]
+    assert len(set(counts)) == 1, f"probe walks differ in size: {counts}"
+
+    def weights(anchored: str) -> np.ndarray:
+        w = np.concatenate([np.full(n, 1.0 if o == anchored else 0.0) for o, n in zip(OP_NAMES, counts, strict=True)])
+        return w / w.sum()
+
+    op_margin = {o: line_margin(pooled, weights(o)) for o in OP_NAMES}
+    rng = np.random.default_rng(SCAN_SEED)
+    scan_lines = {o: t[np.sort(rng.choice(len(t), N_SCAN, replace=False))] for o, t in lines.items()}
+    out = {
+        "label": label,
+        "condition": condition,
+        "op": op,
+        "seed": seed,
+        "sets": sets,
+        "holdout_eem": {o: s["holdout"]["eem"] for o, s in sets.items()},
+        "cos_mean": {o: cos[o].mean(axis=1).tolist() for o in OP_NAMES},  # (L1, T) per op
+        "op_margin": op_margin,
+        "probe_r2": op_scan(model, scan_lines, PROBE_RIDGE, SCAN_SEED, SCAN_HOLDOUT).tolist(),
+        "n_probe_lines": counts[0],
+    }
+    if "traj" in trained:
+        out |= anneal_retention(trained["traj"], ANNEAL_WEIGHT_RATIO)
+        out["label_share"] = trained["label_share"]
+    return out
+
+
+# --- Publishing ------------------------------------------------------------------------------
+
+
+def design() -> dict[str, Any]:
+    """The design constants the report reads beside the results."""
+    return {
+        "experiment": "ex-2.2.14",
+        "reference": REFERENCE_EXPERIMENT,
+        "control": {"experiment": CONTROL_EXPERIMENT, "condition": CONTROL, "seeds": CONTROL_SEEDS},
+        "anchored_op": ANCHORED_OP,
+        "keying": KEYING,
+        "arms": [asdict(a) for a in GRID],
+        "seed_offset": SEED_OFFSET,
+        "n_runs": N_RUNS,
+        "ops": list(OP_NAMES),
+        "order_sensitive": list(ORDER_SENSITIVE),
+        "task_gate": TASK_GATE,
+        "ref_m_line": REF_M_LINE,
+        "retention": {"floor": RETENTION_FLOOR, "gate": RETENTION_GATE, "weight_ratio": ANNEAL_WEIGHT_RATIO},
+        "use_contrast_floor": USE_CONTRAST_FLOOR,
+        "containment_ref": CONTAINMENT_REF,
+        "probe_ridge": PROBE_RIDGE,
+        "adoption": ADOPTION,
+    }
+
+
+def publish_results(trained: list[dict], evaled: list[dict], corpus_stats: dict) -> dict:
+    """Metrics (JSON), trajectories (JSON), and every end checkpoint, each under its ref."""
+    import json
+
+    from mini.store import put, set_ref
+
+    metrics = {"runs": [_slim(r) for r in evaled], "corpus": corpus_stats, "design": design()}
+    set_ref(METRICS_REF, put(json.dumps(metrics).encode(), name="ex-2.2.14-metrics.json"))
+    traj = {t["label"]: {k: t[k] for k in ("traj", "val_loss", "train_loss", "label_share")} for t in trained}
+    set_ref(TRAJ_REF, put(json.dumps(traj).encode(), name="ex-2.2.14-trajectories.json"))
+    for t in trained:
+        set_ref(CHECKPOINT_REF.format(label=t["label"]), t["checkpoint"])
+    return {"n_runs": len(trained), "n_evaled": len(evaled)}
+
+
+# --- Orchestration ----------------------------------------------------------------------------
+
+
+def resolve_control(labels: list[str], ref: str) -> dict:
+    """Ex-2.2.11's control checkpoints, by ref, so the eval on them is keyed on the content it reads."""
+    from mini.store import get_refs
+
+    names = [ref.format(label=lb) for lb in labels]
+    refs = get_refs(names)
+    missing = [k for k, v in refs.items() if v is None]
+    assert not missing, f"ex-2.2.11 refs not in this store: {missing}"
+    return {lb: refs[n] for lb, n in zip(labels, names, strict=True)}
+
+
+def run(ctx: Ctx, arms: tuple[Arm, ...], epochs: int, control_seeds: int) -> tuple[list[dict], list[dict], dict]:
+    """Train *arms*, then evaluate them beside the served control: the whole DAG, with the grid and the length
+    as arguments so a short prototype runs the same code.
+    """
+    control_labels = [f"{CONTROL}-s{s}" for s in range(control_seeds)]
+    control = ctx.run(resolve_control, control_labels, EX2211_CHECKPOINT_REF, role="prep")
+    prep = ctx.run(
+        prepare_corpus,
+        OP_NAMES,
+        N_LINES,
+        CORPUS_SEED,
+        HOLDOUT_FRAC,
+        ROUNDING,
+        N_PROBE,
+        PROBE_SEED,
+        PROBE_BOTH_SLOTS,
+        PER_SLOT_RATE,
+        RED_RATE,
+        RED_DOSE,
+        NONRED_DOSE,
+        FAR_MOVE,
+        role="prep",
+    )
+    rows = cells(arms, prep, epochs)
+    n = len(rows)
+    trained = ctx.map(
+        train_one,
+        [r["config"] for r in rows],
+        [r["anchor"] for r in rows],
+        [r["anti"] for r in rows],
+        [prep["corpus"]] * n,
+        [TRAJ_STRIDE] * n,
+        [prep["probes"]] * n,
+        [r["op"] for r in rows],
+        [r["rates"] for r in rows],
+        [r["pull"] for r in rows],
+        [r["label"] for r in rows],
+        role="train",
+    )
+    ctrl = [{"checkpoint": control[lb], "label": lb} for lb in control_labels]
+    evaled = ctx.map(
+        eval_one,
+        trained + ctrl,
+        [prep["evals"]] * (n + len(ctrl)),
+        [prep["probes"]] * (n + len(ctrl)),
+        [r["condition"] for r in rows] + [CONTROL] * len(ctrl),
+        [r["op"] for r in rows] + [None] * len(ctrl),
+        [r["seed"] for r in rows] + list(range(len(ctrl))),
+        [r["label"] for r in rows] + control_labels,
+        role="eval",
+    )
+    return trained, evaled, prep
+
+
+def main(ctx: Ctx) -> dict:
+    trained, evaled, prep = run(ctx, GRID, EPOCHS, CONTROL_SEEDS)
+    return ctx.run(publish_results, trained, evaled, prep["stats"], role="prep")
+
+
+ROLES = {
+    # Ex-2.2.9's corpus build, and the fan-in that writes the refs of fifty runs.
+    "prep": dict(cpu=2, timeout=1800),
+    # 4,950 steps at L4; the watchdog covers the checkpoint upload and the label-share replay.
+    "train": dict(gpu="L4", timeout=3600, watchdog=900, watchdog_grace=900),
+    "eval": dict(gpu="L4", timeout=1800),
+}
+
+experiment = Experiment(name="ex-2.2.14", main=main, roles=ROLES)
