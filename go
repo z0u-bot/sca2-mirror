@@ -51,11 +51,16 @@ show_help() {
 		                       beside them under _assets/ — for reading it as a document
 		  serve   <report> [--port N]:
 		                       serve one report with live reload while you edit it
-		  preview [...reports] [--no-serve] [--force] [--port N]:
+		  preview [...reports] [--no-serve] [--force] [--port N] [--since REF]:
 		                       export stale reports, assemble the site with local assets
 		                       (never touches the network; each report printed to
 		                       _site/<key>/report.pdf for review on paper or e-ink,
-		                       unchanged ones reused from .mini/pdfs/), and serve it
+		                       unchanged ones reused from .mini/pdfs/), and serve it;
+		                       every PDF names the commit it was printed from, and
+		                       --since REF bars the margin of each named report's PDF
+		                       beside every line changed since REF (the round last
+		                       reviewed; the baseline is exported from a checkout
+		                       of REF, reading the store)
 		  publish <reports|--all>:
 		                       export reports and sync their bundles to the publish tier
 		  site:                assemble the public site from *published* bundles into _site/
@@ -152,20 +157,27 @@ case "${1:-}" in
         ;;
     p|preview)
         shift
-        serve=1 port=8000 stale=--stale-only
+        serve=1 port=8000 stale=--stale-only since=
         paths=()
         while [[ $# -gt 0 ]]; do
             case "$1" in
                 --no-serve) serve=0 ;;
                 --force) stale= ;;
                 --port) port="${2:?--port needs a value}"; shift ;;
-                -*) echo "preview: unknown flag '$1' (flags: --no-serve --force --port N)" 1>&2; exit 2 ;;
+                --since) since="${2:?--since needs a git ref}"; shift ;;
+                -*) echo "preview: unknown flag '$1' (flags: --no-serve --force --port N --since REF)" 1>&2; exit 2 ;;
                 *) paths+=("$1") ;;
             esac
             shift
         done
+        if [[ -n $since && ${#paths[@]} -eq 0 ]]; then
+            echo "preview: --since marks the reports you name; name at least one" 1>&2; exit 2
+        fi
         ( set -x; uv run "$SCRIPT_DIR/export_reports.py" ${stale:+"$stale"} "${paths[@]}" )
-        ( set -x; uv run "$SCRIPT_DIR/build_site.py" --localize )
+        if [[ -n $since ]]; then
+            ( set -x; uv run "$SCRIPT_DIR/review_base.py" "$since" "${paths[@]}" )
+        fi
+        ( set -x; uv run "$SCRIPT_DIR/build_site.py" --localize ${since:+--since "$since"} )
         if [[ $serve -eq 1 ]]; then
             ( set -x; uv run "$SCRIPT_DIR/preview_server.py" "$PROJECT_ROOT/_site" "$port" )
         else
