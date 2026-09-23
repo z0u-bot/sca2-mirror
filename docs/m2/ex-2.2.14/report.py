@@ -995,12 +995,47 @@ if metrics_loaded is None or traj_loaded is None:
 res = Results(metrics=metrics_loaded, traj=traj_loaded)
 
 
+def numbers(res: Results) -> dict:
+    """The figures the prose quotes, gathered once so every sentence reads the same data as its table."""
+    s = h3_sites(res)
+    a = adoption(res)
+    wo, wg = res.worst_gap(ex.PRIMARY)
+    sweep_m = {SWEEP_OF[c]: q["margin"] for c, q in a["sweep"].items()}
+    conds = (ex.PRIMARY, ex.CONTROL, ex.OPWORD_ARM, ex.FULL_ARM)
+    return {
+        "margin": float(res.margin(ex.PRIMARY).mean()),
+        "worst_op": ex.short(wo),
+        "worst_gap": wg,
+        "diff_gap": res.task_gap(ex.PRIMARY, OP),
+        "retention_min": float(res.stat(ex.PRIMARY, "retention_anneal").min()),
+        "sites": s,
+        "primary_sites": {k: float(res.contrast(ex.PRIMARY)[:, -1].mean(0)[p]) for k, p in SITES.items()},
+        "containment": float(np.mean([res.containment(ex.PRIMARY, o).mean() for o in OTHER_OPS])),
+        "containment_ctl": float(np.mean([res.containment(ex.CONTROL, o).mean() for o in OTHER_OPS])),
+        "sweep_lo": min(sweep_m.values()),
+        "sweep_hi": max(sweep_m.values()),
+        "sweep_lo_op": min(sweep_m, key=lambda o: sweep_m[o]),
+        "n_qualify": len(a["passing"]),
+        "chosen": a["chosen"],
+        "full_ratio": float(res.margin(ex.FULL_ARM).mean() / res.margin(ex.PRIMARY).mean()),
+        "noisy_ratio": float(res.margin(ex.NOISY_ARM).mean() / res.margin(ex.PRIMARY).mean()),
+        # Op-identity R² per condition, seed mean: (L1, T).
+        "r2": {c: res.r2(c).mean(0) for c in (ex.PRIMARY, ex.OPWORD_ARM, ex.CONTROL)},
+        # Mean cosine with e₁ at the first operand at the final slice, over every op's lines: (cond -> float).
+        "op1": {c: float(np.mean([res.cos(c, o)[:, -1, 0] for o in ex.OP_NAMES])) for c in conds},
+        "op1_peak": float(np.mean([res.cos(ex.PRIMARY, o)[:, :, 0] for o in ex.OP_NAMES], axis=(0, 1)).max()),
+    }
+
+
+N = numbers(res)
+
+
 rf"""
 # Ex 2.2.14: anchoring an operation
 
 /// tip |
 <!-- tl;dr -->
-Every anchor so far has held a property of one token: how red a color is. Here we anchor an *operation* instead, `{ex.ANCHORED_OP}`, on the axis *red* used to have. Does it land, and does the task survive?
+Every anchor so far has held a property of one token: how red a color is. Here we anchor an *operation* instead, `{ex.ANCHORED_OP}`, on the axis *red* used to have. It lands, at twice the margin *red* reached, and the task does not move. Every other op of the table anchors the same way. The blocks carry a little of the op to `=` and none to the answer position.
 ///
 
 There is no *red* anchor beside it. An op is a step up in abstraction from a color: a color is defined by what one token looks like, an op by what it does to a pair of operands.
@@ -1009,12 +1044,12 @@ This is a few-seed smoke test, run before the many-seed equivalence experiment s
 
 ## Findings
 
-- [The task survives (H1)](#the-task-survives-h1) —
-- [The op lands and holds (H2)](#the-op-lands-and-holds-h2) —
-- [The blocks carry it to the use sites (H3)](#the-blocks-carry-it-to-the-use-sites-h3) —
-- [Containment, reported without a gate](#containment-reported-without-a-gate) —
+- [The task survives (H1)](#the-task-survives-h1) — **{h1_status(res)}.** No op's held-out exact match moves by more than {abs(N["worst_gap"]):.3f}, a quarter of the gate; `{ex.ANCHORED_OP}` itself moves by {abs(N["diff_gap"]):.3f}.
+- [The op lands and holds (H2)](#the-op-lands-and-holds-h2) — **{margin_status(res)}.** The op margin is {N["margin"]:.2f}, {N["margin"] / ex.REF_M_LINE:.1f}× what *red* reached, and every seed holds it through the anneal. It saturates by epoch 3: the op word's embedding sits on the axis, and the margin reads that position.
+- [The blocks carry it to the use sites (H3)](#the-blocks-carry-it-to-the-use-sites-h3) — **{h3_status(res)}**, on one site of two. With the op word alone pulled, the contrast at `=` clears the floor ({N["sites"]["="]["excess"]:+.3f} over the control) and the contrast at the answer does not ({N["sites"]["answer"]["excess"]:+.3f}).
+- [Containment, reported without a gate](#containment-reported-without-a-gate) — the other ten ops sit at {N["containment"]:.2f} at the op position, {N["containment"] - N["containment_ctl"]:+.2f} over the control and far under *red*'s {ex.CONTAINMENT_REF:g}. Post hoc: the first operand leans toward e₁ on the primary alone, a candidate mechanism for that rise.
 
-[The rule for the follow-up](#the-rule-for-the-follow-up): —
+[The rule for the follow-up](#the-rule-for-the-follow-up): the equivalence experiment anchors `{N["chosen"]}`. All {N["n_qualify"]} ops of the sweep qualify too, with margins from {N["sweep_lo"]:.2f} to {N["sweep_hi"]:.2f}, so the data do not separate them and the analytical choice stands.
 
 ## How to read this draft
 
@@ -1097,7 +1132,7 @@ h1_figure(res)
 h1_table(res)
 
 rf"""
-{verdict_md(h1_status(res), "<!-- verdict -->")}
+{verdict_md(h1_status(res), f"The largest seed-mean gap is {N['worst_gap']:+.3f}, on `{N['worst_op']}`, a quarter of the {ex.TASK_GATE:g} gate, and the anchored op's own gap is {abs(N['diff_gap']):.3f}. The whole-line pull on `{ex.ANCHORED_OP}` lines does not compete with producing their answer, and the other ten ops' lines are untouched.")}
 
 ## The op lands and holds (H2)
 
@@ -1121,9 +1156,9 @@ h2_figure(res)
 h2_table(res)
 
 rf"""
-{verdict_md(margin_status(res), "<!-- verdict: margin -->")}
+{verdict_md(margin_status(res), f"The seed-mean op margin is {N['margin']:.3f}, {N['margin'] / ex.REF_M_LINE:.2f}× *red*'s {ex.REF_M_LINE:g} against a bar of {MARGIN_BAR:.3f}. It reaches about 0.8 by epoch 3 and barely moves after: the op word's embedding sits at a cosine near 1 with e₁ on every slice, and the margin takes the largest role per slice, so the op position sets it. The bar was set for a graded concept spread over a line, and a categorical one named by a single token clears it with room to spare. A margin this saturated tells ops and arms apart poorly, which the sweep and the arms below bear out.")}
 
-{verdict_md("pass" if res.retention_ok(ex.PRIMARY) else "miss", "<!-- verdict: retention -->")}
+{verdict_md("pass" if res.retention_ok(ex.PRIMARY) else "miss", f"Every seed ends training within {1 - N['retention_min']:.1%} of its margin at the anneal start. Nothing gives way as the weight comes down.")}
 
 ## The blocks carry it to the use sites (H3)
 
@@ -1147,7 +1182,7 @@ h3_figure(res)
 h3_table(res)
 
 rf"""
-{verdict_md(h3_status(res), "<!-- verdict -->")}
+{verdict_md(h3_status(res), f"On the op-word arm at the final slice, the contrast at `=` is {N['sites']['=']['arm']:.3f} against the control's {N['sites']['=']['control']:.3f}, over the floor; at the answer it is {N['sites']['answer']['arm']:.3f} against {N['sites']['answer']['control']:.3f}, under it. Beside the op position's {N['sites']['op']['arm']:.2f} that is a ratio of {N['sites']['=']['arm'] / N['sites']['op']['arm']:.2f} at `=` and about zero at the answer: the blocks carry a twentieth of the op word's alignment to `=` and nothing to the answer. On the primary, where the pull covers the use sites, both sit near {N['primary_sites']['=']:.1f} (`=` {N['primary_sites']['=']:.3f}, answer {N['primary_sites']['answer']:.3f}), so the whole-line pull asks for more at those sites than the blocks bring on their own. This is the reading the design allowed for: at this weight the anchor marks the op where it is named, a little of it reaches `=`, and the answer position holds what the op produced rather than the op.")}
 
 ## Containment, reported without a gate
 
@@ -1170,10 +1205,15 @@ containment_figure(res)
 containment_table(res)
 
 rf"""
+**What we saw.** The other ten ops sit at {N["containment"]:.3f} at the op position on the primary, against {N["containment_ctl"]:.3f} on the control: a rise of about {N["containment"] - N["containment_ctl"]:.2f} on every op, and well under *red*'s {ex.CONTAINMENT_REF:g}. The rise grows over the slices, from nothing at the embedding (the other op words are not pulled) to its plateau by slice 1. On this reading the shared factors (b) and (c) do not produce the rise on their own: the graded red pull was needed for most of it.
+
+One exploratory observation below complicates that reading. The primary's first operand leans toward e₁ on every line, a site the containment statistic here does not read but *red*'s ᾱ at op1 does. So the item stays open, with a note.
 
 ## The rule for the follow-up
 
 > {ex.ADOPTION}
+
+The primary passes H1 and H2 in full, so the equivalence experiment anchors `{N["chosen"]}`. Every op of the sweep qualifies as well, with seed-mean margins from {N["sweep_lo"]:.3f} to {N["sweep_hi"]:.3f}: the data do not separate the ops, and the analytical choice stands on its own criteria.
 
 """
 
@@ -1196,7 +1236,8 @@ sweep_figure(res)
 # %%
 sweep_table(res)
 
-r"""
+rf"""
+All ten anchor alike. The margins span {N["sweep_hi"] - N["sweep_lo"]:.2f}, every retention is at or above 0.99, and every seed-mean task gap is inside the gate, with single seeds of `sat` and `screen` touching it. The three order-sensitive ops (italic in the figure) sit at the low end of the margins, `{N["sweep_lo_op"]}` lowest at {N["sweep_lo"]:.3f}, but the spread is within what three seeds resolve, and their task gaps are the table's. Nothing sets them apart here. The margin's saturation at the op word is why: an anchor that reads the op's own embedding does not care what the op does to its operands.
 
 **The op-identity scan.** The op-identity R² at every site, anchored against control. The design's equivalence claim is that anchoring does not change how readable the op is anywhere the anchor does not reach. The equivalence experiment has to declare a margin for that, and this scan gives it an observed spread. It carries no gate here.
 
@@ -1207,7 +1248,8 @@ scan_figure(res)
 # %%
 scan_table(res)
 
-r"""
+rf"""
+Anchoring leaves the op about as readable as the control has it. At the first operand nothing is readable, since the op word comes after it; at the op word the probe is perfect on every condition. At `=` the primary dips at slice 1 ({N["r2"][ex.PRIMARY][1, ex.EQUALS_POSITION]:.2f} against the control's {N["r2"][ex.CONTROL][1, ex.EQUALS_POSITION]:.2f}) and matches it from slice 2. At the answer the primary reads *above* the control at every slice past the embedding ({N["r2"][ex.PRIMARY][-1, ex.ANSWER_POSITION]:.2f} against {N["r2"][ex.CONTROL][-1, ex.ANSWER_POSITION]:.2f} at the last), with the op-word arm a little under it: the whole-line pull keeps more of the op at the answer than the control does. The largest shift anywhere is at the newline at slice 1, {N["r2"][ex.PRIMARY][1, 5] - N["r2"][ex.CONTROL][1, 5]:+.2f}, where the control's own seeds spread by about 0.4. The equivalence experiment can take its margin from this: a band of ±0.1 in R² would hold at every site but that one.
 
 **The arms.** The every-line arm and the noisy-label arm, read on the same statistics as the primary: the task gap, the op margin, retention, and the use-site contrast. The every-line arm's margin against the primary's is the price or gain of the label share; the noisy arm's margin and task gap against the primary's are the cost of a fifth of wrong labels. The op-word arm carries H3 and is read there.
 
@@ -1218,7 +1260,8 @@ arms_figure(res)
 # %%
 arms_table(res)
 
-r"""
+rf"""
+Label share barely moves the margin. Fifty times the labels raise it to {N["full_ratio"]:.2f}× the primary's, and a fifth of wrong labels leave it at {N["noisy_ratio"]:.2f}× with the task gap unchanged. Both say the same thing as H2: the margin saturates at the op word whatever the label share, and once that embedding is on the axis there is nothing left for more labels to pull. Where the every-line arm does differ is the newline: its embedding leans toward e₁ at {float(res.cos(ex.FULL_ARM, OP)[:, 0, 5].mean()):.2f} against the primary's {float(res.cos(ex.PRIMARY, OP)[:, 0, 5].mean()):.2f}, a free token the pull can place at no cost to the task. For the ladder this is encouraging: a scarce labeller and an imperfect one land the concept as well as an exhaustive one.
 
 **The alignment map.** The primary's mean cosine with e₁ over position and slice on the anchored op's lines and on the others, as a picture of where the anchor put the op.
 
@@ -1227,13 +1270,20 @@ r"""
 map_figure(res)
 
 rf"""
+The op word is at a cosine near 1 on the anchored lines at every slice and near 0 on the others: that is the contrast, and it is all at one position. The two panels agree at the first operand, as they must, since under causal attention the state there comes before the op word and cannot know the op. What they agree on is a lean toward e₁ that grows over the slices to {N["op1_peak"]:.2f}.
+
+**Post hoc: the first operand's lean is the primary's alone.** At the final slice the mean cosine at the first operand over every op's lines is {N["op1"][ex.PRIMARY]:.2f} on the primary, {N["op1"][ex.CONTROL]:.2f} on the control, {N["op1"][ex.OPWORD_ARM]:.2f} on the op-word arm and {N["op1"][ex.FULL_ARM]:.2f} on the every-line arm. The whole-line pull asks the first operand of a labelled line to align with e₁, and nothing at that position distinguishes a `{ex.ANCHORED_OP}` line, so the model answers with a lean that every line shares. That the every-line arm does not show it says the per-line strength matters: at fifty times the labels each pull is fifty times weaker, and the arm places the newline instead.
+
+This is a candidate mechanism for the rise the [containment item](/todo/science/containment-rises-under-the-untied-readout.md) records: the whole-line span arrived with the untied readout, and it pulls a position that cannot carry the concept. Under *red* the first operand does carry redness, so the analogy is partial. A red anchor with the first operand excluded from the span would test it. This was seen after the data and is not scored.
 
 
 ## Discussion
 
-/// admonition | TODO
-About 200 words: whether an op anchors as readily as a color, what the use-site contrast says about where the op lives, and what the equivalence read and the suppression experiment inherit.
-///
+An op anchors at least as readily as a color, and the reason is worth keeping in view. A color is a graded property spread over three tokens of a line, so *red*'s margin had to be assembled from many partial alignments. An op is named by one token, and the pull puts that token's embedding on the axis in the first epochs. So the margin saturates, the task never feels it, all ten other ops do the same, and label share and label precision hardly matter. The alignment measurements here confirm that the pull landed, which is all the design asked of them.
+
+The use-site contrast says where that leaves the op. With only the op word pulled, `=` picks up a twentieth of its alignment and the answer position none. The blocks carry a trace of the op to where it is applied and the answer position holds the answer. Whether the anchor captured the *operation* is still the question for suppression, and this result sets the expectation: an intervention at the op word will have little to work with downstream on its own, and the whole-line pull is what puts the op at the use sites.
+
+The equivalence experiment inherits `{N["chosen"]}`, a saturated margin that will not separate conditions, a scan whose spread outside the newline sits within ±0.1 in R², and the arms' finding that a scarce, imperfect labeller lands the concept. The first operand's lean is the loose end: a whole-line span pulls positions that cannot carry the concept, and the containment item now has a mechanism to test.
 
 ## Method
 
@@ -1245,7 +1295,7 @@ This experiment adds a labeller keying in which the op word draws the label, aga
 
 The op margin is ex-2.2.3's `line_margin` with uniform line weights summing to one over the anchored op's lines and zero elsewhere, on the pooled per-op probe sets ex-2.2.9 built. The function is red's m_line, but the comparison is not like for like: red's weights grade with redness (`p_slot`) and its baseline is the `mix` lines alone, where the op's weights are binary and its baseline includes its own lines as one eleventh of the pool. The binary label concentrates the labelled mean and the pooled baseline shrinks the gap by about a tenth, so the two differences pull in opposite directions and the ratio in H2 is a rough bar rather than a matched one.
 
-<!-- REVIEW: was "line weights set to one ... comparable with red's m_line to the definition". `line_margin` takes an einsum with the weights, so weights of one give a sum, not a mean; they must sum to one. And the labelled group and baseline differ from red's, so the comparability claim was narrowed. Verify against ex-2.2.9's probe-set layout: if the op's baseline is taken per op rather than pooled, drop the one-eleventh clause. --> Retention is the end-of-training margin over the margin at the start of the anchor weight's anneal, on the trajectory recorded every few epochs, with the anneal start located as ex-2.2.11 located it. Contrast and containment are the glossary's mean cosines, taken over the same probe lines. The op-identity scan fits a ridge probe at ridge strength {ex.PROBE_RIDGE:g} from the state at each site to the one-hot op word, with a held-out split by line.
+The probe sets are stored per op, and a per-op baseline would make the op margin zero by construction (the weights are uniform within one op's lines), so the baseline is pooled over all eleven ops' lines at equal counts and the one-eleventh clause stands. Retention is the end-of-training margin over the margin at the start of the anchor weight's anneal, on the trajectory recorded every few epochs, with the anneal start located as ex-2.2.11 located it. Contrast and containment are the glossary's mean cosines, taken over the same probe lines. The op-identity scan fits a ridge probe at ridge strength {ex.PROBE_RIDGE:g} from the state at each site to the one-hot op word, with a held-out split by line.
 
 ### Budget
 
