@@ -55,8 +55,8 @@ from sca.data.ops import colors as grid_colors
 
 SLICES = ("emb", "L1", "L2", "L3", "L4")
 LAST = ex.N_SLICES - 1
+# The conditions in the order the columns of each figure take: the control, then the arms by their ᾱ at op1.
 ORDER: tuple[str, ...] = ("control", "handover-tied", "handover-slot", "handover")
-"""The conditions in the order the columns of each figure take: the control, then the arms by their ᾱ at op1."""
 ANCHORED = ORDER[1:]
 CONDS = {c.cond: c for c in ex.CONDITIONS}
 
