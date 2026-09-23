@@ -23,8 +23,6 @@ import numpy as np
 
 from mini import Ctx, Experiment, get_data_dir
 
-DESIGN_ONLY = False
-
 # --- What is inherited ---------------------------------------------------------------------------------
 
 REFERENCE_EXPERIMENT = "m2/ex-2.2.11"
@@ -333,9 +331,6 @@ GRID: tuple[Arm, ...] = (
 )
 assert tuple(a.name for a in GRID) == CONDITIONS and sum(a.seeds for a in GRID) == N_RUNS
 
-TRAJ_LINES_PER_COLOR = 1
-"""The trajectory reads one probe line per palette color per op (216 lines an op, 2,376 in all), as ex-2.2.11's
-trajectory read one per color on `mix`. The end-of-training reads take every probe line."""
 
 N_SCAN = 512
 """Probe lines per op for the op-identity scan, drawn once with `SCAN_SEED`; a fifth of them (`SCAN_HOLDOUT`),
@@ -401,8 +396,9 @@ def probe_walk(z, op: str) -> np.ndarray:
 
 
 def traj_probe(z, op: str) -> tuple[np.ndarray, np.ndarray]:
-    """The trajectory's probe lines (one per color per op, every op) and the op margin's line weights on
-    them: uniform over *op*'s lines, summing to one, zero elsewhere.
+    """The trajectory's probe lines (one per palette color per op, every op: 216 lines an op, 2,376 in all, as
+    ex-2.2.11's trajectory read one per color on `mix`; the end-of-training reads take every probe line) and
+    the op margin's line weights on them: uniform over *op*'s lines, summing to one, zero elsewhere.
     """
     blocks = [probe_walk(z, o)[::N_PROBE] for o in OP_NAMES]
     w = np.concatenate([np.full(len(b), 1.0 if o == op else 0.0) for o, b in zip(OP_NAMES, blocks, strict=True)])
