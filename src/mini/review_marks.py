@@ -2,9 +2,9 @@
 
 The reader reviews a report on paper or e-ink, rounds apart. From the second round on, most of the report is what they already annotated, so the print (``./go preview --since <ref>``) shows which lines changed since the version they last saw: a bar on the paper's right edge beside each one, clear of a figure or table that reaches into the margin, and of the reMarkable's toolbar on the left. A new word, an edited one, or a removal all mark the line where it falls; how much changed on the line does not matter, because the line is re-read either way.
 
-The comparison is between two *rendered* pages, the report's and the baseline's (:func:`mark_changes`), rather than two sources, so a number an f-string prints is compared too. It runs in the page, in the browser that prints it (:data:`_JS`): leaf blocks (paragraphs, list items, table cells, captions, headings) are aligned first, anchored on the ones that match word for word, with the rest paired by similarity; each changed pair is then diffed word by word. Math and figures are one word each, and a figure is compared by a digest of its file, since a redrawn figure keeps its name.
+The comparison is between two *rendered* pages, the report's and the baseline's (:func:`mark_changes`), rather than two sources, so a number an f-string prints is compared too. It runs in the page, in the browser that prints it (:data:`_JS`): leaf blocks (paragraphs, list items, table cells, captions, headings) are aligned first, anchored on the ones that match word for word, with the rest paired by similarity; each changed pair is then diffed word by word. Math and figures are one word each: an ``<img>`` is compared by a digest of its file, since a redrawn figure keeps its name, and an inline ``<svg>`` (a subline strip, a swatch table) by its markup.
 
-A bar is drawn without measuring anything: before each changed word the script inserts an empty span that is absolutely positioned with ``top: auto``, so it sits on the line the word is on, wherever the print's layout puts that line, and its ``right`` reaches across the ``@page`` margin to the edge of the paper. Each bar is a line tall and opaque, and overlaps its neighbours by a hair, so the bars of consecutive lines join into one without a seam (a PDF reader anti-aliases each edge, and two abutting edges would show a faint gap). A changed figure's bar is as tall as the image, and a table row with any change in it has one bar as tall as the row, through CSS anchor positioning. Each section's page carries a count at the top of its margin, words added and removed (``+12 −3``) or ``unchanged``, so the reader can skip a page at a glance; it is indicative, a sense of how much moved rather than a tally of the bars. A note under the first page's count, on the same edge, names the two versions.
+A bar is drawn without measuring anything: before each changed word the script inserts an empty span that is absolutely positioned with ``top: auto``, so it sits on the line the word is on, wherever the print's layout puts that line, and its ``right`` reaches across the ``@page`` margin to the edge of the paper. Each bar is a line tall and opaque, and overlaps its neighbours by a hair, so the bars of consecutive lines join into one without a seam (a PDF reader anti-aliases each edge, and two abutting edges would show a faint gap). A changed figure's bar is as tall as the image, and a table row with any change in it has one bar as tall as the row, through CSS anchor positioning. Each section's page carries a count at the top of its margin, words added and removed (``+12 −3``) or ``unchanged``, so the reader can skip a page at a glance; it is indicative, a sense of how much moved rather than a tally of the bars. A note under the first page's count, on the same edge, names the two versions; a print without a baseline carries the same note with only the version it was printed from (:func:`stamp`), so the next round has a ref to name. The ref is a commit: a PDF printed from a tree with uncommitted edits says so in its note, and a later ``--since`` that names its commit diffs against the commit, not the paper.
 """
 
 from __future__ import annotations
@@ -12,11 +12,12 @@ from __future__ import annotations
 import hashlib
 import json
 import re
+from html import escape
 from pathlib import Path
 
 from mini.lit.page import MAIN_OPEN
 
-__all__ = ["mark_changes", "tag_images", "baseline_dir"]
+__all__ = ["mark_changes", "stamp", "tag_images", "baseline_dir"]
 
 _IMG_RE = re.compile(r'<img\b[^>]*?\bsrc="([^"]+)"')
 
@@ -41,9 +42,10 @@ main.lit .rv-count {
 }
 main.lit .rv-count.rv-same { font-weight: 400; color: #aaa; }
 main.lit > .rv-count { top: 0; }
+main.lit > .rv-count ~ .rv-note { top: 8mm; }
 main.lit .rv-note {
   position: absolute;
-  top: 8mm;
+  top: 0;
   right: calc(3mm - var(--rv-edge, 0px));
   writing-mode: vertical-rl;
   transform: rotate(180deg);
@@ -59,18 +61,19 @@ _JS = r"""
   const data = JSON.parse(document.getElementById('rv-data').textContent);
   const base = new DOMParser().parseFromString(data.base, 'text/html').body;
   const LEAF = 'p,li,h1,h2,h3,h4,h5,h6,figcaption,caption,th,td,dt,dd,pre,summary,.admonition-title';
-  const ATOM = '.arithmatex,img,mark.pending';
-  const SKIP = 'a.anchor-link,.footnote-backref';
+  const ATOM = '.arithmatex,img,svg,mark.pending';
+  // Skipped: link furniture, and the dark copy of a themed figure, which the print hides.
+  const SKIP = 'a.anchor-link,.footnote-backref,.mini-themed-img-dark';
   const blocks = root => {
     const all = [...root.querySelectorAll(LEAF)].filter(e => !e.querySelector(LEAF))
-      .concat([...root.querySelectorAll('img')].filter(i => !i.closest(LEAF)));
+      .concat([...root.querySelectorAll('img,svg')].filter(i => !i.closest(LEAF)));
     all.sort((a, b) => a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING ? -1 : 1);
     return all.filter(b => !b.closest(SKIP));
   };
   // A block's words, each with where it sits: text split on whitespace, and an atom (math, a figure) whole.
-  const atomText = a => a.matches('img') ? 'img:' + (a.dataset.rv ?? a.getAttribute('src')) : a.textContent;
+  const atomText = a => a.matches('img') ? 'img:' + (a.dataset.rv ?? a.getAttribute('src')) : a.matches('svg') ? a.outerHTML : a.textContent;
   const tokens = block => {
-    if (block.matches('img')) return [{ t: atomText(block), atom: block }];
+    if (block.matches('img,svg')) return [{ t: atomText(block), atom: block }];
     const out = [];
     const walk = node => {
       for (const c of [...node.childNodes]) {
@@ -152,7 +155,7 @@ _JS = r"""
   }
 
   // Insert the bars, last word first within a block, so splitting a text node never moves a word still to come.
-  // A figure, and a table row with a change anywhere in it, get one bar as tall as they are, through anchor positioning.
+  // A figure (img or inline svg), and a table row with a change anywhere in it, get one bar as tall as they are, through anchor positioning.
   let anchors = 0;
   const bar = () => { const s = document.createElement('span'); s.className = 'rv'; return s; };
   const spanned = new Set();
@@ -169,7 +172,7 @@ _JS = r"""
     if (row) { span(row); continue; }
     for (const k of [...words].sort((p, q) => q - p)) {
       const t = H[b].tk[k];
-      if (t.atom && t.atom.matches('img')) span(t.atom);
+      if (t.atom && t.atom.matches('img,svg')) span(t.atom);
       else if (t.atom) t.atom.before(bar());
       else t.node.splitText(t.off).before(bar());
     }
@@ -202,7 +205,7 @@ _JS = r"""
   const note = document.createElement('div');
   note.className = 'rv-note';
   note.textContent = data.note;
-  main.prepend(note);
+  main.append(note);
 })();
 """
 
@@ -230,6 +233,14 @@ def _body(html: str) -> str:
     if MAIN_OPEN not in html:
         return html
     return html.split(MAIN_OPEN, 1)[1].rsplit("</main>", 1)[0]
+
+
+def stamp(html: str, *, note: str) -> str:
+    """*html*, a rendered report page, with *note* on the edge of its first page: the version an unmarked print is of, so a later print can be marked against it."""
+    note_html = f'<div class="rv-note">{escape(note)}</div>'
+    return html.replace(MAIN_OPEN, f"{MAIN_OPEN}{note_html}", 1).replace(
+        "</main>", f"</main>\n<style>{_CSS}</style>\n", 1
+    )
 
 
 def mark_changes(html: str, base_html: str, *, note: str, root: Path, base_root: Path) -> str:

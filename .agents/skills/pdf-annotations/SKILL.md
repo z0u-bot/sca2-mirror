@@ -22,6 +22,8 @@ Sandy reviews reports on a reMarkable: the published page is printed to PDF (nar
 
 4. **Apply.** Work from the transcript, opening a strip yourself only where the transcript flags `[unsure]` or an interpretation seems off. Handwritten review is approximate by nature (the human said as much), so push back on a mark that looks mistaken, answer questions written in the margin, and say in the reply which readings you took where the transcript was unsure. A reviewer's question in the margin usually wants a number or a sentence in the report, and sometimes the answer is "no, and here is why".
 
+5. **Print the next round.** `./go preview --no-serve --since <commit> <report>`, where the commit is the one named at the top of the reviewed PDF's first page ("Printed from …"), and send `_site/<key>/report.pdf`. The new PDF bars every line that changed since that commit and counts the changes at the top of each page, so the reviewer re-reads only what moved.
+
 ## What the ink looks like
 
 The script's heuristics, so you can tell when they mislead: a pen stroke is a filled path of many curve segments in any colour but white (a black pen exports as pure black and counts as ink, since printed rules are single hairlines, so black annotations are read the same as red ones); a highlighter stroke is a wide stroked line; anything with a colour that repeats with identical geometry across the document (list bullets, icons) is printed. A margin bar drawn with the tablet's rectangle tool is a single rectangle, so it is reported under `shape colours` next to printed badges and admonition backgrounds. Reviewer colours seen so far: red for edits and notes, purple for document-level marks (a DRAFT badge), green for a section-wide bar, magenta highlighter.

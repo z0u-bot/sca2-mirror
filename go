@@ -56,8 +56,10 @@ show_help() {
 		                       (never touches the network; each report printed to
 		                       _site/<key>/report.pdf for review on paper or e-ink,
 		                       unchanged ones reused from .mini/pdfs/), and serve it;
-		                       --since bars the margin of each named report's PDF beside
-		                       every line changed since REF (the round last reviewed)
+		                       every PDF names the commit it was printed from, and
+		                       --since REF bars the margin of each named report's PDF
+		                       beside every line changed since REF (the round last
+		                       reviewed; exporting the baseline reads the store)
 		  publish <reports|--all>:
 		                       export reports and sync their bundles to the publish tier
 		  site:                assemble the public site from *published* bundles into _site/

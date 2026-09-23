@@ -5,7 +5,7 @@ from pathlib import Path
 import pytest
 
 from mini import report_print
-from mini.review_marks import mark_changes
+from mini.review_marks import mark_changes, stamp
 
 
 @pytest.fixture
@@ -104,3 +104,35 @@ def test_a_changed_table_row_has_one_bar_as_tall_as_the_row(browser, tmp_path: P
     ]""")
     page.close()
     assert bars == [pytest.approx(row)]
+
+
+def test_a_redrawn_inline_svg_is_barred(browser, tmp_path: Path):
+    fig = '<h2>Results</h2><figure><svg width="40" height="20"><rect width="{}" height="20"/></svg><figcaption>A strip.</figcaption></figure>'
+    html = mark_changes(_page(fig.format(30)), _page(fig.format(20)), note="", root=tmp_path, base_root=tmp_path)
+    page = browser.new_page()
+    page.set_content(html)
+    bars, svg = page.evaluate("""() => [
+      [...document.querySelectorAll('main.lit .rv')].map(b => b.getBoundingClientRect().height),
+      document.querySelector('svg').getBoundingClientRect().height,
+    ]""")
+    page.close()
+    assert bars == [pytest.approx(svg)]
+
+
+def test_the_hidden_dark_copy_of_a_themed_figure_gets_no_bar(browser, tmp_path: Path):
+    for theme, pixels in [("light", b"new"), ("dark", b"new too")]:
+        (tmp_path / "base" / "_assets").mkdir(parents=True, exist_ok=True)
+        (tmp_path / "_assets").mkdir(exist_ok=True)
+        (tmp_path / "base" / "_assets" / f"{theme}.png").write_bytes(b"old")
+        (tmp_path / "_assets" / f"{theme}.png").write_bytes(pixels)
+    fig = (
+        '<h2>Results</h2><figure class="mini-themed-figure"><img class="mini-themed-img-light" src="_assets/light.png">'
+        '<img class="mini-themed-img-dark" src="_assets/dark.png"></figure>'
+    )
+    assert _barred(browser, fig, fig, tmp_path) == ["img"]
+
+
+def test_an_unmarked_print_still_names_its_version():
+    html = stamp(_page("<h2>Results</h2><p>Text.</p>"), note="Printed from abc1234")
+    assert '<main class="lit"><div class="rv-note">Printed from abc1234</div><h2>' in html
+    assert "<style>" in html

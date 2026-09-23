@@ -3,7 +3,9 @@
 
 A reader reviews a report on paper, rounds apart, and from the second round on wants to see what changed since the version they last annotated. The site build marks that in the print's margin (:mod:`mini.review_marks`), comparing the report's page with the page as it was at *ref*. This script makes the second one: it checks *ref* out in a throwaway worktree and runs that checkout's own exporter over each named report, so the baseline is woven by the code the reader saw it woven by. The current environment runs it, with the checkout's ``src/`` first on the path, which is fine for the recent refs this is for; a ref old enough to need other dependencies fails, and says so.
 
-A baseline lands at ``.mini/review/<sha>/<key>/`` and is kept, so the next print against the same ref reuses it. A report that did not exist at *ref* has none, and its print carries no marks.
+The checkout's exporter runs the report's cells, so the results the report reads must still be in the store: ``mini`` memoizes on a step's source, so the old ``experiment.py`` fetches the old results, and a ref older than a gc sweep of them fails here. The checkout shares this project's store cache (a symlink), so a ref whose results are already local exports without a download.
+
+A baseline lands at ``.mini/review/<sha>/<key>/`` and is kept, so the next print against the same ref reuses it (nothing prunes them; ``rm -r .mini/review`` when they pile up). A report that did not exist at *ref* has none, and its print carries no marks.
 """
 
 import argparse
@@ -47,6 +49,12 @@ def export_at(sha: str, reports: list[Path]) -> None:
     git("worktree", "prune")
     git("worktree", "add", "--detach", str(checkout), sha)
     try:
+        # The checkout's own .mini/ is empty, so point its store cache at ours: what this project
+        # already fetched from the bucket is warm there, and what the export fetches stays.
+        cache = ROOT / ".mini" / "store-cache"
+        cache.mkdir(parents=True, exist_ok=True)
+        (checkout / ".mini").mkdir(exist_ok=True)
+        (checkout / ".mini" / "store-cache").symlink_to(cache, target_is_directory=True)
         env = os.environ | {
             "PYTHONPATH": os.pathsep.join(filter(None, [str(checkout / "src"), os.environ.get("PYTHONPATH")]))
         }
