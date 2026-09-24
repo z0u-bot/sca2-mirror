@@ -114,11 +114,14 @@ That is closer to M3 than _red_ is, since both tasks depend on a concept the mod
 
 ### A verification line
 
-A verification line has the same examples, then a candidate equation with its answer, then a verdict:
+A verification line has the same examples, then a candidate equation with its answer, then a verdict. These are two lines, each wrapped here to fit:
 
 ```
-red ? cyan = white, c999 ? c666 = c333, yellow ? red = lime | TRUE
-red ? cyan = white, c999 ? c666 = c333, yellow ? red = yellow | FALSE
+red ? cyan = white, c999 ? c666 = c333,
+yellow ? red = lime | TRUE
+
+red ? cyan = white, c999 ? c666 = c333,
+yellow ? red = yellow | FALSE
 ```
 
 A `FALSE` candidate shows the answer another op would give, or a color from the cube, which are the two noise families the examples already have. So verification is the discounting the model already does on noisy examples, made explicit at one position.
