@@ -53,7 +53,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
 - token
 
-  One item of the vocabulary, and one entry of the corpus: a color word, an op word, a symbol (`+`, `•`, `=`, `,`), or `\n`.
+  One item of the vocabulary, and one entry of the corpus: a color word, an op word, a symbol (`+`, `?`, `=`, `,`), or `\n`.
 
 - position
 
@@ -61,7 +61,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
 - equation
 
-  One application of an op: `op1 • op2 = answer` (or `op1 difference op2 = answer` in the grammars that name the op). A solved equation shows its answer; the query leaves it blank.
+  One application of an op: `op1 ? op2 = answer` (or `op1 difference op2 = answer` in the grammars that name the op). A solved equation shows its answer; the query leaves it blank.
 
 - line
 
@@ -115,7 +115,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
 - role
 
-  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are window-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. In the in-context grammar a role also needs the equation it sits in. Name the equation as a qualifier, as with "the `=` embedding": "the query `=`", "the query `•`", "an example answer", "the answer of the first example". Avoid the possessive ("the query's `=`"), per the `writing` skill. "Span roles" are the four prompt roles the anchor term can act on.
+  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are window-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. In the in-context grammar a role also needs the equation it sits in. Name the equation as a qualifier, as with "the `=` embedding": "the query `=`", "the query `?`", "an example answer", "the answer of the first example". Avoid the possessive ("the query's `=`"), per the `writing` skill. "Span roles" are the four prompt roles the anchor term can act on.
 
 - op1, op2 vs. op
 
