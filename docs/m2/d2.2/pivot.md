@@ -26,14 +26,18 @@ The current design answers (4), with the caveat that a scarce labeller only had 
 **Take the op word out of the grammar.** Each line is one context: a few solved examples of one op, written with a neutral symbol in place of the op word, then a query under the same op:
 
 ```
-red~blue=magenta, white~cyan=red, yellow~red=
+red•blue=magenta, white•cyan=red, yellow•red=
 ```
 
-Here the op is `difference`, and the model has to work that out from the first two examples to complete the third. Op words never appear in the corpus, so the op is always inferred; a corpus that sometimes named it would give the anchor a token to land on again. The symbol `~` stays constant. It could be dropped, since the frame is fixed, but it keeps the example's shape close to the current grammar and costs one token.
+Here the op is `difference`, and the model has to work that out from the first two examples to complete the third. Op words never appear in the corpus, so the op is always inferred; a corpus that sometimes named it would give the anchor a token to land on again.
+
+The symbol `•` stays constant. It carries no information, so the frame would work without it, but it keeps each equation's shape close to the current grammar. It also gives the model a position between the operands that it may use for its own computation, perhaps to gather the op; whether it does is an [open question](#open-questions).
 
 The op becomes a latent task that the model infers from examples. The anchored concept is "the op in this context is `difference`", and no token carries it.
 
-**One context per line** keeps the line as the unit that the existing code already counts in. The labeller's `line` keying already draws once per context, and the holdouts and the per-line scoring already count contexts. It also keeps the eval inside one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still read the previous lines, which hold other contexts with independent ops; the model should learn to ignore them, and an attention mask that resets at `\n` would make that certain. The costs: a line grows from 6 tokens to about 20 with three shots, and a line width that varies with the shot count breaks the fixed `LINE_TOKENS` indexing, so a varying count needs padding to the longest line.
+**One context per line** keeps the line as the unit the existing code counts in: the labeller's `line` keying draws once per context, and the holdouts and per-line scoring count contexts. It also keeps the eval to one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still read the previous lines, which hold other contexts with independent ops; the model should learn to ignore them, and an attention mask that resets at `\n` would make that certain.
+
+Lines get longer, from 6 tokens to about 20 with three examples, and their width can vary. The code finds a token's line and role by arithmetic on a fixed width (`LINE_TOKENS`, 6 today: line = position ÷ 6, role = position mod 6). A variable width needs two integer arrays the size of the corpus instead, the line and role of every token, computed once from the positions of `\n` and read by lookup. That costs a little memory and no padding. Training windows are random crops of the packed corpus, so the first context in a window is usually cut short; the block size should fit at least two whole contexts.
 
 For any context, the posterior over ops given the examples can be computed from the op table. That gives us three things to design with:
 
@@ -41,31 +45,33 @@ For any context, the posterior over ops given the examples can be computed from 
 - a **designed null** for suppression: the answer distribution under the posterior with `difference` removed;
 - a **label-noise model**: a labeller that labels contexts by their posterior rather than by their true op is realistically noisy.
 
-The graded stimulus needs care. Clean examples pin the op down fast: on table A+, one clean shot already gives a posterior of 1.0 for three contexts in four, and three shots do so for 99%. So the shot count alone grades very little. What does grade it is replacing some shown answers with the answer *another* op would give. With a replacement rate near 0.3 and three or four shots, the posterior on the true op spreads across the whole range (with three shots at 0.35: about a quarter of contexts above 0.95, 45% between 0.5 and 0.95, 30% below 0.5). The query's target stays the true op's answer, so the noisy examples are evidence to weigh, and the model's reliance on them is what the stimulus measures. Varying the shot count on top of this is probably worthwhile, subject to the padding cost above.
+The graded stimulus needs care. Clean examples pin the op down fast: on table A+, one clean example already gives a posterior of 1.0 for three contexts in four, and three examples do so for 99%. So the example count alone grades very little. What does grade it is **replacement noise**: showing, in some examples, the answer *another* op would give. With a replacement rate near 0.3 and three or four examples, the posterior on the true op spreads across the whole range (with three examples at 0.35: about a quarter of contexts above 0.95, 45% between 0.5 and 0.95, 30% below 0.5). A wrong answer drawn at random from the color cube grades much less, because no op produces it: it removes an example's evidence without pointing anywhere else. It can still ride along at a low rate, so that the model learns to discount examples that fit nothing. In every case the query is clean and its target is the true op's answer, so the noisy examples are evidence to weigh, and the model's reliance on them is what the stimulus measures.
 
-There is prior post-hoc work to compare against. Function vectors (Todd et al., 2023, arXiv:2310.15213) and task vectors (Hendel et al., 2023, arXiv:2310.15916) find that an in-context task is compressed into a direction in the residual stream, carried by a few attention heads to the final position, from about the middle layers on. SCA's version places that direction during training, where those methods search for it afterwards. We keep the color domain: their tasks lean on a pretrained model's knowledge (antonyms, capitals), and ours keeps a computable posterior, the op table, and the checkpoints and machinery we already have. What carries over from their work is the prior on *where*: the query's `=`, and mid-depth, which is where the label should sit first and where the layer sweep should start.
+There is prior post-hoc work to compare against. Function vectors (Todd et al., 2023, arXiv:2310.15213) and task vectors (Hendel et al., 2023, arXiv:2310.15916) study pretrained language models given in-context examples of word-to-word functions over natural concepts: antonyms, country to capital, English to French. They find the task compressed into a direction in the residual stream, carried by a few attention heads to the final position, from about the middle layers on. SCA's version places that direction during training, where those methods search for it afterwards. We keep the color domain: their tasks need a pretrained model's knowledge, and ours keeps a computable posterior, the op table, and the checkpoints and machinery we already have.
+
+Their results suggest mid-depth, at the position where the answer forms, which for us is the query's `=`. That is a place to look first, and a weak prior on where the op lives: it may be assembled earlier, at the query's `•` or across the examples, or stay spread out. So the label covers the whole context, which is also the only form an M3 labeller can give, and where the anchor ends up is something we measure.
 
 ## Sequence
 
-1. **Suppress `difference` on the stored ex-2.2.14 checkpoints.** Scoring only, as planned in the [design](design.md#suppress-the-operation-and-the-operands): the op-word edit against a token mask, and the use-site edits on the whole-line primary. It turns "the anchor is a token" into a measurement. Its outcome decides how much of the old line to report, and it does not decide whether to pivot: if the use-site edits move the answer, that is a result worth writing up beside the pivot, and the new grammar still answers (1).
-2. **The in-context grammar**: the one-context-per-line format, the replacement noise, the posterior over ops, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control. We expect d64-L4 to be enough: the model has to compare each example against the op table and pool the evidence, with no variables to track. If the control cannot learn it, the next step is a wider or deeper control before anything is anchored.
+1. **Suppress `difference` on the stored ex-2.2.14 checkpoints.** Scoring only, as planned in the [design](design.md#suppress-the-operation-and-the-operands): the op-word edit against a token mask, and the use-site edits on the whole-line primary. It turns "the anchor is a token" into a measurement. Its outcome decides how much of the old line to report, and it does not decide whether to pivot: if the use-site edits move the answer, that is a result worth writing up beside the pivot, and only the new grammar can show whether SCA anchors a concept the model computes.
+2. **The in-context grammar**: the one-context-per-line format, replacement noise, the posterior over ops, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control. We expect d64-L4 to be enough: the model only has to compare each example against the op table and pool the evidence, with no variables to track. If the control cannot learn it, the next step is a wider or deeper control before anything is anchored.
 3. **Anchor the latent op**, then **suppress it**, then the **layer sweep** and the **SGTM baseline**, as in the current design.
 
 ## Alternatives considered
 
 - **Keep the op word and pull only at the use sites** (`=` and the answer), or only past the embedding slice. This is cheap in compute, but the model can copy the op word's identity to `=` through attention, which makes it a lookup one hop later, and it costs a round of our time to learn that. Dropped.
-- **Keep the op word and report the token-anchor result as it is.** This answers (4) and a narrow form of (2), and leaves M3 to find out whether SCA reaches a computed concept.
+- **Keep the op word and report the token-anchor result as it is.** This shows that scarce, noisy labels are enough, and that suppression works in the sense a token mask does. It leaves M3 to find out whether SCA reaches a concept the model computes.
 - **Adopt the function-vector tasks.** Covered above: they need a pretrained model and give up the computable posterior.
 
 ## Failure modes
 
 - **The control does not learn the task.** Covered in step 2.
 - **The anchor lands on a shortcut.** The model might key on a surface feature that correlates with the op, such as a characteristic answer color. The posterior makes this checkable: a context whose examples are ambiguous between two ops should give an intermediate alignment, and a shortcut would not track it.
-- **The pull does not take.** The op is spread across the examples, so the concept may form only at the query, late in depth. The layer sweep covers this, and the function-vector prior says where to start.
+- **The label asks for the concept before it can exist.** Attention is causal, so the tokens of a context's first example have seen nothing that identifies the op, and no position holds it at the embedding slice. A pull at full weight over the whole context, at every slice, asks for something those states cannot have. Training would then either miss the margin there or satisfy it with a shortcut, and a strong pull could cost the task. Two remedies, both cheap: leave out the embedding slice, and weight the pull at each position by the posterior given the tokens before it, so the weight rises through the context as the evidence arrives. That weighting is a soft label, the form a natural-language classifier with a confidence would give in M3.
 
 ## What carries over
 
-The eval contract and the intervention library (`sca.intervention`: projection, reflection, repulsion, weight ablation); the fallback term, which worked on *red* in [ex-2.2.2](../ex-2.2.2/report.py) and whose null now comes from the posterior; the labellers, with `line` keying now meaning one context; the untied readout; the op table A+ and its op-relevance, which now decide how many examples it takes to pin down an op; and the scoring conventions from ex-2.2.9 onward. The *red* line of work is finished as a D2.2 prerequisite and needs nothing more for this.
+The eval contract and the intervention library (`sca.intervention`: projection, reflection, repulsion, weight ablation); the fallback term, which worked on *red* in [ex-2.2.2](../ex-2.2.2/report.py) and whose null now comes from the posterior; the labellers, whose `line` keying now labels one context, all of its examples and the query; the untied readout; the op table A+ and its op-relevance, which now decide how many examples it takes to pin down an op; and the scoring conventions from ex-2.2.9 onward. The *red* line of work is finished as a D2.2 prerequisite and needs nothing more for this.
 
 ## How this changes D2.3
 
@@ -77,6 +83,13 @@ D2.3 asks whether suppression can degrade *completion* while *verification* surv
 
 ## Open questions
 
-- How many examples per context: fixed at three or four, or varied (which needs padding).
-- Whether contexts should ever mix ops, for example two ops interleaved with a cue that says which applies to the query. That is closer to M3, where the relevant behavior depends on cues within a conversation, and much harder. It is out of scope for D2.2.
-- Where the label sits: on the whole context, on the query alone, or on its `=`. The function-vector prior favors the query's `=`.
+- How many examples per context: fixed at three or four, or varied.
+- Whether the model uses `•` for computation. A control trained without it would say whether the frame needs it, and the states at the query's `•` are a candidate site for the op.
+- Whether contexts should ever mix ops. One form: each example carries a tag, and each tag stands for an op that is inferred as before.
+
+  ```
+  a: red•blue=magenta, b: red•blue=purple, a: white•cyan=red, a: yellow•red=
+  ```
+
+  Here `a` is `difference` and `b` is another op, and the query takes the op of the examples that share its tag. That is closer to M3, where the relevant behavior depends on cues within a conversation. It is also a binding task, the kind of variable tracking the current grammar does not ask for, so it may need a larger model. It is out of scope for D2.2.
+- Whether to use soft labels beyond the per-position weighting above: a labeller that reports its confidence in a context's op, as an M3 classifier would.
