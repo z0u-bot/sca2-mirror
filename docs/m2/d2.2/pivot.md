@@ -85,13 +85,14 @@ D2.3 asks whether suppression can degrade *completion* while *verification* surv
 
 - How many examples per context: fixed at three or four, or varied.
 - Whether the model uses `?` for computation. A control trained without it would say whether the frame needs it, and the states at the query `?` are a candidate site for the op.
-- Whether contexts should ever hold more than one true op (replacement noise shows another op's answer, but the context still has one true op). A form is sketched below; it is out of scope for D2.2.
+- Whether contexts should ever hold more than one true op (replacement noise shows the answer of another op, but the context still has one true op). A form is sketched below; it is out of scope for D2.2.
 - Whether to use soft labels in M3: a labeller that reports its confidence in the op of a context, as a natural-language classifier could.
 
-**A sketch of mixed ops.** A tag sets the op for the examples that follow it, until another tag replaces it, and each tag stands for an op that is inferred as before:
+**A sketch of mixed ops.** A tag sets the op for the examples that follow it, until another tag replaces it, and each tag stands for an op that is inferred as before. This is one line, wrapped here to fit:
 
 ```
-a: red?blue=magenta, b: red?blue=purple, a: white?cyan=red, yellow?red=
+a: red?blue=magenta, b: red?blue=purple,
+a: white?cyan=red, yellow?red=
 ```
 
 Here `a` is `difference` and `b` is another op. The query has no tag of its own, so it takes the op of the most recent one. That is closer to M3, where the relevant behavior depends on cues earlier in a conversation that stay in force until something changes them. It is also a binding task, the kind of state tracking the current grammar does not ask for, so it may need a larger model.
