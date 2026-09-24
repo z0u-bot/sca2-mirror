@@ -26,7 +26,7 @@ The current design answers (4), with the caveat that a scarce labeller only had 
 **Take the op word out of the grammar.** Each line is one context: a few solved examples of one op, written with a neutral symbol in place of the op word, then a query under the same op:
 
 ```
-red?blue=magenta, white?cyan=red, yellow?red=
+red ? blue = magenta, white ? cyan = red, yellow ? red =
 ```
 
 Here the op is `difference`, and the model has to work that out from the first two examples to complete the third. Op words never appear in the corpus, so the op is always inferred; a corpus that sometimes named it would give the anchor a token to land on again.
@@ -49,7 +49,7 @@ The graded stimulus needs care. Clean examples pin the op down fast: on table A+
 
 There is prior post-hoc work to compare against. Function vectors (Todd et al., 2023, arXiv:2310.15213) and task vectors (Hendel et al., 2023, arXiv:2310.15916) study pretrained language models given in-context examples of word-to-word functions over natural concepts: antonyms, country to capital, English to French. They find the task compressed into a direction in the residual stream, carried by a few attention heads to the final position, from about the middle layers on. The SCA version places that direction during training, where those methods search for it afterwards. We keep the color domain: their tasks need the knowledge of a pretrained model, and ours keeps a computable posterior, the op table, and the checkpoints and machinery we already have.
 
-Their results suggest mid-depth, at the position where the answer forms, which for us is the query `=`. That is a place to look first, and a weak prior on where the op lives: it may be assembled earlier, at the query `?` or across the examples, or stay spread out. So the label is a binary one on the whole context, which is also the only form an M3 labeller can give, and where the anchor ends up is something we measure.
+Their results suggest mid-depth, at the position where the answer forms, which for us is the query `=`. That is a place to look first, and a weak prior on where the op lives: it may be assembled earlier, at the query `?` or across the examples, or stay spread out. So the label is a binary one on the whole context, which is likely also the form an M3 labeller can give, and where the anchor ends up is something we measure.
 
 ## Sequence
 
@@ -67,7 +67,7 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 
 - **The control does not learn the task.** Covered in step 2.
 - **The anchor lands on a shortcut.** The model might key on a surface feature that correlates with the op, such as a characteristic answer color. The posterior makes this checkable: a context whose examples are ambiguous between two ops should give an intermediate alignment, and a shortcut would not track it.
-- **The label asks for the concept before it can exist.** Attention is causal, so the tokens of the first example in a context have seen nothing that identifies the op, and no position holds it at the embedding slice. A binary label over the whole context, pulling at every slice, asks for something those states cannot have. Training could then miss the margin there or satisfy it with a shortcut, and a strong pull could cost the task. The binary whole-line label stays the default all the same: it is what an M3 labeller can give, and ex-2.2.14 used the same form. Two cheap arms measure the cost: one leaves out the embedding slice, and one weights the pull at each position by the posterior given the tokens before it, so the weight rises through the context as the evidence arrives. That weighting is a soft label, and it uses ground truth an M3 labeller would not have, which is one more reason to keep it an arm.
+- **The label asks for the concept before it can exist.** Attention is causal, so the tokens of the first example in a context have seen nothing that identifies the op, and no position holds it at the embedding slice. A binary label over the whole context, pulling at every slice, asks for something those states cannot have. Training could then miss the margin there or satisfy it with a shortcut, and a strong pull could cost the task. The binary whole-line label stays the default all the same: it is likely the form an M3 labeller can give, and ex-2.2.14 used it too. Two cheap arms measure the cost: one leaves out the embedding slice, and one weights the pull at each position by the posterior given the tokens before it, so the weight rises through the context as the evidence arrives. That weighting is a soft label built from per-position ground truth. An M3 labeller could perhaps give something like it (a classifier run on each prefix of a conversation), but that is untested, so it stays an arm here, and whether it helps is one input to the soft-label question below.
 
 ## What carries over
 
@@ -91,8 +91,8 @@ D2.3 asks whether suppression can degrade *completion* while *verification* surv
 **A sketch of mixed ops.** A tag sets the op for the examples that follow it, until another tag replaces it, and each tag stands for an op that is inferred as before. This is one line, wrapped here to fit:
 
 ```
-a: red?blue=magenta, b: red?blue=purple,
-a: white?cyan=red, yellow?red=
+a: red ? blue = magenta, b: red ? blue = purple,
+a: white ? cyan = red, yellow ? red =
 ```
 
-Here `a` is `difference` and `b` is another op. The query has no tag of its own, so it takes the op of the most recent one. That is closer to M3, where the relevant behavior depends on cues earlier in a conversation that stay in force until something changes them. It is also a binding task, the kind of state tracking the current grammar does not ask for, so it may need a larger model.
+Here `a` is `difference` and `b` is `mix`. The query has no tag of its own, so it takes the op of the most recent one, much as a topic marked with the Japanese は stays in force, unrepeated, until a new one replaces it. That is closer to M3, where the relevant behavior depends on cues earlier in a conversation that stay in force until something changes them. It is also a binding task, the kind of state tracking the current grammar does not ask for, so it may need a larger model.
