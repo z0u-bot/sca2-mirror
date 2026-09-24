@@ -81,7 +81,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
 - replacement noise
 
-  Showing, in some examples, the answer another op would give in place of the true op's answer, at a *replacement rate*. It spreads the posterior over ops, so it is what grades the stimulus. Distinguish it from a wrong answer drawn at random, which no op produces, and from *label noise*, which is the labeller's error and leaves the corpus as it is.
+  Showing, in some examples, the answer another op would give in place of the answer under the true op, at a *replacement rate*. It spreads the posterior over ops, so it is what grades the stimulus. Distinguish it from a wrong answer drawn at random, which no op produces, and from *label noise*, which is the labeller's error and leaves the corpus as it is.
 
 - window
 
@@ -115,7 +115,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
 - role
 
-  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are window-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. In the in-context grammar a role also needs the equation it sits in (the query's `=`, the first example's answer). "Span roles" are the four prompt roles the anchor term can act on.
+  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are window-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. In the in-context grammar a role also needs the equation it sits in. Name the equation as a qualifier, as with "the `=` embedding": "the query `=`", "the query `•`", "an example answer", "the answer of the first example". Avoid the possessive ("the query's `=`"), per the `writing` skill. "Span roles" are the four prompt roles the anchor term can act on.
 
 - op1, op2 vs. op
 

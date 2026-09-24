@@ -4,15 +4,15 @@
 
 ## Why
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored `difference` and every gate passed. The anchor landed on the op word's embedding: the pull put that row on e₁ at a cosine near 1, and the op position stays there at every slice. When only the op word was pulled, the blocks carried a twentieth of that alignment to `=` and none of it to the answer.
+[Ex-2.2.14](../ex-2.2.14/report.py) anchored `difference` and every gate passed. The anchor landed on the op word embedding: the pull put that row on e₁ at a cosine near 1, and the op position stays there at every slice. When only the op word was pulled, the blocks carried a twentieth of that alignment to `=` and none of it to the answer.
 
-So the anchored concept is an attribute of one token: which op this word names. That is the D2.1 result again, with a categorical attribute in place of a graded one. Suppression at the op word will very likely remove the op, but deleting the word token would do the same, so it cannot show what anchoring adds. The projection's dose axis also collapses there: its re-normalizing gain, 1/√(1−x₁²), is unbounded at full alignment, so a state that is all concept has no partial dose.
+So the anchored concept is an attribute of one token: which op this word names. That is the D2.1 result again, with a categorical attribute in place of a graded one. Suppression at the op word will very likely remove the op, but deleting the word token would do the same, so it cannot show what anchoring adds. The dose axis of the projection also collapses there: its re-normalizing gain, 1/√(1−x₁²), is unbounded at full alignment, so a state that is all concept has no partial dose.
 
 Every op in the current grammar is named by a word, so choosing a different op will not change this.
 
 ## What M3 needs from D2.2
 
-M3's lead target is sycophancy. No single token names it. It is inferred from the context and used far from where its evidence appears, and its labels will be scarce and noisy. Before M3, D2.2 should tell us:
+The lead target for M3 is sycophancy. No single token names it. It is inferred from the context and used far from where its evidence appears, and its labels will be scarce and noisy. Before M3, D2.2 should tell us:
 
 1. whether SCA can anchor a concept the model has to *compute* from context, rather than look up from a token;
 2. whether suppressing that concept removes the ability, graded and selective, within a bound set before the intervention;
@@ -31,13 +31,13 @@ red•blue=magenta, white•cyan=red, yellow•red=
 
 Here the op is `difference`, and the model has to work that out from the first two examples to complete the third. Op words never appear in the corpus, so the op is always inferred; a corpus that sometimes named it would give the anchor a token to land on again.
 
-The symbol `•` stays constant. It carries no information, so the frame would work without it, but it keeps each equation's shape close to the current grammar. It also gives the model a position between the operands that it may use for its own computation, perhaps to gather the op; whether it does is an [open question](#open-questions).
+The symbol `•` stays constant. It carries no information, so the frame would work without it, but it keeps the shape of each equation close to the current grammar. It also gives the model a position between the operands that it may use for its own computation, perhaps to gather the op; whether it does is an [open question](#open-questions).
 
 The op becomes a latent task that the model infers from examples. The anchored concept is "the op in this context is `difference`", and no token carries it.
 
-**One context per line** keeps the line as the unit the existing code counts in: the labeller's `line` keying draws once per context, and the holdouts and per-line scoring count contexts. It also keeps the eval to one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still read the previous lines, which hold other contexts with independent ops; the model should learn to ignore them, and an attention mask that resets at `\n` would make that certain.
+**One context per line** keeps the line as the unit the existing code counts in: `line` keying in the labeller draws once per context, and the holdouts and per-line scoring count contexts. It also keeps the eval to one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still read the previous lines, which hold other contexts with independent ops; the model should learn to ignore them, and an attention mask that resets at `\n` would make that certain.
 
-Lines get longer, from 6 tokens to about 20 with three examples, and their width can vary. The code finds a token's line and role by arithmetic on a fixed width (`LINE_TOKENS`, 6 today: line = position ÷ 6, role = position mod 6). A variable width needs two integer arrays the size of the corpus instead, the line and role of every token, computed once from the positions of `\n` and read by lookup. That costs a little memory and no padding. Training windows are random crops of the packed corpus, so the first context in a window is usually cut short; the block size should fit at least two whole contexts.
+Lines get longer, from 6 tokens to about 20 with three examples, and their width can vary. The code finds the line and role of a token by arithmetic on a fixed width (`LINE_TOKENS`, 6 today: line = position ÷ 6, role = position mod 6). A variable width needs two integer arrays the size of the corpus instead, the line and role of every token, computed once from the positions of `\n` and read by lookup. That costs a little memory and no padding. Training windows are random crops of the packed corpus, so the first context in a window is usually cut short; the block size should fit at least two whole contexts.
 
 For any context, the posterior over ops given the examples can be computed from the op table. That gives us three things to design with:
 
@@ -45,11 +45,11 @@ For any context, the posterior over ops given the examples can be computed from 
 - a **designed null** for suppression: the answer distribution under the posterior with `difference` removed;
 - a **label-noise model**: a labeller that labels contexts by their posterior rather than by their true op is realistically noisy.
 
-The graded stimulus needs care. Clean examples pin the op down fast: on table A+, one clean example already gives a posterior of 1.0 for three contexts in four, and three examples do so for 99%. So the example count alone grades very little. What does grade it is **replacement noise**: showing, in some examples, the answer *another* op would give. With a replacement rate near 0.3 and three or four examples, the posterior on the true op spreads across the whole range (with three examples at 0.35: about a quarter of contexts above 0.95, 45% between 0.5 and 0.95, 30% below 0.5). A wrong answer drawn at random from the color cube grades much less, because no op produces it: it removes an example's evidence without pointing anywhere else. It can still ride along at a low rate, so that the model learns to discount examples that fit nothing. In every case the query is clean and its target is the true op's answer, so the noisy examples are evidence to weigh, and the model's reliance on them is what the stimulus measures.
+The graded stimulus needs care. Clean examples pin the op down fast: on table A+, one clean example already gives a posterior of 1.0 for three contexts in four, and three examples do so for 99%. So the example count alone grades very little. What does grade it is **replacement noise**: showing, in some examples, the answer *another* op would give. With a replacement rate near 0.3 and three or four examples, the posterior on the true op spreads across the whole range (with three examples at 0.35: about a quarter of contexts above 0.95, 45% between 0.5 and 0.95, 30% below 0.5). A wrong answer drawn at random from the color cube grades much less, because no op produces it: it removes the evidence of that example without pointing anywhere else. It can still ride along at a low rate, so that the model learns to discount examples that fit nothing. In every case the query is clean and its target is the answer under the true op, so the noisy examples are evidence to weigh, and how much the model relies on them is what the stimulus measures.
 
-There is prior post-hoc work to compare against. Function vectors (Todd et al., 2023, arXiv:2310.15213) and task vectors (Hendel et al., 2023, arXiv:2310.15916) study pretrained language models given in-context examples of word-to-word functions over natural concepts: antonyms, country to capital, English to French. They find the task compressed into a direction in the residual stream, carried by a few attention heads to the final position, from about the middle layers on. SCA's version places that direction during training, where those methods search for it afterwards. We keep the color domain: their tasks need a pretrained model's knowledge, and ours keeps a computable posterior, the op table, and the checkpoints and machinery we already have.
+There is prior post-hoc work to compare against. Function vectors (Todd et al., 2023, arXiv:2310.15213) and task vectors (Hendel et al., 2023, arXiv:2310.15916) study pretrained language models given in-context examples of word-to-word functions over natural concepts: antonyms, country to capital, English to French. They find the task compressed into a direction in the residual stream, carried by a few attention heads to the final position, from about the middle layers on. The SCA version places that direction during training, where those methods search for it afterwards. We keep the color domain: their tasks need the knowledge of a pretrained model, and ours keeps a computable posterior, the op table, and the checkpoints and machinery we already have.
 
-Their results suggest mid-depth, at the position where the answer forms, which for us is the query's `=`. That is a place to look first, and a weak prior on where the op lives: it may be assembled earlier, at the query's `•` or across the examples, or stay spread out. So the label covers the whole context, which is also the only form an M3 labeller can give, and where the anchor ends up is something we measure.
+Their results suggest mid-depth, at the position where the answer forms, which for us is the query `=`. That is a place to look first, and a weak prior on where the op lives: it may be assembled earlier, at the query `•` or across the examples, or stay spread out. So the label covers the whole context, which is also the only form an M3 labeller can give, and where the anchor ends up is something we measure.
 
 ## Sequence
 
@@ -59,7 +59,7 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 
 ## Alternatives considered
 
-- **Keep the op word and pull only at the use sites** (`=` and the answer), or only past the embedding slice. This is cheap in compute, but the model can copy the op word's identity to `=` through attention, which makes it a lookup one hop later, and it costs a round of our time to learn that. Dropped.
+- **Keep the op word and pull only at the use sites** (`=` and the answer), or only past the embedding slice. This is cheap in compute, but the model can copy the identity of the op word to `=` through attention, which makes it a lookup one hop later, and it costs a round of our time to learn that. Dropped.
 - **Keep the op word and report the token-anchor result as it is.** This shows that scarce, noisy labels are enough, and that suppression works in the sense a token mask does. It leaves M3 to find out whether SCA reaches a concept the model computes.
 - **Adopt the function-vector tasks.** Covered above: they need a pretrained model and give up the computable posterior.
 
@@ -67,7 +67,7 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 
 - **The control does not learn the task.** Covered in step 2.
 - **The anchor lands on a shortcut.** The model might key on a surface feature that correlates with the op, such as a characteristic answer color. The posterior makes this checkable: a context whose examples are ambiguous between two ops should give an intermediate alignment, and a shortcut would not track it.
-- **The label asks for the concept before it can exist.** Attention is causal, so the tokens of a context's first example have seen nothing that identifies the op, and no position holds it at the embedding slice. A pull at full weight over the whole context, at every slice, asks for something those states cannot have. Training would then either miss the margin there or satisfy it with a shortcut, and a strong pull could cost the task. Two remedies, both cheap: leave out the embedding slice, and weight the pull at each position by the posterior given the tokens before it, so the weight rises through the context as the evidence arrives. That weighting is a soft label, the form a natural-language classifier with a confidence would give in M3.
+- **The label asks for the concept before it can exist.** Attention is causal, so the tokens of the first example in a context have seen nothing that identifies the op, and no position holds it at the embedding slice. A pull at full weight over the whole context, at every slice, asks for something those states cannot have. Training would then either miss the margin there or satisfy it with a shortcut, and a strong pull could cost the task. Two remedies, both cheap: leave out the embedding slice, and weight the pull at each position by the posterior given the tokens before it, so the weight rises through the context as the evidence arrives. That weighting is a soft label, the form a natural-language classifier with a confidence would give in M3.
 
 ## What carries over
 
@@ -84,7 +84,7 @@ D2.3 asks whether suppression can degrade *completion* while *verification* surv
 ## Open questions
 
 - How many examples per context: fixed at three or four, or varied.
-- Whether the model uses `•` for computation. A control trained without it would say whether the frame needs it, and the states at the query's `•` are a candidate site for the op.
+- Whether the model uses `•` for computation. A control trained without it would say whether the frame needs it, and the states at the query `•` are a candidate site for the op.
 - Whether contexts should ever mix ops. One form: each example carries a tag, and each tag stands for an op that is inferred as before.
 
   ```
@@ -92,4 +92,4 @@ D2.3 asks whether suppression can degrade *completion* while *verification* surv
   ```
 
   Here `a` is `difference` and `b` is another op, and the query takes the op of the examples that share its tag. That is closer to M3, where the relevant behavior depends on cues within a conversation. It is also a binding task, the kind of variable tracking the current grammar does not ask for, so it may need a larger model. It is out of scope for D2.2.
-- Whether to use soft labels beyond the per-position weighting above: a labeller that reports its confidence in a context's op, as an M3 classifier would.
+- Whether to use soft labels beyond the per-position weighting above: a labeller that reports its confidence in the op of a context, as an M3 classifier would.
