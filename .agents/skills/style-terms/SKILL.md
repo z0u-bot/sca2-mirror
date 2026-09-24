@@ -47,6 +47,58 @@ Math and prose counts from 1; code counts from 0. So the anchored direction is *
 
 The slice index $\ell$ is not an exception to this, though it starts at 0. It counts *blocks applied*, so $\ell = 0$ is the token embedding, labeled "emb" in figures.
 
+## Corpus and sequence terms
+
+From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](/docs/m2/d2.2/pivot.md)) adds context, example, and query; before it, a line held one equation.
+
+- token
+
+  One item of the vocabulary, and one entry of the corpus: a color word, an op word, a symbol (`+`, `?`, `=`, `,`), or `\n`.
+
+- position
+
+  A token's index in a window. Positions are window-relative and shift with every crop, so pulls, masks, and measurements are keyed by role instead (below).
+
+- equation
+
+  One application of an op: `op1 ? op2 = answer` (or `op1 difference op2 = answer` in the grammars that name the op). A solved equation shows its answer; the query leaves it blank.
+
+- line
+
+  A stretch of the corpus ending in `\n`: the unit the labeller draws on, the holdouts split on, and per-line scoring scores. Before the in-context grammar a line is one equation; after it, a line is one context.
+
+- context
+
+  In the in-context grammar, one line: a few examples of one op, then a query. Its op is inferred from the examples. It never means the model's input window (say *window*), or the loose sense of "the surroundings of a token".
+
+- example
+
+  A solved equation inside a context, the evidence the op is inferred from. Prefer "example" to "shot", except in compounds like "few-shot".
+
+- query
+
+  The last equation of a context, whose answer the model completes. It is always clean.
+
+- replacement noise
+
+  Showing, in some examples, the answer another op would give in place of the answer under the true op, at a *replacement rate*. It spreads the posterior over ops, so it is what grades the stimulus. Distinguish it from a wrong answer drawn at random, which no op produces, and from *label noise*, which is the labeller's error and leaves the corpus as it is.
+
+- window
+
+  The `block_size` tokens the model reads in one forward pass: a random crop of the packed corpus in training, which can cut a line or a context short. Code calls it `seq` or a crop; in prose use "window", and keep "sequence" for the general sense.
+
+- batch
+
+  A stack of windows, trained on in one optimizer step.
+
+- corpus
+
+  The whole packed token array a run trains on, lines joined by `\n`.
+
+- sample
+
+  A verb ("sample a batch"), or a statistical sample (a set of draws). Never a unit of the corpus: say token, equation, line, context, or window.
+
 ## Model and measurement terms
 
 - slice
@@ -63,7 +115,7 @@ The slice index $\ell$ is not an exception to this, though it starts at 0. It co
 
 - role
 
-  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are crop-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. "Span roles" are the four prompt roles the anchor term can act on.
+  The job a position plays in a line: op1, `+`, op2, `=`, answer, newline. Positions are window-relative and shift with every batch; roles are line-relative, so pulls, masks, and measurements are keyed by role. In the in-context grammar a role also needs the equation it sits in. Name the equation as a qualifier, as with "the `=` embedding": "the query `=`", "the query `?`", "an example answer", "the answer of the first example". Avoid the possessive ("the query's `=`"), per the `writing` skill. "Span roles" are the four prompt roles the anchor term can act on.
 
 - op1, op2 vs. op
 

@@ -176,6 +176,10 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     The plan: the claims D2.2 exists to make, the experiments in order with the engineering that precedes them, the risk each retires, and what is out of scope.
 
+- [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md) (draft)
+
+    A proposal after ex-2.2.14: the op anchor went to the op word, so D2.2 would anchor an op the model infers from solved examples in its context, with no word to name it. Covers what M3 needs from D2.2, the sequence, and how D2.3 changes.
+
 - [2.2.1. Suppressing _red_ in the anchored transformer](./m2/ex-2.2.1/report.py)
 
     The first intervention on an anchored transformer: project the anchor axis out of the D2.1 checkpoints and score red lines against non-red lines. The removal works, grades with the line's redness, and stays inside the bound the placed geometry sets; zeroing the axis weights does the same job. Selectivity is partial: the non-red cost comes from the syntax positions, whose embeddings carry a constant component on the axis. Editing the operands alone avoids it, and so does M1's shaped suppression, which removes only half of _red_.
@@ -288,9 +292,9 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.13/report.py -->
 
-- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (preregistration draft)
+- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (done)
 
-    The first anchored-op experiment: `difference` goes on e₁ with no _red_ anchor beside it, on the handover setup at five fresh seeds, and is read against the task gate, the op margin and its retention, and the contrast the blocks carry to `=` and the answer. The other ten ops ride along at three seeds each as a description, with a frozen fallback rule for which op the many-seed equivalence read anchors. The op-identity probe scan runs without a gate, to size that read's margin.
+    The first anchored-op experiment: `difference` goes on e₁ with no _red_ anchor beside it, on the handover setup at five fresh seeds, with the other ten ops at three seeds each. The op lands at twice the margin _red_ reached, holds through the anneal, and costs the task nothing, and every other op anchors the same way, so `difference` stands. The margin saturates in a few epochs because the pull puts the op word's embedding on the axis. With the op word alone pulled, the blocks carry a twentieth of its alignment to `=` and none to the answer. A sparse or noisy labeller lands the op as well as one that labels every line, and the probe scan leaves the op about as readable as the control has it.
 
     <span class="tags">`anchoring` `operation` `smoke-test` `preregistration`</span>
 
