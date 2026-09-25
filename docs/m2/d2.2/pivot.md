@@ -1,14 +1,14 @@
 # D2.2 pivot: an operation the model has to infer
 
-*Draft for discussion, 2026-09-23; revised 2026-09-24 after two review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
+*Draft for discussion, 2026-09-23; revised 2026-09-25 after three review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
 
-In short: ex-2.2.14 anchored an op, but the anchor went to the word that names the op. We propose taking op words out of the grammar, so that the model has to work out the op from a few solved examples. That is closer to what M3, the next milestone, needs: it takes SCA to language models, where the concepts we care about are inferred from context and have no word of their own.
+In short: ex-2.2.14 anchored an op, but the anchor went to the word that names the op. We propose taking op words out of the grammar, so that the model has to work out the op from a few solved examples. That is closer to what M3, the next milestone, needs: it applies SCA to language models, where the concepts we care about are inferred from context and have no word of their own.
 
 ## Why
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored `difference` and every gate passed. The anchor went to the op word embedding: the pull put that row on e₁ at a cosine near 1, and the op position stays there at every slice. When only the op word was pulled, the blocks passed a twentieth of that alignment on to `=` and none of it to the answer.
+[Ex-2.2.14](../ex-2.2.14/report.py) anchored `difference` and every gate passed. The anchor concentrated on the op word embedding: the pull put it on e₁ at a cosine near 1, and the op position stays there at every slice. When only the op word was pulled, the blocks passed a twentieth of that alignment on to `=` and none of it to the answer.
 
-So the anchored concept is an attribute of one token: which op this word names. That is the D2.1 result again, with a categorical attribute in place of a graded one. Suppression at the op word will very likely remove the op, but deleting the word token would do the same, so it cannot show what anchoring adds. The dose axis of the projection also collapses there: its re-normalizing gain, 1/√(1−x₁²), is unbounded at full alignment, so a state that is all concept has no partial dose.
+So the anchored concept was an attribute of one token: which op this word names. That is the D2.1 result again, with a categorical attribute in place of a graded one. Suppression at the op word will very likely remove the op, but deleting the word token would do the same, so it cannot show what anchoring adds. The dose axis of the projection also collapses there: its re-normalizing gain, 1/√(1−x₁²), is unbounded at full alignment, so a state that is all concept has no partial dose.
 
 Every op in the current grammar is named by a word, so choosing a different op will not change this.
 
@@ -23,9 +23,11 @@ The lead target for M3 is sycophancy. No single token names it. It is inferred f
 
 The current design answers (4), with the caveat that a scarce labeller only had to find one embedding row. It answers (2) only in the token-mask sense, and leaves (1) unmeasured.
 
-Out of scope for M2: the concept here is the task the model is asked to do, while sycophancy is a behavior conditioned on cues observed earlier in a conversation, which stay in force until something changes them. The [topic markers](#topic-markers) sketch would be a step toward that, and it is deferred.
+### Out of scope for M2
 
-And everything here trains from scratch. A pretrained model already has a task direction of its own (see the function-vector work below), so anchoring at fine-tune time would have to move a concept the model has already placed. This grammar could test that too, by fine-tuning an unanchored control with the anchor term; it is listed under [open questions](#open-questions).
+The concept here is the task the model is asked to do, while sycophancy is a behavior conditioned on cues observed earlier in a conversation, which stay in force until something changes them. The [topic markers](#topic-markers) sketch would be a step toward that, and it is deferred.
+
+And everything here trains from scratch. A pretrained model already has a task direction of its own (see the function-vector work below), so anchoring at fine-tune time would have to move a concept the model has already placed. This grammar _could_ test that too, by fine-tuning an unanchored control with the anchor term; it is listed under [open questions](#open-questions).
 
 ## The proposal
 
@@ -74,18 +76,18 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 ## Sequence
 
 1. Suppress `difference` on the stored ex-2.2.14 checkpoints. Scoring only, as planned in the [design](design.md#suppress-the-operation-and-the-operands): the op-word edit against a token mask, and the use-site edits on the whole-line primary. It turns "the anchor is a token" into a measurement. Its outcome decides how much of the old line to report, and it does not decide whether to pivot: if the use-site edits move the answer, that is a result worth writing up beside the pivot, and only the new grammar can show whether SCA anchors a concept the model computes.
-2. Train an [in-context control](#the-in-context-control) on the new grammar: the one-context-per-line format, replacement noise, the posterior over ops, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control.
+2. Train a [new-grammar control](#the-new-grammar-control): the one-context-per-line format, replacement noise, the posterior over ops, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control.
 3. Anchor the latent op, then suppress it, then run the layer sweep and the SGTM baseline, as in the current design.
 
-### The in-context control
+### The new-grammar control
 
-With the op inferred, no model can do better than answering with the answer distribution weighted by the posterior. That limit, the Bayes ceiling, can be computed for every context, and it is well below 1: about three in four answers right with three clean examples, and fewer with replacement noise. So the task gate would be the distance of the control from the ceiling, in place of the old accuracy numbers.
+With the op inferred, no model can do better than answering with the answer distribution weighted by the posterior. That limit, the Bayes ceiling, can be computed for every context, and it is well below 1: we expect about three in four answers to be right with three clean examples, and fewer with replacement noise. So the task gate would be the distance of the control from the ceiling, in place of the old accuracy numbers.
 
-A calibration check would go with it: does the answer distribution of the model match the one weighted by the posterior? That shows whether the model weighs every example or stops after the first one that fits.
+A calibration check is needed: does the answer distribution of the model match the one weighted by the posterior? That would show whether the model weighs every example appropriately.
 
-This is the step most likely to change the plan. For each example the model has to know what all eleven ops would give for that pair, keep the ops that fit, and pool over examples. That is more work than applying a named op. We expect d64-L4 to be enough, since there are no variables to track, but that is untested. If the control cannot get near the ceiling, the next step would be a wider or deeper control before anything is anchored.
+That check may cause us to change the plan. For each example the model has to know what all eleven ops would give for that pair, keep the ops that fit, and pool over examples. That is more work than applying a named op. We expect d64-L4 to be enough, since there are no variables to track, but that is untested. If the control cannot get near the ceiling, the next step would be a wider or deeper control before anything is anchored.
 
-Verification for D2.3 could be trained here from the start or added later as a fine-tuning stage; [below](#when-to-add-verification) compares the two.
+Verification (D2.3) could be trained here from the start or added later as a fine-tuning stage; discussed [below](#when-to-add-verification).
 
 ## Alternatives considered
 
@@ -95,12 +97,38 @@ Verification for D2.3 could be trained here from the start or added later as a f
 
 ## Failure modes
 
-- The control does not learn the task. See [the in-context control](#the-in-context-control).
-- The anchor picks up a shortcut. The model might key on a surface feature that correlates with the op, such as a characteristic answer color. The posterior makes this checkable: a context whose examples fit two ops equally well should give an intermediate alignment, and a shortcut would likely not follow it.
-- The label anchors the concept before it can exist. This may happen along two axes. Along position: attention is causal, so the tokens of the first example have seen nothing that identifies the op. Along evidence: under replacement noise about a third of labelled contexts have a posterior on the true op below 0.5, so the label is right about the op that generated the context and wrong about what the model can work out from it. Still, we will need to tolerate incorrect labels too, since M3 labels will be noisy. A strong pull on those states could hurt the task or teach a shortcut. The pooled anchor term[^pooled] should soften the position axis, but it does nothing for the evidence axis. The binary whole-line label stays the default, since it is likely the form an M3 labeller can give. Three cheap [label variants](/todo/science/label-variants-in-context-op.md) should measure the effect.
-- The query `?` saturates. The pooled pull concentrates where alignment comes most easily, and the query `?` is a constant token with nothing else to hold, so the model may push it to a cosine near 1 on e₁ for `difference` contexts. That would still be an inferred op, computed from the examples through attention, but it would bring back the dose collapse ex-2.2.14 found at the op word, at that one position. Suppressing at `?` and at the use sites separately would show whether the answer depends on that position (the bypass test from the [design](design.md#suppress-the-operation-and-the-operands)). There are [options](/todo/science/query-symbol-saturation.md) for the anchor term if it happens.
+### The control does not learn the task
 
-[^pooled]: The pooled term asks each labelled line to align somewhere in its span, through a soft maximum over positions with temperature τ. So the pull concentrates where alignment comes most easily, and early positions are not pulled hard.
+See [the new-grammar control](#the-new-grammar-control).
+
+### The anchor picks up a shortcut
+
+The model might key on a surface feature that correlates with the op, such as a characteristic answer color. [#215](https://github.com/z0u/sca2/pull/215) found a case of this kind on the old grammar, where the untied readout made e₁ a "syntax word comes next" feature. The posterior makes this checkable: a context whose examples fit two ops equally well should give an intermediate alignment, and a shortcut would likely not follow it.
+
+### The label anchors the concept before it can exist
+
+This may happen along two axes:
+
+- Along position: attention is causal, so the tokens of the first example have seen nothing that identifies the op.
+- Along evidence: under replacement noise about a third of labelled contexts have a posterior on the true op below 0.5, so the label is right about the op that generated the context and wrong about what the model can work out from it.
+
+Still, we will need to tolerate incorrect labels too, since M3 labels will be noisy. A strong pull on those states could hurt the task or teach a shortcut. The pooled anchor term[^pooled] should soften the position axis, but it does nothing for the evidence axis.
+
+The binary whole-line label stays the default, since it is likely the form an M3 labeller can give. Three cheap [label variants](/todo/science/label-variants-in-context-op.md) should measure the effect:
+(a) leave out the embedding slice;
+(b) pull only the latter half of each line, where the posterior given the prefix is at or near its final value;
+(c) label a position when the posterior given the tokens before it clears a threshold, which handles both axes and is the form an M3 labeller with a confidence cutoff would give.
+
+### The query `?` saturates
+
+The pooled pull concentrates where alignment comes most easily, and the query `?` is a constant token with nothing else to hold, so the model may push it to a cosine near 1 on e₁ for labelled contexts. That would still be an inferred op, computed from the examples through attention, but it would bring back the dose collapse ex-2.2.14 found at the op word, at that one position. Suppressing at `?` and at the use sites separately would show whether the answer depends on that position (the bypass test from the [design](design.md#suppress-the-operation-and-the-operands)).
+
+If it happens, the anchor term has [options](/todo/science/query-symbol-saturation.md):
+(a) cap the pull with a hinge that is zero above a target alignment, so no state is asked to be all concept;
+(b) a larger τ, which spreads the pull over the line;
+(c) a mask that pulls only positions that also hold something else, such as `=` and the answer.
+
+[^pooled]: The pooled term asks each labelled line to align somewhere in its span, through a soft maximum over positions with temperature τ. So the pull concentrates where alignment comes most easily, and early positions are not pulled hard, except in a line whose end a training window cuts off.
 
 ## What we keep
 
@@ -110,7 +138,7 @@ The eval contract and the intervention library (`sca.intervention`: projection, 
 
 D2.3 asks whether suppression can degrade completion while verification survives: the analogue of a model that can recognize a behavior without producing it. With this pivot, the concept for D2.3 would become the latent op. Completion means answering the query under the inferred op, and verification means judging whether a candidate equation follows it.
 
-That is closer to M3 than _red_ is, since both tasks depend on a concept the model infers from context. The shape is still quite different: here the model judges one equation against a pattern set by a few examples, while in M3 it would judge whether a whole response is sycophantic.
+That is closer to M3 than _red_ is, since both tasks depend on a concept the model infers from context. The shape is still quite different: here the model judges one equation against a pattern set by a few examples, while in M3 it would judge whether a whole response is, for example, sycophantic.
 
 ### A verification line
 
@@ -126,13 +154,13 @@ yellow ? red = yellow | FALSE
 
 A `FALSE` candidate shows the answer another op would give, or a color from the cube, which are the two noise families the examples already have. So verification is the discounting the model already does on noisy examples, made explicit at one position.
 
-The marker `|` tells the model that the equation before it was the candidate and that a verdict comes next. Without it, the position after the candidate answer could be followed by another example or by a verdict, and the model could not tell which. With the marker only before the verdict, everything up to the candidate answer looks like an ordinary context with a noisy example, so the model cannot tell a verification line from a completion line until the marker arrives. A marker at the start of the line would tell the model sooner, and could change what it computes at every position; whether that matters is an open question.
+The marker `|` tells the model that the equation before it was the candidate and that a verdict comes next. Without it, the position after the candidate answer could be followed by another example, a verdict, or a newline, and the model could not tell which. With the marker only before the verdict, everything up to the candidate answer looks like an ordinary context with a noisy example, so the model cannot tell a verification line from a completion line until the marker arrives. A marker at the start of the line would tell the model sooner, and could change what it computes at every position; whether that matters is an open question.
 
 ### Three routes to a verdict
 
 We can think of three ways a model could verify. The names are ours, coined for this doc rather than terms of art, and there may be others; a model could also combine them.
 
-1. Compute and compare: predict the answer at the candidate `=` as completion does, then compare it with the shown answer. Under causal attention this is likely the default, since the completion circuit runs at every `=` whether or not the loss is on. It shares everything with completion, so suppressing the op likely breaks both.
+1. Compute and compare: predict the answer at the candidate `=` as completion does, then compare it with the shown answer. Under causal attention this is likely the default, since the completion circuit runs at every `=`. It shares everything with completion, so suppressing the op likely breaks both.
 2. Consistency without selection: find the ops that fit each example, keep the ones that fit all of them, and answer `TRUE` when one of those also fits the candidate. This route never has to settle on one op, so it might survive an anchor that holds the chosen op at the query.
 3. Any-op check: answer `FALSE` when no op produces the candidate at all. This needs nothing from the context, so it catches the random-cube candidates and misses the ones another op would give. So most `FALSE` candidates should show the answer of another op, or this route alone would score well and tell us nothing about the op.
 
@@ -142,11 +170,11 @@ The figure shows route 2 on the two lines above.
 
 The two examples overlap only on `difference`. The ops that fit `lime` reach that overlap, so that candidate is `TRUE`. The ops that fit `yellow` touch the first example only, so it is `FALSE`; with the first example alone, it would have passed.
 
-Suppressing at the query sites and checking whether verification falls with completion would tell routes 1 and 2 apart. Seeds may split between the routes, so the effect of the intervention on verification could vary across seeds, and the prereg should predict that. Under a whole-line label the pull also reaches the example positions, which would anchor both routes.
+Suppressing at the query sites and checking whether verification falls with completion should tell routes 1 and 2 apart. Seeds may split between the routes, so the effect of the intervention on verification could vary across seeds. Which route a model learns depends on a loss landscape we cannot see in advance, so the prereg should allow for either route and for a split, without predicting one. Under a whole-line label the pull also reaches the example positions, which would anchor both routes.
 
 ### Asymmetry and depth
 
-The asymmetry question gets harder, and more informative. Both tasks have to infer the same op from the same context. If they use one shared state, suppression would hit both, and the asymmetry would have to come from confining the anchor to the part of the stream only completion uses: the query positions and the later slices, where the op is perhaps selected and applied. That is the open [confinement item](/todo/science/can-anchor-confined-part-stream.md), which moves from optional to central. With the op word in the grammar, the question would have been easier to answer and would have told us little.
+The asymmetry question gets harder, and more informative. Both tasks have to infer the same op from the same context. If they use one shared state, suppression would hit both, and the asymmetry would have to come from confining the anchor to the part of the stream only completion uses: the query positions and the later slices, where the op is perhaps selected and applied. We hope confining by depth alone is enough, without restricting the anchor to the query positions too. That is the open [confinement item](/todo/science/can-anchor-confined-part-stream.md), which moves from optional to central. With the op word in the grammar, the question would have been easier to answer and would have told us little.
 
 The later slices make depth the second axis for the split. Instruction-tuned language models show a break in the cosine between the hidden states of consecutive layers, into an early block and a late block, which has been interpreted as a recognition stage and a production stage. Under route 1, a depth split is unlikely to help on its own: the comparison needs the predicted answer, which the late slices produce, and the verdict is production too. It could help under route 2, where the comparison runs on sets of ops that fit, which are likely early features. So depth and route are one question.
 
@@ -160,6 +188,8 @@ From the start, D2.3 may reuse the D2.2 checkpoints, and a no-verification arm o
 
 As a second stage, the D2.2 model stays simpler, and the anchor has to hold while a new task is learned on top of it, which is closer to how M3 would work. It would also be a version of the fine-tune test raised [above](#what-m3-needs-from-d22). But a model fine-tuned onto a working completion circuit would likely take route 1, which reuses that circuit, and route 1 is the one where the asymmetry is least likely to appear.
 
+On the other hand, a second stage is closer to how a language model is instruction-tuned, so it might be where an early/late block split like the one in instruction-tuned models appears. That may need the marker at the start of the line, where it would act more like an instruction. It could be worth trying, as a second-stage arm with the marker moved.
+
 ### Concept swap
 
 The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) gets a natural form. Redirecting one inferred op to another is "make the model act as if the examples showed op Y". It is the steering claim M3 would want (steer from sycophantic toward candid), and the posterior still gives per-context ground truth.
@@ -171,12 +201,12 @@ The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) gets a na
 - Whether verification lines need a marker at the start of the line as well as before the verdict.
 - Whether to add verification from the start or as a [second stage](#when-to-add-verification).
 - Whether to test anchoring at fine-tune time on this grammar: train an unanchored control, then fine-tune it with the anchor term, and compare with anchoring from scratch.
-- Whether contexts should ever hold more than one true op (replacement noise shows the answer of another op, but the context still has one true op). A form is sketched below; it is out of scope for D2.2.
+- Whether contexts should ever hold more than one true op (replacement noise shows the answer of another op, but the context still has one true op). See [topic markers](#topic-markers); it is out of scope for D2.2.
 - Whether to use soft labels in M3: a labeller that reports its confidence in the op of a context, as a natural-language classifier could.
 
 ### Topic markers
 
-A marker sets the op for the examples that follow it, until another marker replaces it, and each marker stands for an op that is inferred as before. This is one line, wrapped here to fit:
+This is a possible variation on the grammar, and not part of the plan. A marker sets the op for the examples that follow it, until another marker replaces it, and each marker stands for an op that is inferred as before. This is one line, wrapped here to fit:
 
 ```
 a: red ? blue = magenta, b: red ? blue = purple,
