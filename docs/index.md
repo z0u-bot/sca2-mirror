@@ -174,11 +174,11 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 - [D2.2 design](./m2/d2.2/design.md)
 
-    The plan: the claims D2.2 exists to make, the experiments in order with the engineering that precedes them, the risk each retires, and what is out of scope.
+    The plan: the claims D2.2 exists to make, a quick route through the experiments that keeps the rounds of review few, the engineering that precedes them, the risk each retires, and what is out of scope.
 
-- [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md) (draft)
+- [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md)
 
-    A proposal after ex-2.2.14: the op anchor went to the op word, so D2.2 would anchor an op the model infers from solved examples in its context, with no word to name it. Covers what M3 needs from D2.2, the sequence, and how D2.3 changes.
+    Adopted after ex-2.2.14: the op anchor went to the op word, so D2.2 anchors an op the model infers from solved examples in its context, with no word to name it. Covers what M3 needs from D2.2, the new grammar and its failure modes, and how D2.3 changes.
 
 - [2.2.1. Suppressing _red_ in the anchored transformer](./m2/ex-2.2.1/report.py)
 

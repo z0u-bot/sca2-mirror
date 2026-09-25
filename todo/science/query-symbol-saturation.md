@@ -12,3 +12,5 @@ If it happens and we would rather it did not, the anchor term has three options:
 - Cap the pull: a hinge that is zero above a target alignment, in place of 1 − cos, so no state is asked to be all concept.
 - A larger τ, which spreads the pull over the span of the line.
 - A mask that pulls only positions that also hold something else, `=` and the answer, where the state has to hold the answer as well.
+
+[The pilot](/docs/m2/d2.2/design.md#the-pilot) has a hinge-capped arm beside the uncapped one, so if `?` saturates, the first option has already been tried.

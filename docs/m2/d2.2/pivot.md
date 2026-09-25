@@ -1,6 +1,6 @@
 # D2.2 pivot: an operation the model has to infer
 
-*Draft for discussion, 2026-09-23; revised 2026-09-25 after five review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
+*Drafted 2026-09-23; adopted 2026-09-25 after five review rounds.* A change to which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say), whose [quick route](design.md#quick-route) puts the experiments below in order.
 
 In short: ex-2.2.14 anchored an op, but the anchor went to the word that names the op. We propose taking op words out of the grammar, so that the model has to work out the op from a few solved examples. That is closer to what M3, the next milestone, needs: it applies SCA to language models, where the concepts we care about are inferred from context and have no word of their own.
 
@@ -78,6 +78,8 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 1. Suppress `difference` on the stored ex-2.2.14 checkpoints. Scoring only, as planned in the [design](design.md#suppress-the-operation-and-the-operands): the op-word edit against a token mask, and the use-site edits on the whole-line primary. It turns "the anchor is a token" into a measurement. Its outcome decides how much of the old line to report, and it does not decide whether to pivot: if the use-site edits move the answer, that is a result worth writing up beside the pivot, and only the new grammar can show whether SCA anchors a concept the model computes.
 2. Train a [new-grammar control](#the-new-grammar-control): the one-context-per-line format, replacement noise, the posterior over ops, a labeller keyed per context, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control.
 3. Anchor the latent op, then suppress it, then run the layer sweep and the SGTM baseline, as in the current design.
+
+The [quick route](design.md#quick-route) in the design trains step 2 and the first reads of step 3 in one pilot, and runs step 1 while the grammar is built.
 
 ### The new-grammar control
 
@@ -208,7 +210,7 @@ The [concept swap](/todo/science/redirect-between-two-anchored-ops.md) gets a na
 - How many examples per context: fixed at three or four, or varied.
 - Whether the model uses `?` for computation. A control trained without it would say whether the frame needs it, and the states at the query `?` are a candidate site for the op.
 - Whether verification lines need a marker at the start of the line as well as before the verdict.
-- Whether to add verification from the start or as a [second stage](#when-to-add-verification).
+- Whether to add verification from the start or as a [second stage](#when-to-add-verification). The quick route in the design favors the start, and puts it to a frozen rule in the pilot.
 - Whether to test anchoring at fine-tune time on this grammar: train an unanchored control, then fine-tune it with the anchor term, and compare with anchoring from scratch.
 - Whether contexts should ever hold more than one true op (replacement noise shows the answer of another op, but the context still has one true op). See [topic markers](#topic-markers); it is out of scope for D2.2.
 - Whether to use soft labels in M3: a labeller that reports its confidence in the op of a context, as a natural-language classifier could.
