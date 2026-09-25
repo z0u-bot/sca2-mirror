@@ -1,6 +1,6 @@
 # D2.2 pivot: an operation the model has to infer
 
-*Draft for discussion, 2026-09-23; revised 2026-09-25 after three review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
+*Draft for discussion, 2026-09-23; revised 2026-09-25 after four review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
 
 In short: ex-2.2.14 anchored an op, but the anchor went to the word that names the op. We propose taking op words out of the grammar, so that the model has to work out the op from a few solved examples. That is closer to what M3, the next milestone, needs: it applies SCA to language models, where the concepts we care about are inferred from context and have no word of their own.
 
@@ -45,19 +45,19 @@ The symbol `?` stays constant, and stands for "some op". It has no information o
 
 The op becomes a latent task that the model infers from examples. The anchored concept is "the op in this context is `difference`", and no token names it.
 
-One context per line keeps the line as the unit the existing code counts in: `line` keying in the labeller draws once per context, and the holdouts and per-line scoring count contexts. It also keeps the eval to one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still see the previous lines, which hold other contexts with independent ops. The model would likely learn to ignore them, and an attention mask that resets at `\n` would make that certain.
+One context per line keeps the line as the unit the existing code counts in: the holdouts and per-line scoring count contexts, and the labeller can draw once per context. That needs a new keying. `op` keying draws once per line, but reads the op off the op word, which is gone, and `line` keying draws on the colors. The new keying reads the op of each context from an array stored beside the corpus, one entry per line. It also keeps the eval to one line per forward pass, so the [packed-context leakage item](/todo/science/packed-contexts-open-cross-line-leakage.md) stays an M3 question. Training windows still see the previous lines, which hold other contexts with independent ops. The model would likely learn to ignore them, and an attention mask that resets at `\n` would make that certain.
 
-Lines get longer, from 6 tokens to about 20 with three examples, and their length can vary. The code finds the line and role of a token by arithmetic on a fixed length (`LINE_TOKENS`, 6 today: line = position ÷ 6, role = position mod 6). A variable length needs two integer arrays the size of the corpus instead, the line and role of every token, computed once from the positions of `\n`. That needs a little memory and no padding. Training windows are random crops of the packed corpus, so the first context in a window is usually cut short; the block size should fit at least two whole contexts.
+Lines get longer, from 6 tokens to about 20 with three examples, and their length can vary. The code finds the line and role of a token by arithmetic on a fixed length (`LINE_TOKENS`, 6 today: line = position ÷ 6, role = position mod 6). A variable length needs two integer arrays the size of the corpus instead, the line and role of every token, computed once from the positions of `\n`. That needs a little memory and no padding. Training windows are random crops of the packed corpus, so the first context in a window is usually cut short; the block size should fit at least two whole contexts. At 64 tokens today, that is about two contexts and a fragment, so the block size will likely need to grow.
 
 ### The posterior over ops
 
 For any context, the posterior over ops given the examples can be computed from the op table: how likely each op is to have produced the answers shown. That gives us three things to design with:
 
 - a _graded stimulus_, how strongly the context points to `difference`, which plays the part redness played for _red_;
-- a _designed null_ for suppression, the answer the model should give if it no longer knows `difference`: the answer distribution weighted by the posterior, with `difference` removed;
+- a _designed null_ for suppression, the answer the model should give if it no longer knows `difference`: the answer distribution weighted by the posterior, with `difference` removed and the rest renormalized;
 - a _label-noise model_: a labeller that labels contexts by their posterior rather than by their true op is realistically noisy.
 
-The posterior uses the same rounding as the corpus. The corpus rounds stochastically, so the answer to an example is a draw from up to eight colors, and the likelihood of a shown answer under an op is the probability that the rounding of that op gives it (`answer_dist` in `sca.data.ops`).[^nearest]
+The posterior uses the same rounding as the corpus. The corpus rounds stochastically, so the answer to an example is a draw from up to eight colors, and the likelihood of a shown answer under an op is the probability that the rounding of that op gives it (`answer_dist` in `sca.data.ops`).[^nearest] Under replacement noise (below) the likelihood also includes the noise: with rate ρ, it is 1 − ρ times the probability under the op, plus ρ times the mean probability under the other ops. This is the posterior a model trained on the noisy corpus can reach at best. It also keeps every op above zero, so the designed null is defined on a context that fits `difference` alone: there it weights the other ops by how nearly they fit.
 
 [^nearest]: A posterior computed with nearest rounding would be sharper than the corpus supports.
 
@@ -65,7 +65,7 @@ Clean examples would pin the op down fast. On table A+, one clean example puts a
 
 [^scout]: From a scratch simulation. A [scouting report](/todo/science/scout-posterior-in-context-grammar.md) would put these, and the task ceiling below, into figures.
 
-Adding wrong answers drawn at random from the color cube would grade much less, because no op produces them: each one removes the evidence of its example without pointing anywhere else. They could still appear at a low rate, so that the model learns to discount examples that fit nothing. In every case the query (the final equation) is clean and its target is the answer under the true op, so the noisy examples are evidence to weigh, and how much the model relies on them is what the stimulus measures.
+Adding wrong answers drawn at random from the color cube would grade much less, because usually no op produces them: each one removes the evidence of its example without pointing anywhere else. They could still appear at a low rate, so that the model learns to discount examples that fit nothing. In every case the query (the final equation) is clean and its target is the answer under the true op, so the noisy examples are evidence to weigh, and how much the model relies on them is what the stimulus measures.
 
 ### Related work
 
@@ -76,12 +76,12 @@ Their results suggest mid-depth, at the position where the answer forms, which f
 ## Sequence
 
 1. Suppress `difference` on the stored ex-2.2.14 checkpoints. Scoring only, as planned in the [design](design.md#suppress-the-operation-and-the-operands): the op-word edit against a token mask, and the use-site edits on the whole-line primary. It turns "the anchor is a token" into a measurement. Its outcome decides how much of the old line to report, and it does not decide whether to pivot: if the use-site edits move the answer, that is a result worth writing up beside the pivot, and only the new grammar can show whether SCA anchors a concept the model computes.
-2. Train a [new-grammar control](#the-new-grammar-control): the one-context-per-line format, replacement noise, the posterior over ops, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control.
+2. Train a [new-grammar control](#the-new-grammar-control): the one-context-per-line format, replacement noise, the posterior over ops, a labeller keyed per context, and a regression check that the model learns the task. Like ex-2.2.3, this is a grammar change and needs its own control.
 3. Anchor the latent op, then suppress it, then run the layer sweep and the SGTM baseline, as in the current design.
 
 ### The new-grammar control
 
-With the op inferred, no model can do better than answering with the answer distribution weighted by the posterior. That limit, the Bayes ceiling, can be computed for every context, and it is well below 1: we expect about three in four answers to be right with three clean examples, and fewer with replacement noise. So the task gate would be the distance of the control from the ceiling, in place of the old accuracy numbers.
+With the op inferred, no model can do better than answering with the answer distribution weighted by the posterior. That limit, the Bayes ceiling, can be computed for every context, and it is well below 1. With three clean examples we expect about three in four answers to be right, and almost all of the shortfall comes from stochastic rounding: a model told the op would score about the same. Replacement noise adds a shortfall that comes from inference. At three examples and a rate of 0.35, the ceiling falls to about 0.6, while a model told the op would still score about 0.75.[^scout] So the task gate would be the distance of the control from the ceiling, in place of the old accuracy numbers, and the report would show the ceiling for a model told the op beside it, so that the part of the gap due to inference can be seen.
 
 A calibration check is needed: does the answer distribution of the model match the one weighted by the posterior? That would show whether the model weighs every example appropriately.
 
@@ -132,7 +132,7 @@ If it happens, the anchor term has [options](/todo/science/query-symbol-saturati
 
 ## What we keep
 
-The eval contract and the intervention library (`sca.intervention`: projection, reflection, repulsion, weight ablation); the fallback term, which worked on _red_ in [ex-2.2.2](../ex-2.2.2/report.py) and whose null now comes from the posterior; the labellers, whose `line` keying now labels one context, all of its examples and the query; the untied readout; the op table A+ and its op-relevance, which now decide how many examples it takes to pin down an op; and the scoring conventions from ex-2.2.9 onward. The _red_ line of work is finished as a D2.2 prerequisite and needs nothing more for this.
+The eval contract and the intervention library (`sca.intervention`: projection, reflection, repulsion, weight ablation); the fallback term, which worked on _red_ in [ex-2.2.2](../ex-2.2.2/report.py) and whose null now comes from the posterior; the labellers, with a new keying that labels one context, all of its examples and the query; the untied readout; the op table A+ and its op-relevance, which now decide how many examples it takes to pin down an op; and the scoring conventions from ex-2.2.9 onward. The _red_ line of work is finished as a D2.2 prerequisite and needs nothing more for this.
 
 ## How this changes D2.3
 
@@ -153,6 +153,8 @@ yellow ? red = yellow | FALSE
 ```
 
 A `FALSE` candidate shows the answer another op would give, or a color from the cube, which are the two noise families the examples already have. So verification is the discounting the model already does on noisy examples, made explicit at one position.
+
+The candidate answer of a `FALSE` line is wrong on purpose, so the language-model loss would be masked there. Otherwise verification lines would train the completion circuit toward wrong answers at the `=` that the completion claims read, and the model cannot tell the two kinds of line apart until the marker.
 
 The marker `|` tells the model that the equation before it was the candidate and that a verdict comes next. Without it, the position after the candidate answer could be followed by another example, a verdict, or a newline, and the model could not tell which. With the marker only before the verdict, everything up to the candidate answer looks like an ordinary context with a noisy example, so the model cannot tell a verification line from a completion line until the marker arrives. A marker at the start of the line would tell the model sooner, and could change what it computes at every position; whether that matters is an open question.
 
