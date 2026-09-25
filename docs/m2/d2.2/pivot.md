@@ -115,18 +115,18 @@ This may happen along two axes:
 Still, we will need to tolerate incorrect labels too, since M3 labels will be noisy. A strong pull on those states could hurt the task or teach a shortcut. The pooled anchor term[^pooled] should soften the position axis, but it does nothing for the evidence axis.
 
 The binary whole-line label stays the default, since it is likely the form an M3 labeller can give. Three cheap [label variants](/todo/science/label-variants-in-context-op.md) should measure the effect:
-(a) leave out the embedding slice;
-(b) pull only the latter half of each line, where the posterior given the prefix is at or near its final value;
-(c) label a position when the posterior given the tokens before it clears a threshold, which handles both axes and is the form an M3 labeller with a confidence cutoff would give.
+**(a)** leave out the embedding slice;
+**(b)** pull only the latter half of each line, where the posterior given the prefix is at or near its final value;
+**(c)** label a position when the posterior given the tokens before it clears a threshold, which handles both axes and is the form an M3 labeller with a confidence cutoff would give.
 
 ### The query `?` saturates
 
 The pooled pull concentrates where alignment comes most easily, and the query `?` is a constant token with nothing else to hold, so the model may push it to a cosine near 1 on e₁ for labelled contexts. That would still be an inferred op, computed from the examples through attention, but it would bring back the dose collapse ex-2.2.14 found at the op word, at that one position. Suppressing at `?` and at the use sites separately would show whether the answer depends on that position (the bypass test from the [design](design.md#suppress-the-operation-and-the-operands)).
 
 If it happens, the anchor term has [options](/todo/science/query-symbol-saturation.md):
-(a) cap the pull with a hinge that is zero above a target alignment, so no state is asked to be all concept;
-(b) a larger τ, which spreads the pull over the line;
-(c) a mask that pulls only positions that also hold something else, such as `=` and the answer.
+**(a)** cap the pull with a hinge that is zero above a target alignment, so no state is asked to be all concept;
+**(b)** a larger τ, which spreads the pull over the line;
+**(c)** a mask that pulls only positions that also hold something else, such as `=` and the answer.
 
 [^pooled]: The pooled term asks each labelled line to align somewhere in its span, through a soft maximum over positions with temperature τ. So the pull concentrates where alignment comes most easily, and early positions are not pulled hard, except in a line whose end a training window cuts off.
 
