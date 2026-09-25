@@ -178,9 +178,11 @@ Suppressing at the query sites and checking whether verification falls with comp
 
 The asymmetry question gets harder, and more informative. Both tasks have to infer the same op from the same context. If they use one shared state, suppression would hit both, and the asymmetry would have to come from confining the anchor to the part of the stream only completion uses: the query positions and the later slices, where the op is perhaps selected and applied. We hope confining by depth alone is enough, without restricting the anchor to the query positions too. That is the open [confinement item](/todo/science/can-anchor-confined-part-stream.md), which moves from optional to central. With the op word in the grammar, the question would have been easier to answer and would have told us little.
 
-The later slices make depth the second axis for the split. Instruction-tuned language models show a break in the cosine between the hidden states of consecutive layers, into an early block and a late block, which has been interpreted as a recognition stage and a production stage. Under route 1, a depth split is unlikely to help on its own: the comparison needs the predicted answer, which the late slices produce, and the verdict is production too. It could help under route 2, where the comparison runs on sets of ops that fit, which are likely early features. So depth and route are one question.
+The later slices make depth the second axis for the split. Pretrained language models show a block structure in depth: the similarity between the hidden states of each pair of layers, measured with CKA,[^cka] falls into an early block and a late block, with a sharp change about halfway through (Lad, Gurnee & Tegmark, 2024, arXiv:2406.19384). The authors read the early block as building features and the late block as turning them into a prediction of the next token. If verification can run on the early features and completion needs the late prediction, depth is where an asymmetry could come from. Under route 1, a depth split is unlikely to help on its own: the comparison needs the predicted answer, which the late slices produce, and the verdict is production too. It could help under route 2, where the comparison runs on sets of ops that fit, which are likely early features. So depth and route are one question.
 
-The layer sweep would answer it for completion first: the slice at which suppression stops having an effect may be where the answer forms. The same cosine-across-slices measurement is cheap on our checkpoints, in the style of the [geometry reanalysis](../geometry-rsa/report.py), and would show whether a four-block model has such a break at all; we would not expect one.
+The layer sweep would answer it for completion first: the slice at which suppression stops having an effect may be where the answer forms. The same similarity between slices is cheap to compute on our checkpoints, in the style of the [geometry reanalysis](../geometry-rsa/report.py), and would show whether a four-block model has such blocks at all. We would not expect it to, in a model this shallow.
+
+[^cka]: Centered kernel alignment: a similarity score between two sets of representations of the same inputs. Rotating either set leaves it unchanged, so it can compare layers whose coordinates mean different things.
 
 ### When to add verification
 
@@ -189,8 +191,6 @@ Verification could be trained with completion from the start, or added later as 
 From the start, D2.3 may reuse the D2.2 checkpoints, and a no-verification arm on the control and the anchored primary would show what the extra task changes in the representations.
 
 As a second stage, the D2.2 model stays simpler, and the anchor has to hold while a new task is learned on top of it, which is closer to how M3 would work. It would also be a version of the fine-tune test raised [above](#what-m3-needs-from-d22). But a model fine-tuned onto a working completion circuit would likely take route 1, which reuses that circuit, and route 1 is the one where the asymmetry is least likely to appear.
-
-On the other hand, a second stage is closer to how a language model is instruction-tuned, so it might be where an early/late block split like the one in instruction-tuned models appears. That may need the marker at the start of the line, where it would act more like an instruction. It could be worth trying, as a second-stage arm with the marker moved.
 
 ### Concept swap
 
