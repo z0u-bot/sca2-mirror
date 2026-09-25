@@ -1,6 +1,6 @@
 # D2.2 pivot: an operation the model has to infer
 
-*Draft for discussion, 2026-09-23; revised 2026-09-25 after four review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
+*Draft for discussion, 2026-09-23; revised 2026-09-25 after five review rounds.* A proposal to change which concept D2.2 anchors. The machinery stays the same, and so do the claims in the [design](design.md#what-we-want-to-be-able-to-say). Nothing here is adopted until it has been through review.
 
 In short: ex-2.2.14 anchored an op, but the anchor went to the word that names the op. We propose taking op words out of the grammar, so that the model has to work out the op from a few solved examples. That is closer to what M3, the next milestone, needs: it applies SCA to language models, where the concepts we care about are inferred from context and have no word of their own.
 
@@ -114,10 +114,13 @@ This may happen along two axes:
 
 Still, we will need to tolerate incorrect labels too, since M3 labels will be noisy. A strong pull on those states could hurt the task or teach a shortcut. The pooled anchor term[^pooled] should soften the position axis, but it does nothing for the evidence axis.
 
-The binary whole-line label stays the default, since it is likely the form an M3 labeller can give. Three cheap [label variants](/todo/science/label-variants-in-context-op.md) should measure the effect:
+The binary whole-line label stays the default, since it is likely the form an M3 labeller can give. Four cheap [label variants](/todo/science/label-variants-in-context-op.md) should measure the effect:
 **(a)** leave out the embedding slice;
 **(b)** pull only the latter half of each line, where the posterior given the prefix is at or near its final value;
-**(c)** label a position when the posterior given the tokens before it clears a threshold, which handles both axes and is the form an M3 labeller with a confidence cutoff would give.
+**(c)** label a position when the posterior given the tokens before it clears a threshold, which handles both axes and is the form an M3 labeller with a confidence cutoff would give;
+**(d)** label each context with probability equal to its posterior on `difference`, so the labels follow the evidence the model can see.
+
+The model never sees a label, so none of these gives it a way to read the answer from the label. Variant (d) would pull each context, on average, in proportion to its posterior, which trains the grading that the graded stimulus is meant to show; so alignment in the middle band would no longer be a result that the pull left free.
 
 ### The query `?` saturates
 
@@ -154,7 +157,9 @@ yellow ? red = yellow | FALSE
 
 A `FALSE` candidate shows the answer another op would give, or a color from the cube, which are the two noise families the examples already have. So verification is the discounting the model already does on noisy examples, made explicit at one position.
 
-The candidate answer of a `FALSE` line is wrong on purpose, so the language-model loss would be masked there. Otherwise verification lines would train the completion circuit toward wrong answers at the `=` that the completion claims read, and the model cannot tell the two kinds of line apart until the marker.
+The candidate answer of a `FALSE` line is wrong on purpose, so the language-model loss would be masked there.[^sft] Otherwise verification lines would train the completion circuit toward wrong answers at the `=` that the completion claims read, and the model cannot tell the two kinds of line apart until the marker.
+
+[^sft]: This matches supervised fine-tuning of language models, where the text being judged is in the prompt and has no loss. Pretraining masks nothing, but a wrong answer in a document is often flagged before it appears, which is closer to a marker at the start of the line.
 
 The marker `|` tells the model that the equation before it was the candidate and that a verdict comes next. Without it, the position after the candidate answer could be followed by another example, a verdict, or a newline, and the model could not tell which. With the marker only before the verdict, everything up to the candidate answer looks like an ordinary context with a noisy example, so the model cannot tell a verification line from a completion line until the marker arrives. A marker at the start of the line would tell the model sooner, and could change what it computes at every position; whether that matters is an open question.
 
@@ -173,6 +178,8 @@ The figure shows route 2 on the two lines above.
 The two examples overlap only on `difference`. The ops that fit `lime` reach that overlap, so that candidate is `TRUE`. The ops that fit `yellow` touch the first example only, so it is `FALSE`; with the first example alone, it would have passed.
 
 Suppressing at the query sites and checking whether verification falls with completion should tell routes 1 and 2 apart. Seeds may split between the routes, so the effect of the intervention on verification could vary across seeds. Which route a model learns depends on a loss landscape we cannot see in advance, so the prereg should allow for either route and for a split, without predicting one. Under a whole-line label the pull also reaches the example positions, which would anchor both routes.
+
+Verification is our measure of recognition, which is the ability M3 would want to keep. Under route 1 it would be production by another name, so the route decides whether verification measures recognition at all. A much larger model could have more routes than ours, so the route our model takes is a result about this model rather than a prediction about language models.
 
 ### Asymmetry and depth
 
