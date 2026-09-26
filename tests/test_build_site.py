@@ -628,3 +628,11 @@ def test_a_review_marks_a_text_only_report(tmp_path: Path, monkeypatch):
     build_site.build_reports(links, None, False, memo=memo, review=review)
 
     assert len(printer.calls) == 1 and "Printed from abc1234" in printer.calls[0]
+    site = tmp_path / "_site" / "ex-1"
+    assert (site / "ex-1.pdf").read_bytes() == (site / "report.pdf").read_bytes(), "no copy named for the report"
+
+
+def test_a_review_print_is_named_for_its_report():
+    """The reviewer's tablet files a document under its file name, so the review copy carries the report's."""
+    assert build_site.review_pdf_name("m2/ex-2.2.15") == "ex-2.2.15.pdf"
+    assert build_site.review_pdf_name("ngpt-scaling") == "ngpt-scaling.pdf"

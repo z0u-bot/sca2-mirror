@@ -55,6 +55,7 @@ show_help() {
 		                       export stale reports, assemble the site with local assets
 		                       (never touches the network; each report printed to
 		                       _site/<key>/report.pdf for review on paper or e-ink,
+		                       with a copy named for the report to send, as ex-1.pdf,
 		                       unchanged ones reused from .mini/pdfs/), and serve it;
 		                       every PDF names the commit it was printed from, and
 		                       --since REF bars the margin of each named report's PDF
