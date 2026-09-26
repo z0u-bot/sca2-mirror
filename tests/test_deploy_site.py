@@ -36,18 +36,46 @@ def build(worktree: Path, site_url: str | None, memos: tuple[Path, ...]) -> Path
     (site / "index.html").write_text(f"<h1>{who}</h1><a href='{site_url or 'https://z0u.github.io/sca2/'}'>index</a>")
     (site / "pdfs.json").write_text(f'{{"{who}": "printed"}}')
     (site / ".nojekyll").write_text("")
+    if who == "pr-12":  # two of the reports it re-pins, one printed; the third it pins didn't render
+        for key in ("m2/ex-a", "m2/ex-b"):
+            (site / key).mkdir(parents=True)
+            (site / key / "index.html").write_text(key)
+        (site / "m2/ex-a/report.pdf").write_text("%PDF")
     MEMOS.append((who, tuple((m / "pdfs.json").read_text() if (m / "pdfs.json").is_file() else None for m in memos)))
     return site
 
 
+LOCK_PATCH = """\
+@@ -1,6 +1,6 @@
+ {
+- "m2/ex-a": "1111111111111111111111111111111111111111",
++ "m2/ex-a": "2222222222222222222222222222222222222222",
+- "m2/ex-b": "3333333333333333333333333333333333333333",
++ "m2/ex-b": "4444444444444444444444444444444444444444",
+- "m2/ex-c": "5555555555555555555555555555555555555555",
+  "m2/ex-d": "6666666666666666666666666666666666666666",
++ "m2/ex-e": "7777777777777777777777777777777777777777"
+ }"""
+"""PR 12's diff of the lock: it re-pins ex-a and ex-b, drops ex-c, leaves ex-d alone, and pins ex-e, which its build doesn't render."""
+
+PR_12_REPORTS = [deploy_site.Report("m2/ex-a", pdf=True), deploy_site.Report("m2/ex-b", pdf=False)]
+
+
 class FakeGitHub:
-    """Two open PRs, one of them from a fork, and a record of every write."""
+    """Three open PRs, one of them from a fork, and a record of every write. PR 12 re-pins some reports and unpins one."""
 
     def __init__(self, comments: dict[int, list[dict[str, Any]]] | None = None):
         self.comments = comments or {}
         self.writes: list[tuple[str, str, dict[str, Any] | None]] = []
 
     def paged(self, path: str) -> list[dict[str, Any]]:
+        if path.startswith("/pulls/12/files"):
+            return [
+                {"filename": "docs/m2/ex-a/report.py", "patch": '+    "m2/ex-z": "0123abc",'},
+                {"filename": deploy_site.LOCK, "patch": LOCK_PATCH},
+            ]
+        if path.startswith("/pulls/"):
+            return []
         if path.startswith("/pulls"):
             return [
                 {"number": 34, "head": {"sha": "b" * 40, "repo": {"full_name": SLUG}}},
@@ -144,6 +172,7 @@ def test_a_repeat_run_pushes_nothing(clone: Path, remote: Path):
                     "body": deploy_site.preview_comment(
                         "https://z0u.github.io/sca2/pr-preview/pr-12/",
                         git("rev-parse", "refs/pull/12/head", cwd=remote),
+                        PR_12_REPORTS,
                     ),
                 }
             ]
@@ -208,3 +237,16 @@ def test_the_preview_comment_is_edited_in_place():
     )
     deploy_site.upsert_comment(api, 12, "new body")
     assert api.writes == [("PATCH", "/issues/comments/8", {"body": "new body"})]
+
+
+def test_the_comment_links_the_reports_the_pr_publishes(clone: Path, remote: Path):
+    """PR 12 re-pins ex-a and ex-b, which its preview renders, so its comment links both, with ex-a's PDF. It drops ex-c, leaves ex-d, and pins ex-e without rendering it: none of those are linked. A PR that moves no pins gets the preview link alone."""
+    assert deploy_site.repinned(FakeGitHub(), 12) == ["m2/ex-a", "m2/ex-b", "m2/ex-e"]
+    api = FakeGitHub()
+    deploy_site.reconcile(clone, slug=SLUG, builder=build, api=api)
+    body = next(body or {} for method, path, body in api.writes if path == "/issues/12/comments")["body"]
+    preview = "https://z0u.github.io/sca2/pr-preview/pr-12/"
+    assert f"- [m2/ex-a]({preview}m2/ex-a/) ([PDF]({preview}m2/ex-a/report.pdf))" in body
+    assert f"- [m2/ex-b]({preview}m2/ex-b/)\n" in body
+    assert not [key for key in ("ex-c", "ex-d", "ex-e", "ex-z") if key in body]
+    assert "Reports" not in deploy_site.preview_comment(preview, "a" * 40)
