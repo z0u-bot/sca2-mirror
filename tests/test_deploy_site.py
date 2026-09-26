@@ -240,7 +240,7 @@ def test_the_preview_comment_is_edited_in_place():
 
 
 def test_the_comment_links_the_reports_the_pr_publishes(clone: Path, remote: Path):
-    """PR 12 re-pins ex-a and ex-b, which its preview renders, so its comment links both, with ex-a's PDF. It drops ex-c, leaves ex-d, and pins ex-e without rendering it: none of those are linked. PR 34 changes no pins, so its comment is the preview link alone."""
+    """PR 12 re-pins ex-a and ex-b, which its preview renders, so its comment links both, with ex-a's PDF. It drops ex-c, leaves ex-d, and pins ex-e without rendering it: none of those are linked. A PR that moves no pins gets the preview link alone."""
     assert deploy_site.repinned(FakeGitHub(), 12) == ["m2/ex-a", "m2/ex-b", "m2/ex-e"]
     api = FakeGitHub()
     deploy_site.reconcile(clone, slug=SLUG, builder=build, api=api)
