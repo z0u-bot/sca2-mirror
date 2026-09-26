@@ -111,9 +111,10 @@ REF_OP = "mix"
 """The op whose probe lines carry the position and per-color measurements. At op1 the state depends on the
 token alone (attention is causal), so a per-color measurement there is the same on every op."""
 
-ANSWER_OP = "hue-hsv"
-"""The op the answer-only lines are read on: it takes op1's saturation and value at op2's hue, so a line can
-have a red answer from two non-red operands, which `mix` cannot (a mean is red only if an operand is)."""
+ANSWER_OPS: tuple[str, ...] = ("difference", "hue-hsv")
+"""The ops the answer-only lines are read on: each can give a red answer from two non-red operands, which `mix`
+cannot (a mean is red only if an operand is). `difference` is the op the D2.2 pivot anchors; `hue-hsv` has the
+most such pairs of the eleven, and takes op2's hue at op1's saturation and value."""
 
 OP_NAMES: tuple[str, ...] = ex2211.OP_NAMES
 """The eleven ops of the grammar, for the exposure model."""
@@ -246,43 +247,99 @@ def line_groups(r1: np.ndarray, r2: np.ndarray, r3: np.ndarray) -> dict[str, np.
     return {"answer-only": operands & (r3 >= RED_DOSE), "none": operands & (r3 <= NONRED_DOSE)}
 
 
+def crop_patterns() -> dict[tuple[int, int], float]:
+    """How often a line is seen whole or cut short in training, from ex-2.2.11's batch sampler: each
+    (first role, last role) that a crop leaves visible, with its share of all line visits.
+
+    Training crops are `block_size`-token windows onto the packed corpus at a uniform offset, and a fraction
+    `padding_chance` have a random prefix of 1 to `block_size // 3 − 1` tokens zeroed. So the first line in a
+    crop usually starts late and the last usually ends early. The anchor term pools each labelled line over its
+    visible pulled positions alone, so a line cut after op1 puts its whole pull there.
+    """
+    from collections import Counter
+
+    config = ex2211.ex229._make_config(256, 0, 1)
+    block, pad_p = config.model.block_size, config.data.padding_chance
+    n_roles = len(ROLES)
+    pads = [(0, 1 - pad_p)] + [(k, pad_p / (block // 3 - 1)) for k in range(1, block // 3)]
+    seen: Counter[tuple[int, int]] = Counter()
+    for start in range(n_roles):
+        for pad, p_pad in pads:
+            lines: dict[int, list[int]] = {}
+            for t in range(pad, block):
+                lines.setdefault((start + t) // n_roles, []).append((start + t) % n_roles)
+            for roles in lines.values():
+                seen[(roles[0], roles[-1])] += p_pad / n_roles
+    total = sum(seen.values())
+    return {k: v / total for k, v in seen.items()}
+
+
+def crop_share(lines: np.ndarray, span: int, patterns: dict[tuple[int, int], float]) -> np.ndarray:
+    """(slice, line): op1's softmin share of the pull, averaged over the ways a crop shows the line, weighted
+    by `crop_patterns`. Only a crop that shows op1 can pull it, and such a crop shows a prefix of the line, whose
+    states under causal attention are the probe line's own; a crop that shows nothing of the span has no pull
+    to share and drops out of the average.
+    """
+    from sca.anchoring import softmin_weights
+
+    share = np.zeros(lines.shape[:2], np.float32)
+    weight = 0.0
+    for (lo, hi), p in patterns.items():
+        if lo >= span:
+            continue
+        weight += p
+        if lo == 0:
+            share += p * softmin_weights(1.0 - lines[:, :, : min(hi + 1, span)], TAU, axis=-1)[..., 0]
+    return share / weight
+
+
 def arrays_chunk(evals: list, probes, labels: list[str]) -> list[dict]:
-    """From each run's eval arrays: the per-color alignment at op1 at every slice (reference op), and on the
-    answer-op's lines the softmin share op1 takes of the pull and its alignment, per slice, for the two line
-    groups of `line_groups`. The share is over the condition's span, since that is what the pull pooled over.
+    """From each run's eval arrays: the per-color alignment at op1 at every slice (reference op), and on each
+    answer op's lines the softmin share op1 takes of the pull and its alignment, per slice, for the two line
+    groups of `line_groups`. The share is over the condition's span, since that is what the pull pooled over:
+    once on whole lines (`share`), and once averaged over the ways a training crop cuts a line (`share_crop`).
     """
     from mini.store import put
     from sca.anchoring import softmin_weights
 
     src = source_store()
     workdir = get_data_dir() / "eval"
+    patterns = crop_patterns()
+    groups: dict[str, dict[str, np.ndarray]] = {}
+    op1_red: dict[str, dict[str, float]] = {}
     with np.load(src.get(probes, workdir / "probes.npz")) as z:
-        r1, r2, r3, walk = (z[f"{ANSWER_OP}/{k}"] for k in ("r1", "r2", "r3", "walk"))
         redness = z["redness"]
-    # The eval arrays cover the op1 walk alone (walk 0, the first rows of the probe set).
-    keep = walk == 0
-    groups = line_groups(r1[keep], r2[keep], r3[keep])
+        for op in ANSWER_OPS:
+            r1, r2, r3, walk = (z[f"{op}/{k}"] for k in ("r1", "r2", "r3", "walk"))
+            # The eval arrays cover the op1 walk alone (walk 0, the first rows of the probe set).
+            keep = walk == 0
+            groups[op] = line_groups(r1[keep], r2[keep], r3[keep])
+            op1_red[op] = {k: float(r1[keep][g].mean()) for k, g in groups[op].items()}
     by_label = {label_for(c, s): c for c in CONDITIONS for s in c.seeds}
     paths = src.get_many([(e, workdir / f"{lb}.npz") for e, lb in zip(evals, labels, strict=True)])
     out = []
     for lb, p in zip(labels, paths, strict=True):
         span = by_label[lb].span
+        arrays: dict[str, np.ndarray] = {}
         with np.load(p) as z:
-            alpha = z[f"{REF_OP}/alpha"]  # (slice, color, role)
-            lines = z[f"{ANSWER_OP}/alpha_lines"].astype(np.float32)  # (slice, line, role)
-        assert lines.shape[1] == keep.sum(), f"{lb}: {lines.shape[1]} lines against {keep.sum()} walk-0 probes"
-        w = softmin_weights(1.0 - lines[:, :, :span], TAU, axis=-1)
-        arrays = {
-            "op1_alpha": alpha[:, :, 0].astype(np.float32),  # (slice, color)
-            "share": np.stack([w[:, g, 0].mean(1) for g in groups.values()]),  # (group, slice)
-            "line_alpha": np.stack([lines[:, g, 0].mean(1) for g in groups.values()]),  # (group, slice)
-        }
+            arrays["op1_alpha"] = z[f"{REF_OP}/alpha"][:, :, 0].astype(np.float32)  # (slice, color)
+            for op in ANSWER_OPS:
+                lines = z[f"{op}/alpha_lines"].astype(np.float32)  # (slice, line, role)
+                n = len(next(iter(groups[op].values())))
+                assert lines.shape[1] == n, f"{lb}: {lines.shape[1]} {op} lines against {n} walk-0 probes"
+                w = softmin_weights(1.0 - lines[:, :, :span], TAU, axis=-1)
+                wc = crop_share(lines, span, patterns)
+                gs = groups[op].values()
+                arrays[f"{op}/share"] = np.stack([w[:, g, 0].mean(1) for g in gs])  # (group, slice)
+                arrays[f"{op}/share_crop"] = np.stack([wc[:, g].mean(1) for g in gs])  # (group, slice)
+                arrays[f"{op}/line_alpha"] = np.stack([lines[:, g, 0].mean(1) for g in gs])  # (group, slice)
         out.append(
             {
                 "label": lb,
-                "n_lines": {k: int(g.sum()) for k, g in groups.items()},
-                "op1_redness": {k: float(r1[keep][g].mean()) for k, g in groups.items()},
+                "n_lines": {op: {k: int(g.sum()) for k, g in groups[op].items()} for op in ANSWER_OPS},
+                "op1_redness": op1_red,
                 "redness": redness.tolist(),
+                "crop_patterns": {f"{lo}-{hi}": v for (lo, hi), v in sorted(patterns.items())},
                 "arrays": put(npz_bytes(arrays), name=f"op1-lean-{lb}-arrays.npz"),
             }
         )
@@ -426,7 +483,9 @@ def publish_results(table: dict, arrays: list[dict], logits: list[dict], exposed
         "roles": ROLES,
         "n_slices": N_SLICES,
         "token_groups": TOKEN_GROUPS,
-        "line_groups": list(arrays[0]["n_lines"]),
+        "answer_ops": ANSWER_OPS,
+        "line_groups": list(arrays[0]["n_lines"][ANSWER_OPS[0]]),
+        "crop_patterns": arrays[0]["crop_patterns"],
         "redness": arrays[0]["redness"],
         "grammar_ops": exposed["ops"],
     }
