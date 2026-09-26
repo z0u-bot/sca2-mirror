@@ -300,4 +300,12 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.14/report.py -->
 
+- [Where the op1 lean sits: a reanalysis of ex-2.2.11's stored runs](./m2/op1-lean/report.py)
+
+    A reanalysis, no training and no gates: ex-2.2.11's 54 stored runs, asking where the containment rise (ᾱ at op1) comes from. The lean is near zero at the embedding and grows block by block, and at the last block it sits at op1, op2, and the answer, the positions whose next token is a syntax word. With a readout of its own the model sets the readout vectors for the colors at −e₁ and those for the syntax words at +e₁, so the e₁ coordinate of a state votes *a syntax word comes next*, more than half of the margin at op1; the tied readout can move only the syntax embeddings and gets little of that. The whole-line labeller reaches op1 through answer-labelled lines only on lines a training crop cuts short, a few percent of their pull, and the per-color test of that route is weak. Proposes a readout-side cleaning, a span-narrowing arm, and skipping the pull on cut lines.
+
+    <span class="tags">`scouting` `anchoring` `containment` `readout`</span>
+
+    <!-- mini:figures ./m2/op1-lean/report.py -->
+
 </details>
