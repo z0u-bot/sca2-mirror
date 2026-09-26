@@ -281,7 +281,7 @@ def dots(
 
 
 def step_series(ax: Axes, y: Sequence[float], cond: str, *, ms: float = 4.0, lw: float = 1.2) -> None:
-    """One condition along an ordinal axis (slices, positions): a smooth step through its values, with its
+    """One condition along a token axis (roles, positions): a smooth step through its values, with its
     marker on each, dashed for the control. A single value is its marker alone.
     """
     ls = "--" if cond == ex.CONTROL else "-"
@@ -290,6 +290,14 @@ def step_series(ax: Axes, y: Sequence[float], cond: str, *, ms: float = 4.0, lw:
         smooth_step(ax, x, y, ramp=0.5, color=ink(cond), lw=lw, ls=ls, zorder=3)
     ax.plot(x, y, ls="none", color=ink(cond), marker=MARKERS.get(cond, "o"), ms=ms, zorder=4)
     ax.plot([], [], ls, color=ink(cond), marker=MARKERS.get(cond, "o"), ms=ms, lw=lw, label=cond)
+
+
+def line_series(ax: Axes, y: Sequence[float], cond: str, *, ms: float = 4.0, lw: float = 1.2) -> None:
+    """One condition along an ordinal axis that is not a sequence (slices): straight segments through its
+    values, with its marker on each, dashed for the control.
+    """
+    ls = "--" if cond == ex.CONTROL else "-"
+    ax.plot(np.arange(len(y)), y, ls, color=ink(cond), marker=MARKERS.get(cond, "o"), ms=ms, lw=lw, label=cond)
 
 
 def zero_line(ax: Axes) -> None:
@@ -493,7 +501,7 @@ def slices_draw(per: dict, alt_text: str) -> str:
         fig, ax = plt.subplots(figsize=(5.6, 3.2), layout="constrained")
         zero_line(ax)
         for c, v in per.items():
-            step_series(ax, v, c)
+            line_series(ax, v, c)
         ax.set_xticks(range(LAST + 1), ["emb", *map(str, range(1, LAST + 1))])
         ax.set_xlabel("slice")
         ax.set_ylabel("lean (cos with e₁ at op1)")
@@ -1233,6 +1241,29 @@ def frag_kept(cond: str) -> float:
     return (N["frag"][cond] - ctl) / (N["frag"]["all"] - ctl)
 
 
+def h1_lede() -> str:
+    return "skipping the cut lines removes the lean, and pulling only the cut lines leaves more of it than pulling every line."
+
+
+def h2_lede() -> str:
+    return (
+        "the anchor and the task hold under the policies the rule weighs; `cut-only` loses some margin, and both "
+        "halved-window arms cost task accuracy on `difference`."
+    )
+
+
+def h3_lede() -> str:
+    return "fragments cut off before their op word lean far more than a first operand does, and skipping them removes that lean."
+
+
+def h4_lede() -> str:
+    return "halving the window shrank the gap between `all` and `whole` where we expected it to grow, and `whole-short` still removes the lean."
+
+
+def h5_lede() -> str:
+    return "`whole` leaves no lean for the tied readout or the newline mask to remove."
+
+
 VERDICT_WORD = {"pass": "held", "partial": "partly held", "miss": "did not hold", "unresolved": "unresolved"}
 
 
@@ -1245,22 +1276,26 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-The anchor pulls on whole lines. But in training, the model sees the corpus through a window, and each window cuts off the lines at its edges. On a cut line, the anchor asks the visible part to carry the whole label, even when that part cannot see the op word. We retrain the anchored model under a few policies for which cut lines to pull, and track what each one does over the course of training. We do this on the current grammar, before the in-context grammar makes the problem larger.
+The anchor pulls on whole lines, but each training window cuts off the lines at its edges. On a cut line, the anchor asks the visible part to carry the whole label, even when that part cannot see the op word.
 
-The cut lines carry the lean. Skipping the ones that show half their tokens or fewer removes it, so the pilot starts from that policy.
+We retrain the anchored model under a few policies for which cut lines to pull, and track each one over training. We do this on the current grammar, before the in-context grammar makes the problem larger.
+
+The cut lines carry the lean, and skipping them removes it. The pilot starts from the policy that pulls whole lines only.
 ///
 
-This is a scouting run of {ex.N_RUNS} fresh training runs, with a few predictions and one rule: it proposes the crop policy the [in-context grammar pilot](../d2.2/design.md#the-pilot) starts from. Cut lines are a small share of any one batch, but the anchor meets them at every step, so the question is what they add up to over training. Each run records the lean and the trailing-fragment lean at every trajectory point (every {ex.TRAJ_STRIDE} training steps), as well as at the end.
+This is a scouting run of {ex.N_RUNS} fresh training runs, with a few predictions and one rule that proposes which crop policy the [in-context grammar pilot](../d2.2/design.md#the-pilot) starts from.
+
+Cut lines are a small share of any one batch, but the anchor meets them at every step, so the question is what they add up to over training. Each run records the lean and the trailing-fragment lean at every trajectory point (every {ex.TRAJ_STRIDE} training steps) and at the end.
 
 ## Findings
 
-- [The first operand lean is due to cut lines (H1)](#the-first-operand-lean-is-due-to-cut-lines-h1) — {finding("h1")}: {h1_line()}
-- [The anchor and the task hold under every policy (H2)](#the-anchor-and-the-task-hold-under-every-policy-h2) — {finding("h2")}: {h2_line()}
-- [Trailing fragments without their op word (H3)](#trailing-fragments-without-their-op-word-h3) — {finding("h3")}: {h3_line()}
-- [Halved windows, more cut lines (H4)](#halved-windows-more-cut-lines-h4) — {finding("h4")}: {h4_line()}
-- [Where the rest of the lean comes from (H5)](#where-the-rest-of-the-lean-comes-from-h5) — {finding("h5")}: {h5_line()}
+- [The first operand lean is due to cut lines (H1)](#the-first-operand-lean-is-due-to-cut-lines-h1) — {finding("h1")}: {h1_lede()}
+- [The anchor and the task hold under every policy (H2)](#the-anchor-and-the-task-hold-under-every-policy-h2) — {finding("h2")}: {h2_lede()}
+- [Trailing fragments without their op word (H3)](#trailing-fragments-without-their-op-word-h3) — {finding("h3")}: {h3_lede()}
+- [Halved windows, more cut lines (H4)](#halved-windows-more-cut-lines-h4) — {finding("h4")}: {h4_lede()}
+- [Where the rest of the lean comes from (H5)](#where-the-rest-of-the-lean-comes-from-h5) — {finding("h5")}: {h5_lede()}
 
-[The rule for the pilot](#the-rule-for-the-pilot): the pilot starts from **`{N["rule"]["chosen"]}`**.
+[The rule for the pilot](#the-rule-for-the-pilot): the rule chose `{N["rule"]["chosen"]}`, but the pilot starts from **`whole`**, which skips every cut line.
 
 ## How to read this draft
 
@@ -1353,7 +1388,7 @@ The anchor weight holds at its peak from epoch {N["traj"]["plateau"][0]:.0f} to 
 
 {h1_table(res)}
 
-**What we make of it.** The cut lines carry the lean: `cut-only`, with a seventh of the pull, leaned further than `all`. Perhaps the whole lines in `all` hold the lean down. On a whole line the op word takes the pull, so the first operand is trained to stay where it is.
+**What we make of it.** The cut lines carry the lean: `cut-only`, with a seventh of the pull, leaned further than `all`. Perhaps the whole lines in `all` hold the lean down. On a whole line the op word takes the pull, so the first operand can stay where it is.
 
 `half` and `knowable` remove the lean as `whole` does, since each drops the visits that show the first operand alone. `scaled` keeps most of it, so a sixth of the pull on those visits is enough to teach it.
 
@@ -1463,15 +1498,19 @@ With the readout tied, the cut lines no longer make the first operand of whole l
 
 > {ex.ADOPTION}
 
-The test for `scaled` is looser than for the others, and stated against `whole`, so it loosens with H1. `whole` may give the cleanest result, but `scaled` is the one that carries to labelled spans of any length, so the rule accepts part of the lean to get it. The model arms do not enter the rule; what they find goes to the discussion.
+The test for `scaled` is looser than for the others, and since it is stated against `whole`, it loosens with H1. `whole` may give the cleanest result, but only `scaled` extends to labelled spans of any length, so the rule accepts part of the lean to get it. The model arms do not enter the rule.
 
 With H1 at *{N["rule"]["h1"]}*, the rule goes forward with **`{N["rule"]["chosen"]}`**.
 
 {rule_table(res)}
 
-`{N["rule"]["chosen"]}` keeps {ex.pull_share(N["rule"]["chosen"]):.0%} of the pull, but it still pulls the four-token trailing fragment, so it keeps part of the fragment lean (H3).
+`{N["rule"]["chosen"]}` keeps {ex.pull_share(N["rule"]["chosen"]):.0%} of the pull. `scaled` missed its test by a wide margin, so no qualifying policy pulls spans of every length: `whole` never pulls a span longer than the window, and `half` stops at twice it.
 
-`scaled` missed its test by a wide margin. That leaves no qualifying policy that pulls a span longer than twice the window: `whole` never pulls a span longer than the window, and `half` stops at twice it.
+The pilot starts from `whole` instead, a choice made after seeing the results. `half` still pulls the four-token trailing fragment, so it keeps {frag_kept(N["rule"]["chosen"]):.0%} of the excess fragment lean (H3). Its cutoff at half the tokens also has no tie to where the evidence sits: in the in-context grammar, a context more than half in view may still have lost the examples that name the op.
+
+The reason for `whole` is plainer: a whole line always shows its evidence. It gives up {1 - ex.pull_share("whole"):.0%} of the pull.
+
+<!-- REVIEW: the frozen rule chose `half`; Sandy's review of dd21ed7 starts the pilot from `whole` instead. The reasons are the fragment lean `half` keeps (H3) and that "more than half in view" says nothing about whether the evidence is in view, which matters more once the evidence is in-context examples. The rule's outcome is still reported as `half`. Verify: frag_kept("half") in H3, and whole's pull share in the rule table. -->
 
 ## Exploratory analyses
 
@@ -1493,15 +1532,15 @@ The ⏎ embedding row is where the fragment lean shows up in the weights: on a v
 
 ## Discussion
 
-The pilot starts from `{N["rule"]["chosen"]}`, with the untied readout from the handover recipe. The tied readout closed only the route from cut lines to whole lines (H5), so the crop policy does the work either way. Its arms passed H2, though with the lowest margins of any arm but `cut-only`, so the technique works with the tied readout too, at some cost in margin.
+The pilot starts from `whole`, with the untied readout from the handover recipe. The tied readout closed only the route from cut lines to whole lines (H5), so the crop policy does the work either way. The tied arms passed H2, though with the lowest margins of any arm except `cut-only`, so the technique works with the tied readout too, at some cost in margin.
 
 <!-- REVIEW: "the technique works with either readout" (Sandy's reading, which stands) now names its margin cost: whole-tied sits at 0.90 of all's margin and all-tied at 0.93, against 1.01 for whole. Also removed the ordered plan ("`whole` is the next step") and noted that H4's doubled cut share left the fragment lean unchanged. Verify: H2 table margins. -->
 
-In the in-context grammar, a context with more than half in view may still have lost the examples that name the op. So the fragment lean that `{N["rule"]["chosen"]}` keeps here could grow.
+Halving the window here doubled the share of cut visits and left the fragment lean about where it was (H4), so a larger share of cut contexts may not matter much by itself. The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean: it measures the shortcut itself and varies little across seeds. Here, `whole` held it at the level of the control.
 
-Halving the window here doubled the share of cut visits and left the fragment lean about where it was (H4), so a larger share of cut contexts may not matter much by itself. What a kept fragment knows is the part this grammar cannot test. The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean, since it measures the shortcut itself and varies little across seeds. If it did grow, `whole` and label variant (c) are the candidates this experiment points to; the version of (c) here, `knowable`, removed both leans. It needs to know where the evidence is, so it can't be adopted, but it is worth keeping in the pilot as an oracle: it bounds what a window-only policy could reach.
+`knowable`, our version of label variant (c), removed both leans too. It needs to know where the evidence is, so it can't be adopted, but it is worth keeping in the pilot as an oracle, since it bounds what a window-only policy could reach.
 
-Two questions stay open: a policy for spans longer than twice the window, since `scaled` taught the shortcut with as little as a sixth of the pull, and why halving the window shrank the first-operand lean while the fragments leaned as before (H4). The newline mask added nothing measurable on top of `whole`, though `whole` left no lean for it to remove.
+Two questions stay open: what policy suits spans longer than the window, given that `scaled` taught the shortcut with as little as a sixth of the pull, and why halving the window shrank the first-operand lean while the fragments leaned as before (H4). The newline mask added nothing measurable on top of `whole`, though `whole` left no lean for it to remove.
 
 ## Method
 
