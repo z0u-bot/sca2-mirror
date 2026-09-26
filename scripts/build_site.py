@@ -483,6 +483,18 @@ class Review:
         return mark_changes(printable, base_html, note=note, root=root, base_root=base)
 
 
+def review_pdf_name(key: str) -> str:
+    """The file name of a report's print for review: its directory's name, as ``ex-2.2.15.pdf`` for ``m2/ex-2.2.15``."""
+    return f"{PurePosixPath(key).name}.pdf"
+
+
+def _place_pdf(pdf: Path, site_dir: Path, key: str, *, reviewing: bool) -> None:
+    """Copy *pdf* beside the page as ``report.pdf``, which the page links; reviewing, also as a copy named for the report, for the reviewer's tablet, which files a document under its file name."""
+    shutil.copy2(pdf, site_dir / PDF_LEAF)
+    if reviewing:
+        shutil.copy2(pdf, site_dir / review_pdf_name(key))
+
+
 def build_reports(
     links: LinkResolver, store, externalizing: bool, memo: PdfMemo | None = None, review: Review | None = None
 ) -> dict[str, FigureStrip]:
@@ -490,7 +502,7 @@ def build_reports(
 
     Externalize: read the synced HTML from the bucket, insert one ``<base>`` at ``exports/<key>/`` so its relative ``_assets/`` resolve there, and write only the HTML into ``_site`` (the bytes stay on the bucket CDN). Localize: read the bundle from ``.mini/exports`` and copy its ``_assets/`` beside the HTML so it works offline. Author links are resolved to absolute/relative targets either way.
 
-    The PDF (``report.pdf``, for reading on paper or e-ink) is printed here from the assembled page, through *memo* (:class:`PdfMemo`, opened from the environment when not given) so an unchanged report is not printed again. The page links it from the nav chip and declares it as an alternate rendition; when nothing can print (no browser), the page carries neither. With a *review* (every local preview), the print names the commit it is of, and a report that has a baseline prints with its changes marked (:class:`Review`); the page itself carries neither.
+    The PDF (``report.pdf``, for reading on paper or e-ink) is printed here from the assembled page, through *memo* (:class:`PdfMemo`, opened from the environment when not given) so an unchanged report is not printed again. The page links it from the nav chip and declares it as an alternate rendition; when nothing can print (no browser), the page carries neither. With a *review* (every local preview), a copy of the print is also written under the report's name (:func:`review_pdf_name`), the print names the commit it is of, and a report that has a baseline prints with its changes marked (:class:`Review`); the page itself carries neither.
 
     Returns each built report's :class:`FigureStrip` by key, so :func:`convert_markdown` can expand ``mini:figures`` markers from the HTML this pass already fetched.
     """
@@ -538,7 +550,7 @@ def build_reports(
         pdf = memo.pdf(key, printable, serve_from=bundle.assets.parent if bundle.assets else dest.parent)
         pdf_url = None
         if pdf is not None:
-            shutil.copy2(pdf, dest.parent / PDF_LEAF)
+            _place_pdf(pdf, dest.parent, key, reviewing=review is not None and not externalizing)
             pdf_url = f"{page_url}{PDF_LEAF}" if page_url else PDF_LEAF
         strips[key] = FigureStrip(key, bundle.base_href, figures, pdf=pdf_url)
 
