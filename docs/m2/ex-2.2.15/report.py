@@ -1423,7 +1423,7 @@ If H1 passes, `whole` leaves little lean to split, and these arms mostly say whe
 
 **What we make of it.** `whole` leaves no lean to explain, so the pass of the two model arms says little. The informative arm is `all-tied`.
 
-With the readout tied, the cut lines no longer make the first operand of whole lines lean. But the trailing fragments still lean ({N["frag"]["all-tied"]:.3f}), and the ⏎ embedding keeps its component on e₁ ({N["newline"]["all-tied"]:+.2f} under `all-tied`, {N["newline"]["all"]:+.2f} under `all`, against {N["newline"]["whole"]:+.2f} under `whole`). So the tied readout closes the route from cut lines to whole lines that the op1-lean reanalysis found, and leaves the shortcut on the fragments in place. A crop policy handles both.
+With the readout tied, the cut lines no longer make the first operand of whole lines lean. But the trailing fragments still lean ({N["frag"]["all-tied"]:.3f}), and the ⏎ embedding keeps its component on e₁ ({N["newline"]["all-tied"]:+.3f} under `all-tied`, {N["newline"]["all"]:+.3f} under `all`, against {N["newline"]["whole"]:+.3f} under `whole`). So the tied readout closes the route from cut lines to whole lines that the op1-lean reanalysis found, and leaves the shortcut on the fragments in place. A crop policy handles both.
 
 <!-- REVIEW: H5 passes by direction, but `whole` leaves no excess lean (it sits below the control), so both model arms are compared against a lean that is already gone. The prose says the pass says little. Verify: whole's excess in the H1 table is inside the band. -->
 
