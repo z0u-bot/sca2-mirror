@@ -1203,6 +1203,12 @@ def h5_line() -> str:
     )
 
 
+def frag_kept(cond: str) -> float:
+    """The share of the excess trailing-fragment lean of `all`, over the control, that *cond* keeps."""
+    ctl = N["h3"]["lean"][ex.CONTROL]
+    return (N["frag"][cond] - ctl) / (N["frag"]["all"] - ctl)
+
+
 VERDICT_WORD = {"pass": "held", "partial": "partly held", "miss": "did not hold", "unresolved": "unresolved"}
 
 
@@ -1217,7 +1223,7 @@ rf"""
 <!-- tl;dr -->
 The anchor pulls on whole lines. But in training, the model sees the corpus through a window, and each window cuts off the lines at its edges. On a cut line, the anchor asks the visible part to carry the whole label, even when that part cannot see the op word. We retrain the anchored model under a few policies for which cut lines to pull, and track what each one does over the course of training. We do this on the current grammar, before the in-context grammar makes the problem larger.
 
-The cut lines cause the lean. Skipping the ones that show half their tokens or fewer removes it, so the pilot starts from that policy.
+The cut lines carry the lean. Skipping the ones that show half their tokens or fewer removes it, so the pilot starts from that policy.
 ///
 
 This is a scouting run of {ex.N_RUNS} fresh training runs, with a few predictions and one rule: it proposes the crop policy the [in-context grammar pilot](../d2.2/design.md#the-pilot) starts from. Cut lines are a small share of any one batch, but the anchor meets them at every step, so the question is what they add up to over training. Each run records the lean and the trailing-fragment lean at every trajectory point (every {ex.TRAJ_STRIDE} training steps), as well as at the end.
@@ -1345,7 +1351,7 @@ In ex-2.2.14 the margin sat at the op word and saturated early, and whole lines 
 
 {h2_table(res)}
 
-**What we make of it.** None of the misses concerns a policy we would take forward. `cut-only` is a diagnostic arm; it removed {1 - ex.pull_share("cut-only"):.0%} of the pull and lost only {1 - N["h2"]["arms"]["cut-only"]["share"]:.0%} of the margin. So the margin barely depends on how much pull there is, and the policies that keep most of the pull need no change to λ_a.
+**What we make of it.** None of the misses concerns a policy we would take forward. `cut-only` is a diagnostic arm; it removed {1 - ex.pull_share("cut-only"):.0%} of the pull and lost only {1 - N["h2"]["arms"]["cut-only"]["share"]:.0%} of the margin. Its pull also lands in different places from the others, so it does not measure how the margin depends on total pull by itself. The policies we would take forward keep their margin at the level of `all`, so they need no change to λ_a.
 
 The short pair miss the task gate on `{N["worst_gap_op"]}` by similar amounts under both policies, which points to the halved window rather than the policy. We have no control at {ex.SHORT_BLOCK} tokens to confirm that.
 
@@ -1377,7 +1383,7 @@ A positive contrast would mean the model is learning a surface cue for the op: t
 
 The lean is also general. The contrast between the `{OP}` fragments and the rest is small under every arm, so the model makes little use of what a fragment says about its op.
 
-`half` keeps {N["frag"]["half"] / N["frag"]["all"]:.0%} of the fragment lean of `all`, because it still pulls the four-token fragment `op2 = answer ⏎`, which has no op word. `scaled` keeps {N["frag"]["scaled"] / N["frag"]["all"]:.0%}. Unlike the first-operand lean, the fragment lean varies little across seeds next to the gaps between arms, so it tells the policies apart most clearly.
+`half` keeps {frag_kept("half"):.0%} of the excess fragment lean of `all`, because it still pulls the four-token fragment `op2 = answer ⏎`, which has no op word. `scaled` keeps {frag_kept("scaled"):.0%}. Unlike the first-operand lean, the fragment lean varies little across seeds next to the gaps between arms, so it tells the policies apart most clearly.
 
 {verdict_md(V["h3"], h3_line())}
 
@@ -1423,7 +1429,7 @@ If H1 passes, `whole` leaves little lean to split, and these arms mostly say whe
 
 **What we make of it.** `whole` leaves no lean to explain, so the pass of the two model arms says little. The informative arm is `all-tied`.
 
-With the readout tied, the cut lines no longer make the first operand of whole lines lean. But the trailing fragments still lean ({N["frag"]["all-tied"]:.3f}), and the ⏎ embedding keeps its component on e₁ ({N["newline"]["all-tied"]:+.3f} under `all-tied`, {N["newline"]["all"]:+.3f} under `all`, against {N["newline"]["whole"]:+.3f} under `whole`). So the tied readout closes the route from cut lines to whole lines that the op1-lean reanalysis found, and leaves the shortcut on the fragments in place. A crop policy handles both.
+With the readout tied, the cut lines no longer make the first operand of whole lines lean. But the trailing fragments still lean ({N["frag"]["all-tied"]:.3f}), and the ⏎ embedding keeps its component on e₁ ({N["newline"]["all-tied"]:+.3f} under `all-tied`, {N["newline"]["all"]:+.3f} under `all`, against {N["newline"]["whole"]:+.3f} under `whole`). So the tied readout closes the route from cut lines to whole lines that the op1-lean reanalysis found, and leaves the shortcut on the fragments in place. A crop policy that drops the trailing fragments, as `whole` and `knowable` do, handles both.
 
 <!-- REVIEW: H5 passes by direction, but `whole` leaves no excess lean (it sits below the control), so both model arms are compared against a lean that is already gone. The prose says the pass says little. Verify: whole's excess in the H1 table is inside the band. -->
 
@@ -1459,17 +1465,19 @@ Anything we think of after seeing the data goes here, marked as post hoc. Three 
 
 {readout_table(res)}
 
-The ⏎ embedding row is where the fragment lean shows up in the weights: a visit that shows only the newline can align with the axis only through that row.
+The ⏎ embedding row is where the fragment lean shows up in the weights: on a visit that shows only the newline, that row is the one parameter specific to the position being pulled.
 
 ## Discussion
 
-The pilot starts from `{N["rule"]["chosen"]}`, with the untied readout from the handover recipe. The tied readout closed only the route from cut lines to whole lines (H5), so the crop policy does the work either way. Its arms held the anchor and the task, which suggests the technique works with either readout.
+The pilot starts from `{N["rule"]["chosen"]}`, with the untied readout from the handover recipe. The tied readout closed only the route from cut lines to whole lines (H5), so the crop policy does the work either way. Its arms passed H2, though with the lowest margins of any arm but `cut-only`, so the technique works with the tied readout too, at some cost in margin.
+
+<!-- REVIEW: "the technique works with either readout" (Sandy's reading, which stands) now names its margin cost: whole-tied sits at 0.90 of all's margin and all-tied at 0.93, against 1.01 for whole. Also removed the ordered plan ("`whole` is the next step") and noted that H4's doubled cut share left the fragment lean unchanged. Verify: H2 table margins. -->
 
 In the in-context grammar, a context with more than half in view may still have lost the examples that name the op. So the fragment lean that `{N["rule"]["chosen"]}` keeps here could grow.
 
-The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean, since it measures the shortcut itself and varies little across seeds. If it grows, `whole` is the next step, and label variant (c) after that; the version of (c) here, `knowable`, removed both leans.
+Halving the window here doubled the share of cut visits and left the fragment lean about where it was (H4), so a larger share of cut contexts may not matter much by itself. What a kept fragment knows is the part this grammar cannot test. The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean, since it measures the shortcut itself and varies little across seeds. If it did grow, `whole` and label variant (c) are the candidates this experiment points to; the version of (c) here, `knowable`, removed both leans.
 
-Two questions stay open: a policy for spans longer than twice the window, since `scaled` taught the shortcut with as little as a sixth of the pull, and why halving the window shrank the first-operand lean while the fragments leaned as before (H4). The newline mask added nothing on top of `whole`, so it stays optional.
+Two questions stay open: a policy for spans longer than twice the window, since `scaled` taught the shortcut with as little as a sixth of the pull, and why halving the window shrank the first-operand lean while the fragments leaned as before (H4). The newline mask added nothing measurable on top of `whole`, though `whole` left no lean for it to remove.
 
 ## Method
 
