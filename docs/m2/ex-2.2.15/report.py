@@ -15,7 +15,7 @@ from matplotlib.axes import Axes
 import experiment as ex
 from mini.lit import memo, stop
 from mini.store import project_store
-from mini.vis import figure_html, light_dark, themed
+from mini.vis import figure_html, light_dark, smooth_step, smooth_step_band, themed
 
 POLICY_TEXT = {
     "all": "every labelled line, whatever is visible (the current behaviour)",
@@ -280,6 +280,22 @@ def dots(
     ax.plot(x, v.mean(), m, ms=ms, color=color, zorder=4, mec=light_dark("white", "#111"), mew=0.6, label=label)
 
 
+def step_series(ax: Axes, y: Sequence[float], cond: str, *, ms: float = 4.0, lw: float = 1.2) -> None:
+    """One condition along an ordinal axis (slices, positions): a smooth step through its values, with its
+    marker on each, dashed for the control. A single value is its marker alone.
+    """
+    ls = "--" if cond == ex.CONTROL else "-"
+    x = np.arange(len(y))
+    if len(y) > 1:
+        smooth_step(ax, x, y, ramp=0.5, color=ink(cond), lw=lw, ls=ls, zorder=3)
+    ax.plot(x, y, ls="none", color=ink(cond), marker=MARKERS.get(cond, "o"), ms=ms, zorder=4)
+    ax.plot([], [], ls, color=ink(cond), marker=MARKERS.get(cond, "o"), ms=ms, lw=lw, label=cond)
+
+
+def zero_line(ax: Axes) -> None:
+    ax.axhline(0, color=light_dark("#bbb", "#555"), lw=0.6, zorder=0)
+
+
 def control_band(ax: Axes, centre: float, half: float) -> None:
     """The control's seed mean as a line, with the band of ±*half* around it shaded."""
     ax.axhspan(centre - half, centre + half, color=ink(ex.CONTROL), alpha=0.15, lw=0, zorder=0)
@@ -452,11 +468,11 @@ def lean_draw(leans: dict, ctl: float, alt_text: str) -> str:
 
 
 def slices_figure(res: Results) -> str:
-    conds = (ex.CONTROL, *POLICY_ARMS)
+    conds = (ex.CONTROL, *POLICY_ARMS, *MODEL_ARMS)
     per = {c: res.cos(c)[:, :, 0].mean(0).tolist() for c in conds}
     alt = f"""
-        A line chart of the lean at each slice, from the embedding (slice 0) to the last block (slice
-        {LAST}), one line per condition: {", ".join(conds)}. At the last block the lines end at
+        A line chart of the lean at each slice, from the embedding to the last block (slice {LAST}), one
+        stepped line per condition: {", ".join(conds)}. At the last block the lines end at
         {", ".join(f"{c} {v[-1]:.3f}" for c, v in per.items())}.
     """
     return slices_draw(per, alt)
@@ -469,18 +485,19 @@ def slices_draw(per: dict, alt_text: str) -> str:
         alt_text=alt_text,
         caption="""
             **The lean at each slice.** The seed mean of the cosine with e₁ at the first operand, over every
-            op's probe lines, from the embedding (slice 0) to the last block, for the control and each policy.
+            op's probe lines, from the embedding to the last block, for the control, each policy, and the model
+            arms.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(5.6, 3.2), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
+        zero_line(ax)
         for c, v in per.items():
-            ls = "--" if c == ex.CONTROL else "-"
-            ax.plot(range(len(v)), v, ls, color=ink(c), marker=MARKERS.get(c, "o"), ms=4, lw=1.2, label=c)
-        ax.set_xticks(range(LAST + 1))
-        ax.set_xlabel("slice (0 = embedding)")
+            step_series(ax, v, c)
+        ax.set_xticks(range(LAST + 1), ["emb", *map(str, range(1, LAST + 1))])
+        ax.set_xlabel("slice")
         ax.set_ylabel("lean (cos with e₁ at op1)")
-        ax.legend(fontsize=7, ncol=2, frameon=False)
+        ax.legend(fontsize=7, ncol=3, frameon=False)
         return fig
 
     return _plot()
@@ -731,9 +748,9 @@ def roles_draw(prof: dict, alt_text: str) -> str:
             for j, r in enumerate(roles):
                 if ex.ROLES.index(r) in SYNTAX_ROLES:
                     ax.axvspan(j - 0.4, j + 0.4, color=light_dark("#000", "#fff"), alpha=0.06, lw=0)
+            zero_line(ax)
             for c, p in prof.items():
-                ls = "--" if c == ex.CONTROL else "-"
-                ax.plot(range(len(roles)), p[s], ls, color=ink(c), marker=MARKERS.get(c, "o"), ms=3.5, lw=1.1, label=c)
+                step_series(ax, p[s], c, ms=3.5, lw=1.1)
             ax.set_xticks(range(len(roles)), roles, fontsize=8)
             ax.set_xlim(-0.5, max(len(roles) - 0.5, 1.5))
             ax.set_title(f"from {ex.ROLES[int(s)]}", fontsize=8)
@@ -789,7 +806,7 @@ def h4_draw(x: dict, lean: dict, ctl: float, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(5.2, 3.4), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
         control_band(ax, ctl, ex.LEAN_BAND)
         rng = np.random.default_rng(5)
         off = 0.012
@@ -868,7 +885,7 @@ def h5_draw(lean: dict, ctl: float, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(5.8, 3.4), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
         control_band(ax, ctl, ex.LEAN_BAND)
         v = np.array(list(lean.values()))  # (conds, seeds)
         for s in v.T:
@@ -978,7 +995,7 @@ def landing_draw(share: dict, alt_text: str) -> str:
     )
     def _plot() -> plt.Figure:
         m = np.array(list(share.values()))
-        fig, ax = plt.subplots(figsize=(5.8, 2.9), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.4, 2.9), layout="constrained")
         ax.imshow(m, cmap="Blues", vmin=0, vmax=max(float(m.max()), 1e-6), aspect="auto")
         for (i, j), val in np.ndenumerate(m):
             ax.text(
@@ -1001,28 +1018,35 @@ def landing_draw(share: dict, alt_text: str) -> str:
 def whole_roles_figure(res: Results) -> str:
     conds = (ex.CONTROL, "all", "whole", "cut-only", "knowable")
     per = {c: res.cos(c).mean(0)[LAST].tolist() for c in conds}
+    ctl = res.cos(ex.CONTROL)[:, LAST]  # (seeds, roles)
+    band = (ctl.min(0).tolist(), ctl.max(0).tolist())
     alt = f"""
         A line chart with the six roles of a line along the bottom and the seed-mean cosine with e₁ at the
-        last block up the side, over every op's whole probe lines, one line per condition: {", ".join(conds)}.
+        last block up the side, over every op's whole probe lines, one stepped line per condition:
+        {", ".join(conds)}. A shaded band behind the control's line covers the range of the control's seeds
+        at each role.
     """
-    return whole_roles_draw(per, alt)
+    return whole_roles_draw(per, band, alt)
 
 
 @memo
-def whole_roles_draw(per: dict, alt_text: str) -> str:
+def whole_roles_draw(per: dict, band: tuple, alt_text: str) -> str:
     @themed(
         name="x-whole-roles",
         alt_text=alt_text,
         caption="""
             **Each role on whole lines (post hoc; planned, no gate).** The seed-mean cosine with e₁ at the
-            last block at each role, over every op's probe lines, which are whole lines.
+            last block at each role, over every op's probe lines, which are whole lines. The grey band is the
+            range of the control's single seeds at each role; a mean over five seeds varies less than that.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(5.6, 3.0), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.4, 3.2), layout="constrained")
+        zero_line(ax)
+        x = np.arange(len(band[0]))
+        smooth_step_band(ax, x, band[0], band[1], ramp=0.5, color=ink(ex.CONTROL), alpha=0.18, zorder=1)
         for c, v in per.items():
-            ls = "--" if c == ex.CONTROL else "-"
-            ax.plot(range(len(v)), v, ls, color=ink(c), marker=MARKERS.get(c, "o"), ms=4, lw=1.2, label=c)
+            step_series(ax, v, c)
         ax.set_xticks(range(len(ex.ROLES)), ex.ROLES)
         ax.set_ylabel("cos with e₁")
         ax.legend(fontsize=7, frameon=False, ncol=2)
@@ -1475,7 +1499,7 @@ The pilot starts from `{N["rule"]["chosen"]}`, with the untied readout from the 
 
 In the in-context grammar, a context with more than half in view may still have lost the examples that name the op. So the fragment lean that `{N["rule"]["chosen"]}` keeps here could grow.
 
-Halving the window here doubled the share of cut visits and left the fragment lean about where it was (H4), so a larger share of cut contexts may not matter much by itself. What a kept fragment knows is the part this grammar cannot test. The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean, since it measures the shortcut itself and varies little across seeds. If it did grow, `whole` and label variant (c) are the candidates this experiment points to; the version of (c) here, `knowable`, removed both leans.
+Halving the window here doubled the share of cut visits and left the fragment lean about where it was (H4), so a larger share of cut contexts may not matter much by itself. What a kept fragment knows is the part this grammar cannot test. The trailing-fragment lean is the measurement to watch in the pilot, alongside the first-operand lean, since it measures the shortcut itself and varies little across seeds. If it did grow, `whole` and label variant (c) are the candidates this experiment points to; the version of (c) here, `knowable`, removed both leans. It needs to know where the evidence is, so it can't be adopted, but it is worth keeping in the pilot as an oracle: it bounds what a window-only policy could reach.
 
 Two questions stay open: a policy for spans longer than twice the window, since `scaled` taught the shortcut with as little as a sixth of the pull, and why halving the window shrank the first-operand lean while the fragments leaned as before (H4). The newline mask added nothing measurable on top of `whole`, though `whole` left no lean for it to remove.
 
