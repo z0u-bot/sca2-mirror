@@ -490,7 +490,7 @@ def slices_draw(per: dict, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
+        fig, ax = plt.subplots(figsize=(5.6, 3.2), layout="constrained")
         zero_line(ax)
         for c, v in per.items():
             step_series(ax, v, c)
@@ -806,7 +806,7 @@ def h4_draw(x: dict, lean: dict, ctl: float, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
+        fig, ax = plt.subplots(figsize=(5.2, 3.4), layout="constrained")
         control_band(ax, ctl, ex.LEAN_BAND)
         rng = np.random.default_rng(5)
         off = 0.012
@@ -885,7 +885,7 @@ def h5_draw(lean: dict, ctl: float, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(8.4, 3.4), layout="constrained")
+        fig, ax = plt.subplots(figsize=(5.8, 3.4), layout="constrained")
         control_band(ax, ctl, ex.LEAN_BAND)
         v = np.array(list(lean.values()))  # (conds, seeds)
         for s in v.T:
@@ -995,7 +995,7 @@ def landing_draw(share: dict, alt_text: str) -> str:
     )
     def _plot() -> plt.Figure:
         m = np.array(list(share.values()))
-        fig, ax = plt.subplots(figsize=(8.4, 2.9), layout="constrained")
+        fig, ax = plt.subplots(figsize=(5.8, 2.9), layout="constrained")
         ax.imshow(m, cmap="Blues", vmin=0, vmax=max(float(m.max()), 1e-6), aspect="auto")
         for (i, j), val in np.ndenumerate(m):
             ax.text(
@@ -1041,7 +1041,7 @@ def whole_roles_draw(per: dict, band: tuple, alt_text: str) -> str:
         """,
     )
     def _plot() -> plt.Figure:
-        fig, ax = plt.subplots(figsize=(8.4, 3.2), layout="constrained")
+        fig, ax = plt.subplots(figsize=(5.6, 3.0), layout="constrained")
         zero_line(ax)
         x = np.arange(len(band[0]))
         smooth_step_band(ax, x, band[0], band[1], ramp=0.5, color=ink(ex.CONTROL), alpha=0.18, zorder=1)
