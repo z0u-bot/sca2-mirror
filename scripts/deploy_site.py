@@ -9,7 +9,7 @@ The site is a function of two things: `main`, which production is built from, an
 
 **What it costs** is rebuilding every preview on every event, at about 30 s each. This repository has a handful of PRs open at a time, so a run is a minute or two. A preview that fails to build is reported (a warning, and a note on the PR) and skipped, so a broken branch never holds back production.
 
-**The open-PR list is read before anything is built**, so an API failure stops the run rather than deploying a site with no previews. Only same-repo PRs get one: a fork's branch would run with the repository's secrets in scope, which is the boundary the preview workflow has always kept.
+**The open-PR list is read before anything is built**, so an API failure stops the run rather than deploying a site with no previews. Only same-repo PRs get one: a fork's branch would run with the repository's secrets in scope, which is the boundary the preview workflow has always kept. Each PR's file list is read then too, for the reports its comment links: the pins it adds or moves in `docs/publish.lock`.
 
     uv run --no-project scripts/deploy_site.py --dry-run   # build everything, push nothing
 """
@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -35,6 +35,12 @@ UMBRELLA = "pr-preview"
 
 MARKER = "<!-- site-preview -->"
 """Identifies the one comment per PR that carries its preview link, so a rebuild edits it rather than adding another."""
+
+LOCK = "docs/publish.lock"
+"""The pin manifest (`mini.reports.PUBLISH_LOCK`), spelled out because this script runs without the project installed. A preview serves each report at the revision its branch pins here, so the pins a PR adds or moves are the reports whose preview differs from production."""
+
+PIN = re.compile(r'^\+\s*"([^"]+)"\s*:\s*"[0-9a-f]+"', re.MULTILINE)
+"""An added line of the lock's diff: one pin per line, so a key on a `+` line was pinned or re-pinned by the PR."""
 
 BOT = {
     "GIT_AUTHOR_NAME": "github-actions[bot]",
@@ -106,6 +112,15 @@ def previewable(pulls: list[dict[str, Any]], slug: str) -> list[PullRequest]:
         for pull in sorted(pulls, key=lambda pull: pull["number"])
         if (pull["head"].get("repo") or {}).get("full_name") == slug
     ]
+
+
+def repinned(api: GitHub, number: int) -> list[str]:
+    """The export keys the PR pins or re-pins, read off its own diff of the lock.
+
+    The PR's diff rather than a comparison of its lock with main's: once main moves on, a report another PR republished would differ from the branch's pin too, and it isn't this PR's change.
+    """
+    lock = next((f for f in api.paged(f"/pulls/{number}/files") if f.get("filename") == LOCK), None)
+    return sorted(set(PIN.findall((lock or {}).get("patch") or "")))
 
 
 def checkout(repo: Path, remote: str, ref: str, dest: Path) -> str:
@@ -204,11 +219,30 @@ def deploy(repo: Path, remote: str, branch: str, site: Path, message: str) -> st
     return commit
 
 
-def preview_comment(url: str, sha: str) -> str:
+@dataclass(frozen=True)
+class Report:
+    key: str
+    pdf: bool
+
+
+def rendered(preview: Path, keys: list[str]) -> list[Report]:
+    """The reports among `keys` that the preview build wrote a page for, and whether it printed their PDF, so the comment never links a page that isn't there."""
+    return [
+        Report(key, (preview / key / "report.pdf").is_file())
+        for key in keys
+        if (preview / key / "index.html").is_file()
+    ]
+
+
+def preview_comment(url: str, sha: str, reports: Sequence[Report] = ()) -> str:
+    changed = "".join(
+        f"\n- [{r.key}]({url}{r.key}/)" + (f" ([PDF]({url}{r.key}/report.pdf))" if r.pdf else "") for r in reports
+    )
     return (
         f"{MARKER}\n"
         f"**Preview:** {url}\n\n"
-        f"Built from {sha[:7]}; ready once the [Pages deployment](../deployments) finishes. "
+        + (f"Reports this PR publishes:\n{changed}\n\n" if changed else "")
+        + f"Built from {sha[:7]}; ready once the [Pages deployment](../deployments) finishes. "
         "Rebuilt on every push here, and gone once the PR closes."
     )
 
@@ -251,10 +285,12 @@ def reconcile(
     site_url = site_url or f"https://{owner}.github.io/{name}/"
     api = api or GitHub(slug, os.environ.get("GITHUB_TOKEN"))
     pulls = previewable(api.paged("/pulls?state=open"), slug)
+    publishes = {pull.number: repinned(api, pull.number) for pull in pulls}
 
     workspace = Path(tempfile.mkdtemp(prefix="deploy-site-"))
     site = workspace / "site"
     built: dict[int, str] = {}
+    reports: dict[int, list[Report]] = {}
     failed: dict[int, str] = {}
     previous: Path | None = None
     try:
@@ -279,6 +315,7 @@ def reconcile(
                     (previous / UMBRELLA / key, *memos) if previous else (),
                 )
                 built[pull.number] = sha
+                reports[pull.number] = rendered(site / UMBRELLA / key, publishes[pull.number])
                 print(f"#{pull.number}@{sha[:7]}: built")
             except Exception as error:  # a broken branch is that PR's problem, and never holds back production
                 failed[pull.number] = pull.sha
@@ -298,7 +335,7 @@ def reconcile(
         git("worktree", "prune", cwd=repo)
 
     for number, sha in built.items():
-        upsert_comment(api, number, preview_comment(f"{site_url}{UMBRELLA}/pr-{number}/", sha))
+        upsert_comment(api, number, preview_comment(f"{site_url}{UMBRELLA}/pr-{number}/", sha, reports[number]))
     for number, sha in failed.items():
         upsert_comment(api, number, failure_comment(sha))
     if summary := os.environ.get("GITHUB_STEP_SUMMARY"):
