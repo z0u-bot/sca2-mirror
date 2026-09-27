@@ -573,7 +573,7 @@ The pilot gates nothing. Each rule proposes a setting for round 3.
 
 ## How to read this draft
 
-This is a preregistration. The [method](#method) section on the posterior and the ceiling is complete and computed. The conditions, the five rules with their thresholds, and the two predictions are drafted and not yet frozen; when they are, this note quotes the commit. Results replace the `TODO` placeholders in place, and anything conceived after seeing the data goes under [exploratory analyses](#exploratory-analyses), marked as post hoc.
+This is a preregistration. The [method](#method) section on the posterior and the ceiling is complete and computed. The conditions, the five rules with their thresholds, and the two predictions were frozen at commit `49e59eb`, before any run; later edits to them are immaterial or are marked here. Results replace the `TODO` placeholders in place, and anything conceived after seeing the data goes under [exploratory analyses](#exploratory-analyses), marked as post hoc.
 
 Each rule section opens with the frozen rule and the figure it will be read from. Terms are defined where they first appear and collected in the [glossary](#glossary).
 
