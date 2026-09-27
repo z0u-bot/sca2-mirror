@@ -12,4 +12,4 @@ Settled 2026-09-27: it was recompilation. `intervention.apply` built a new jitte
 
 The change moves the code fingerprint of every task that reaches `sca.intervention`, so re-waking an ex-2.2.x experiment re-runs its scoring once. Outputs match the old code to float32 rounding on L4 (bit-identical on CPU), the same spread the old code shows between two containers.
 
-Left over: the helpers in `sca/compute/evaluation.py` and `sca/compute/geometry.py` wrap `eqx.filter_jit(model.…)` per call. Each is called about once per task, so it costs a compile or two per task; worth moving to module level the next time one of them is edited.
+Left over, deliberately: the helpers in `sca/compute/evaluation.py` and `sca/compute/geometry.py` still wrap `eqx.filter_jit(model.…)` per call. Only the ex-2.1.x experiments call them, about once per task, so moving them would save nothing current and would re-run those experiments' evaluations if they were ever woken. Apply the jit-once convention if a new experiment starts using them.
