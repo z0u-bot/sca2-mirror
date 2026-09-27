@@ -1,8 +1,8 @@
 ---
 name: style-terms
 description: |
-  Shared terminology for experiment reports: condition vs. cell, etc.
-  Some terms differ slightly from convention, so always use when working on reports.
+  Shared terminology for writing about the experiments: condition vs. cell, measurement vs. read, context/example/query, state vs. embedding, etc.
+  Some terms differ from convention, so always use before writing reports, design docs, todo items, PR bodies, or code names and docstrings for corpus units.
 ---
 
 ## Methodological terms
