@@ -65,11 +65,11 @@ This is a preregistration. The rows, the four predictions, their thresholds, and
 
 While drafting, a smoke check ran the scoring code on one primary seed over 600 lines of three ops, to verify that the checkpoints load and the contract checks hold. Its numbers were seen after the thresholds below were written and did not move them; they are not reported.
 
-The [D2.2 design](../d2.2/design.md#quick-route) names this pass as round 1 of the quick route, scoring only, and asks it to keep to the measurements that decide how much of the op-word line to report. The ten sweep ops and the finer slice subsets wait.
+The [D2.2 design](/docs/m2/d2.2/design.md#quick-route) names this pass as round 1 of the quick route, scoring only, and asks it to keep to the measurements that decide how much of the op-word line to report. The ten sweep ops and the finer slice subsets wait.
 
 ## Why this pass
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored an operation for the first time. `difference` landed on e₁ at twice the margin *red* reached, held through the anneal, and cost the task nothing.
+[Ex-2.2.14](/docs/m2/ex-2.2.14/report.py) anchored an operation for the first time. `difference` landed on e₁ at twice the margin *red* reached, held through the anneal, and cost the task nothing.
 
 The anchor settled on the op word. On the lines of the op, the state at the op word sits at a cosine near 1 with e₁ at every slice.[^cosine] Under the whole-line pull, the use sites (`=` and the answer) have an alignment of about 0.1. With the op word alone pulled, the blocks carry a twentieth of that to `=` and none to the answer.
 
@@ -106,7 +106,7 @@ Every row acts at all five slices, the embedding included, at one position. The 
 <dt>Expected exact match</dt>
 <dd>The model's probability mass on the colors a line's answer can be, per line, then averaged. On <code>difference</code>, whose answers are on the grid, it is the mass on the one right answer. Written <i>eem</i> in tables.</dd>
 <dt>Normalized distance</dt>
-<dd>The distance in grid steps from the raw answer of the line to the mean of the model's distribution over the 216 colors, divided by the distance a uniformly random color would have (chance): 0 is a perfect answer, 1 is no better than guessing. The distance of the greedy guess is quoted beside it, floored by the best grid answer. Adopted by the <a href="../answer-distance/report.py">answer-distance re-score</a>.</dd>
+<dd>The distance in grid steps from the raw answer of the line to the mean of the model's distribution over the 216 colors, divided by the distance a uniformly random color would have (chance): 0 is a perfect answer, 1 is no better than guessing. The distance of the greedy guess is quoted beside it, floored by the best grid answer. Adopted by the <a href="/docs/m2/answer-distance/report.py">answer-distance re-score</a>.</dd>
 <dt>Op-relevance and <i>k</i></dt>
 <dd>For a <code>difference</code> line, <i>k</i> is how many of the other ten ops give the same answer, and <i>r</i> = 1 − (1/10) Σ<sub>o</sub> q<sub>o</sub>(answer) is the share of the answer mass of the other ops that misses it. A <i>named</i> line has k = 0: only <code>difference</code> produces its answer. A <i>shared</i> line has k ≥ 1.</dd>
 <dt>The designed null</dt>
@@ -206,7 +206,9 @@ One figure: per op, the seed-mean drop under `reflect` on the primary and on the
 
 ## The axis at `=` marks the op (H4)
 
-**What we expect.** On the primary, removing e₁ at `=` (`equals`, the plain projection) leaves the completion of `difference` lines nearly where it was: the seed-mean drop in expected exact match is at most {ex.MARKER_MAX:g}. In that case the axis at `=` *marks* the op: it holds a trace that the blocks carried or the pull placed, but the model does not read the op from it.
+<!-- REVIEW: H4 now names its line set (the named lines, as in H1). It said only "`difference` lines", and on all lines the shared bins cap the possible drop well below the carrier level, so the choice would have decided the verdict. Verify: if the carrier reading is meant to include shared lines, the carrier level needs rescaling to the drop under the mask on all lines. -->
+
+**What we expect.** On the primary, removing e₁ at `=` (`equals`, the plain projection) leaves the completion of `difference` lines nearly where it was: the seed-mean drop in expected exact match on the named lines, the set H1 scores, is at most {ex.MARKER_MAX:g}. In that case the axis at `=` *marks* the op: it holds a trace that the blocks carried or the pull placed, but the model does not read the op from it.
 
 A drop of at least {ex.CARRIER_MIN:g} would say the axis at `=` *carries* the op: the model does read that component of about 0.1. The mask row bounds how much removal that could amount to. Between the two levels the question is unresolved.
 
@@ -215,7 +217,7 @@ The marker outcome is the expected one, since the write at `=` is small on every
 The op-word arm and the control run the same row as references. The arm holds about 0.05 at `=` and the control about 0.01, so both should show drops near zero. If the arm drops about as much as the primary, the model reads the trace the blocks carry. If the control drops, the projection at `=` has a cost of its own.
 
 /// admonition | TODO
-One figure: per condition, per-seed drops in expected exact match on `difference` lines under `equals`, with the marker and carrier levels as rules; beside it the same on the other ten ops as a cost check. A table with the normalized distances.
+One figure: per condition, per-seed drops in expected exact match on the named `difference` lines under `equals`, with the marker and carrier levels as rules; beside it the same on the other ten ops as a cost check. A table with the normalized distances.
 ///
 
 ## The rule for the write-up

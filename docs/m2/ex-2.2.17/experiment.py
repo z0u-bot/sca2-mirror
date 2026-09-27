@@ -213,7 +213,7 @@ primary is at most the task gate; the control under the same row is the calibrat
 
 MARKER_MAX = 0.1
 CARRIER_MIN = 0.5
-"""H4: the drop in expected exact match on the `difference` lines under the `=` edit on the primary. At most
+"""H4: the drop in expected exact match on the named `difference` lines under the `=` edit on the primary. At most
 `MARKER_MAX` the axis at `=` marks the op without carrying it; at least `CARRIER_MIN` it carries it; between,
 unresolved. REVIEW: both levels are proposals; the drop under the mask row bounds what "carrying" could mean."""
 
@@ -612,8 +612,8 @@ def main(ctx: Ctx) -> dict:
     return ctx.run(publish_results, lines, scored, role="prep")
 
 
-# The score task also runs on CPU (`--app local`): five passes over 81,648 six-token lines is a few minutes a
-# checkpoint. The thread caps keep concurrent local JAX processes from each claiming every core.
+# The score task also runs on CPU (`--app local`), at closer to an hour a checkpoint (the smoke check took about
+# 20 s per op on 600 lines). The thread caps keep concurrent local JAX processes from each claiming every core.
 THREAD_ENV = {
     "XLA_FLAGS": "--xla_cpu_multi_thread_eigen=false intra_op_parallelism_threads=2",
     "OMP_NUM_THREADS": "2",
