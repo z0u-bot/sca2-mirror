@@ -993,9 +993,9 @@ def test_context_keying_prefix_reads_an_external_per_position_array():
     assert mask.any() and (mask == 0).any()
 
 
-def test_context_keying_sampled_ignores_the_anchored_op_and_uses_sample_prob_alone():
+def test_context_keying_sampled_draws_at_sample_prob_on_anchored_contexts_only():
     data, lengths, starts = variable_corpus(np.random.default_rng(7))
-    context_op = np.random.default_rng(8).integers(0, 3, size=len(lengths))  # mixed ops, irrelevant to this variant
+    context_op = np.random.default_rng(8).integers(0, 3, size=len(lengths))  # mixed ops; only op 0 may be labelled
     sample_prob = (np.arange(len(data)) % 3 == 0).astype(np.float64)  # deterministic 0/1 draw threshold
 
     mc, dc = model_config(), data_config(0.0)
@@ -1012,7 +1012,8 @@ def test_context_keying_sampled_ignores_the_anchored_op_and_uses_sample_prob_alo
     oracle_starts = oracle_rng.integers(0, n_starts, size=dc.batch_size)
     x, y, mask = next(sample_anchored_batches(data, dc, mc, 1, np.random.default_rng(10), spec, newline_id=NEWLINE))
     absolute = oracle_starts[:, None] + np.arange(mc.block_size)
-    expected = (sample_prob[absolute] > 0) & (x != 0)
+    context = np.searchsorted(starts, absolute, side="right") - 1
+    expected = (sample_prob[absolute] > 0) & (context_op[context] == 0) & (x != 0)
     np.testing.assert_array_equal(mask, expected)
     assert mask.any() and (mask == 0).any()
 

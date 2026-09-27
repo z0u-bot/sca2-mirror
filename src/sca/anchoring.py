@@ -583,7 +583,7 @@ def _context_mask(
     (`sample_anchored_batches` computes it from `⏎` positions under `newline_id`), so `context_op[line]` is the
     op id at every position directly, and one draw per distinct context in view (via *local*) decides whether
     it is labelled — except under `variant="sampled"`, where `sample_prob` (already per position, constant
-    over a context) is the draw's own threshold and no separate rate or op check applies. *variant* then
+    over a context) is the draw's own threshold in place of the rate; only contexts of the anchored op are ever labelled. *variant* then
     narrows which of a labelled context's positions the pull covers: `whole` (every one), `latter` (role at
     least half the context's own token count, from `context_len`, a per-context array), `prefix` (`prefix_ok`,
     a boolean the same length as the corpus, precomputed from the posterior on the examples before each
@@ -594,11 +594,11 @@ def _context_mask(
     n_rows = local.shape[0]
     draw = rng.random((n_rows, n_lines))
     drew_local = np.take_along_axis(draw, local, axis=1)
+    is_anchored = spec.context_op[line] == spec.anchored_op_id
     if spec.variant == "sampled":
         assert spec.sample_prob is not None
-        drew = drew_local < spec.sample_prob[absolute]
+        drew = (drew_local < spec.sample_prob[absolute]) & is_anchored
     else:
-        is_anchored = spec.context_op[line] == spec.anchored_op_id
         drew = (drew_local < spec.label_rate) & is_anchored
     match spec.variant:
         case "whole" | "sampled":
