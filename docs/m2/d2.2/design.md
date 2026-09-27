@@ -221,7 +221,7 @@ The rules take this shape, with their margins set in the plan:
 
 ### Suppress the operation (and the operands)
 
-The centre of D2.2.
+The center of D2.2.
 
 The headline claim is selective removal: suppress *difference* without suppressing *multiply*. The ops may share a common component that means *this is an operation*, with the specific op only one part of the state; the group contrast from [anchor one operation](#anchor-one-operation) says how large that shared part is, and the removal claim covers the op-specific part.
 

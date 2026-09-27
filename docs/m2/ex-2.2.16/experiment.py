@@ -85,12 +85,12 @@ op, below it the evidence favors another op. The share of contexts in the band i
 GRAMMAR_CONDITIONS: tuple[tuple[int, float], ...] = ((3, 0.2), (3, 0.3), (4, 0.3))
 CENTRE: tuple[int, float] = (3, 0.3)
 """The three (examples, ρ) conditions the control trains at, proposed by the method section from the scan. The
-centre is the pivot's working point. The second differs in ρ alone, a step down in inference difficulty on the same
+center is the pivot's working point. The second differs in ρ alone, a step down in inference difficulty on the same
 line length, so it is the fallback within the same block size if the control falls short of the ceiling at the
-centre. The third adds one example at the centre's ρ, which raises the ceiling by about 0.06 and keeps most of the
+center. The third adds one example at the same ρ as the center, which raises the ceiling by about 0.06 and keeps most of the
 spread; it asks whether more evidence buys a higher ceiling without flattening the stimulus."""
 # REVIEW: proposed from the scan in the method section, not yet reviewed. The alternatives weighed there are
-# (3, 0.4), which adds no middle-band share over the centre and costs 0.08 of ceiling, and (4, 0.35), which the third
+# (3, 0.4), which adds no middle-band share over the center and costs 0.08 of ceiling, and (4, 0.35), which the third
 # condition dominates on ceiling at the same spread. Verify: the grid table in the method section.
 
 CUBE_RATE: float | None = None

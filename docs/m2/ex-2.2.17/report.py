@@ -47,7 +47,7 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-Ex-2.2.14 put `difference` on e₁, and the anchor settled on the state at the op word. This pass edits that state on the stored checkpoints, with two operators that have a defined landing there, and compares each with simply masking the word, to find out whether the anchor holds more than the identity of the token.
+Ex-2.2.14 put `difference` on e₁, and the anchor settled on the state at the op word. This pass edits that state on the stored checkpoints. It uses two operators that have a defined landing there, and compares each with simply masking the word. The question is whether the anchor holds more than the identity of the token.
 ///
 
 ## Findings
@@ -69,13 +69,16 @@ The [D2.2 design](../d2.2/design.md#quick-route) names this pass as round 1 of t
 
 ## Why this pass
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored an operation for the first time. `difference` landed on e₁ at twice the margin *red* reached, held through the anneal, and cost the task nothing. It also showed where the anchor went: on the lines of the op the state at the op word sits at a cosine near 1 with e₁ at every slice, the use sites `=` and the answer carry about 0.1 under the whole-line pull, and with the op word alone pulled the blocks carry a twentieth of that to `=` and none to the answer.
+[Ex-2.2.14](../ex-2.2.14/report.py) anchored an operation for the first time. `difference` landed on e₁ at twice the margin *red* reached, held through the anneal, and cost the task nothing. It also showed where the anchor went. On the lines of the op, the state at the op word sits at a cosine near 1 with e₁ at every slice. Under the whole-line pull, the use sites (`=` and the answer) have an alignment of about 0.1. With the op word alone pulled, the blocks carry a twentieth of that to `=` and none to the answer.
 
-So the anchor may hold no more than the identity of one token. D2.2 asks whether removing the op from the axis removes the ability to perform it, and at the op word that question is confounded: suppressing the state at the word removes the op, and so would masking the word. The pass separates the two by running a token mask beside every edit. What the edits do beyond the mask, on the lines of the op and on those of the other ten, is what the anchor adds over knowing which token names the op.
+So the anchor may hold no more than the identity of one token. D2.2 asks whether removing the op from the axis removes the ability to perform it. At the op word that question is confounded: suppressing the state at the word removes the op, but so would masking the word. The pass separates the two by running a token mask beside every edit. What the edits do beyond the mask (on the lines of the op, and on those of the other ten ops) is what the anchor adds over knowing which token names the op.
 
-The geometry also rules out the plain projection at that site. Removing e₁ from a state that is almost all e₁ leaves a small remainder, which the re-normalization scales up by $1/\sqrt{{1 - x_1^2}}$, so the edited state is whatever the remainder happened to be. Two operators do have a landing there: the reflection, which sends a state at alignment α to −α and keeps the rest, and a repulsion onto the antipode, where the rest drops out and every edited state lands on −e₁ itself. The pair also separates a question the reflection alone cannot: whether the remainder still carries the token.
+The geometry also rules out the plain projection at that site. Removing e₁ from a state that is almost all e₁ leaves a small remainder. Re-normalization then scales it up by $1/\sqrt{{1 - x_1^2}}$, so the edited state is whatever the remainder happened to be. Two operators do have a defined landing there:
+(a) the reflection, which sends a state at alignment α to −α and keeps the rest; and
+(b) a repulsion onto the antipode, where the rest drops out and every edited state lands on −e₁ itself.
+The pair also answers a question the reflection alone cannot: whether the remainder still carries the token.
 
-One row edits the use site `=` instead, where the whole-line pull put a little of the op. If that little is what the model reads the op from, the anchor holds more than a token.
+One row edits the use site `=` instead, where the whole-line pull put a little of the op. If the model reads the op from that small component, the anchor holds more than a token.
 
 ## Conditions
 
@@ -87,7 +90,7 @@ Nothing is trained. The pass scores fifteen stored checkpoints under the clean f
 
 Every row acts at all five slices, the embedding included, at one position. The answer position is not edited: the answer is read from the logits at `=`, so an edit at the answer position cannot move the completion.
 
-**The lines.** Every probe line of every op in table A+: the 5,832 lines per op ex-2.2.9 built, and 11,664 for the three order-sensitive ops, 81,648 in all. The gated measurements are on the `difference` lines and on the lines of the other ten ops of the primary; the op-word arm and the control run under every row as references.
+**The lines.** Every probe line of every op in table A+, as built by ex-2.2.9: 5,832 lines per op, and 11,664 for each of the three order-sensitive ops, 81,648 in all. The gated measurements are taken on the primary, on the `difference` lines and on the lines of the other ten ops. The op-word arm and the control run under every row as references.
 
 **The seeds.** Five per condition, as stored. The control seeds are those of ex-2.2.11, so every comparison with it is between seed means.
 
@@ -108,7 +111,7 @@ Every row acts at all five slices, the embedding included, at one position. The 
 <dd>The angle between the state as it arrived at an edited slice and the state the next block consumed, per slice. Closed-form for each operator, and checked against the measured angle on every line.</dd>
 </dl>
 
-Before any checkpoint is read, the op table gives the distribution of *k* over `difference`'s lines: how many of them are named, and how the shared ones split. The pass groups its per-line measurements by these bins.
+Before any checkpoint is read, the op table gives the distribution of *k* over the lines of `difference`: how many of them are named, and how the shared ones split. The pass groups its per-line measurements by these bins.
 """
 
 
@@ -155,9 +158,9 @@ rf"""
 
 **What we expect.** On the primary, each op-word edit takes `difference` out. On the named lines the seed-mean expected exact match, about 0.97 clean, falls to at most {ex.REMOVAL_GATE:g} under `reflect` and under `pole`; between {ex.REMOVAL_GATE:g} and {ex.REMOVAL_PARTIAL:g} is partial. The mask sets the reference: it removes the word, so its own drop is what removing the op looks like, and an edit that matches it has done as much.
 
-Two contrary outcomes mean different things. If `pole` clears the gate and `reflect` does not, the remainder the reflection keeps still carries the token: the model reads `difference` from the off-axis part of the state, which the pole discards. If neither clears it, the model applies the op with the state at its op word on the far side of the sphere, and reads the op from somewhere the axis at the op word does not reach.
+Two contrary outcomes mean different things. If `pole` clears the gate and `reflect` does not, the remainder the reflection keeps still carries the token. That is, the model reads `difference` from the off-axis part of the state, which the pole discards. If neither clears it, the model still applies the op even with the op-word state on the far side of the sphere. It must then read the op from somewhere the axis at the op word does not reach.
 
-The control under `reflect` is the calibration: its drop on `difference` lines stays within the task gate ({ex.TASK_GATE:g}), since its op word holds almost none of e₁. `pole` leaves the control untouched by construction, and the pass counts the states it moves there, which should be none.
+The control under `reflect` is the calibration. Its op word holds almost none of e₁, so its drop on `difference` lines should stay within the task gate ({ex.TASK_GATE:g}). `pole` leaves the control untouched by construction; the pass counts the states it moves there, which should be none.
 
 The normalized distances are quoted beside expected exact match: they say whether the removed answers move one step or across the cube.
 
@@ -167,9 +170,9 @@ One figure: per row (`reflect`, `pole`, `mask`), a column of per-seed expected e
 
 ## The damage follows op-relevance (H2)
 
-**What we expect.** With the op removed, the model answers as some mixture of the other ops. If that mixture is the designed null, its expected exact match on a `difference` line is 1 − r, so on the primary the seed-mean expected exact match under `reflect` and under `pole`, per bin of *k*, is within {ex.NULL_TOL:g} of the mean 1 − r of the bin on every bin with at least {ex.NULL_MIN_LINES} lines. The Spearman correlation between a line's r and its drop is reported beside.
+**What we expect.** With the op removed, the model answers as some mixture of the other ops. If that mixture is the designed null, its expected exact match on a `difference` line is 1 − r. So we predict that on the primary, under `reflect` and under `pole`, the seed-mean expected exact match in each bin of *k* is within {ex.NULL_TOL:g} of the mean 1 − r of that bin. This applies to every bin with at least {ex.NULL_MIN_LINES} lines. The Spearman correlation between the r of a line and its drop is reported beside it.
 
-A drop that overshoots the null on every bin (expected exact match near zero on shared lines too) means the model does not fall back to the other ops: the edited state sends it somewhere none of them go. A drop that undershoots on the shared bins means it falls back to one op, or a few, that happen to agree with `difference` there; the composition below says which. The mask is measured the same way, since the null is a claim about what a model that has lost the op does, and the mask is the plainest way to lose it.
+Suppose the drop overshoots the null on every bin, with expected exact match near zero on shared lines too. Then the model does not fall back to the other ops; the edited state sends it somewhere none of them go. If instead the drop undershoots on the shared bins, the model falls back to one op, or a few, that happen to agree with `difference` there. The composition below says which. The mask is measured the same way. The null is a claim about what a model that has lost the op does, and the mask is the plainest way to lose it.
 
 /// admonition | TODO
 One figure: expected exact match against k, one panel per op-word row, with 1 − r̄ of the null per bin as a step and the tolerance as a band around it; seed dots and seed means per bin. A table of the same with line counts.
@@ -191,9 +194,9 @@ One figure: per op, the seed-mean drop under `reflect` on the primary and on the
 
 ## The axis at `=` marks the op (H4)
 
-**What we expect.** On the primary, removing e₁ at `=` (`equals`, the plain projection) leaves the completion of `difference` lines nearly where it was: the seed-mean drop in expected exact match is at most {ex.MARKER_MAX:g}. The axis at `=` then *marks* the op, a trace the blocks carried or the pull placed, without the model reading the op from it. A drop of at least {ex.CARRIER_MIN:g} says the axis at `=` *carries* the op: a component of about 0.1 is what the model reads, and the mask row bounds how much removal that could amount to. Between the two levels the question is unresolved.
+**What we expect.** On the primary, removing e₁ at `=` (`equals`, the plain projection) leaves the completion of `difference` lines nearly where it was: the seed-mean drop in expected exact match is at most {ex.MARKER_MAX:g}. In that case the axis at `=` *marks* the op: it holds a trace that the blocks carried or the pull placed, but the model does not read the op from it. A drop of at least {ex.CARRIER_MIN:g} would say the axis at `=` *carries* the op, meaning the model does read that component of about 0.1. The mask row bounds how much removal that could amount to. Between the two levels the question is unresolved.
 
-The op-word arm and the control run the same row as references. The arm holds about 0.05 at `=` and the control about 0.01, so both should show drops near zero; a drop on the arm comparable to the drop on the primary would say the trace the blocks carry is read, and a drop on the control would say the projection at `=` has a cost of its own.
+The op-word arm and the control run the same row as references. The arm holds about 0.05 at `=` and the control about 0.01, so both should show drops near zero. If the arm drops about as much as the primary, the model reads the trace the blocks carry. If the control drops, the projection at `=` has a cost of its own.
 
 The write at `=` is small on every condition (about 6° for an alignment of 0.1), so the marker outcome is the expected one. The carrier outcome is what would change what the write-up says about the op-word line.
 
@@ -230,9 +233,9 @@ Anything we think of after seeing the data goes here, marked as post hoc. Five d
 
 ## Discussion
 
-What this pass can settle is the scope of the ex-2.2.14 result. The anchor landed the op word on e₁ with room to spare, and the alignment measurements there could not tell an anchored operation from an anchored token. Suppression can: if the edits at the op word do what the mask does, and the edit at `=` does nothing, then the axis holds the name of the op and the model reads the op from that name, which is what a token anchor would give. That is a clean result rather than a disappointing one, since the pivot to the in-context grammar already assumes it, and it puts a number on how much of the op the use site holds.
+What this pass can settle is the scope of the ex-2.2.14 result. The anchor landed the op word on e₁ with room to spare, but the alignment measurements there could not tell an anchored operation from an anchored token. Suppression can. Suppose the edits at the op word do what the mask does, and the edit at `=` does nothing. Then the axis holds the name of the op, and the model reads the op from that name, which is what a token anchor would give. The pivot to the in-context grammar already assumes this outcome, so it would not be a setback. It would also put a number on how much of the op the use site holds.
 
-The pair of operators adds a smaller point about intervention. The projection has nowhere to land on a saturated state, and the reflection keeps a remainder that might carry the token; the pole keeps nothing. If the two agree, the remainder is inert and either operator serves; if they part, the D2.2 suppression needs the landing set rather than left to re-normalization, which is the argument for repulsion from M1 applied to a categorical concept.
+The pair of operators adds a smaller point about intervention. The projection has nowhere to land on a saturated state. The reflection keeps a remainder that might carry the token, and the pole keeps nothing. If the two agree, the remainder is inert and either operator serves. If they differ, the D2.2 suppression needs to set the landing explicitly rather than leave it to re-normalization. That is the M1 argument for repulsion, applied to a categorical concept.
 
 ## Method
 
