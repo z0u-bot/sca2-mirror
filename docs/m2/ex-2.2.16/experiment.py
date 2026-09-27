@@ -8,9 +8,10 @@ variants, and the arms the design lists, at a few seeds each, and proposes by fr
 This module holds the design constants and, below the constants, the DAG: corpus preparation (one build per
 corpus condition, with the held-out contexts and label-variant arrays a training run needs), the training task
 (ex-2.2.14's recipe over the grammar generator, with the trajectory ex-2.2.15 recorded), and the orchestration
-that ties them together. The report imports the constants and computes its method section (the posterior over
-ops and the Bayes ceiling) from the op table alone, through `posterior.py` beside it; the evaluation reads and
-the suppression pass are a later experiment's DAG, over the checkpoints and held-out sets this one publishes.
+that ties them together (stage B); then the evaluation of every run and the suppression pass on three arms,
+over the checkpoints and held-out sets stage B publishes (stage C). The report imports the constants and computes
+its method section (the posterior over ops and the Bayes ceiling) from the op table alone, through `posterior.py`
+beside it.
 
     bin/mini run docs/m2/ex-2.2.16/experiment.py --app modal --max-containers 12 --budget 6h
     bin/mini status ex-2.2.16
@@ -874,6 +875,464 @@ def publish_results(trained: list[dict], preps: dict[str, dict]) -> dict:
     return {"n_runs": len(trained), "n_conditions": len(preps)}
 
 
+# =============================================================================================
+# Stage C: the evaluation and the suppression pass
+# =============================================================================================
+#
+# Nothing above this line changes for stage C: `train_one` and `prepare_corpus_condition` keep their memo keys
+# and their evidence, so a run of the whole DAG serves stage B from the store and computes only what follows.
+
+EVAL_REF = "reports/m2/ex-2.2.16/eval"
+EVAL_ARRAYS_REF = "reports/m2/ex-2.2.16/eval-arrays/{label}"
+SUPPRESSION_REF = "reports/m2/ex-2.2.16/suppression"
+SUPPRESSION_ARRAYS_REF = "reports/m2/ex-2.2.16/suppression-arrays/{label}"
+
+SUPPRESSION_ARMS: tuple[str, ...] = (PRIMARY, "anchor-hinge", CONTROL)
+"""The arms the suppression pass scores (rule (e)): the whole-line arm, the hinge arm, and the control at the
+center, every seed of each."""
+
+EVIDENCE_BINS: tuple[float, ...] = (0.0, 0.05, 0.2, 0.5, 0.65, 0.8, 0.95, 1.0)
+"""Bin edges on the posterior on the anchored op, for the binned alignment of the evidence section: three bins
+across the middle band (0.5 to 0.95), three below it, and one above. The last bin is closed at 1."""
+# REVIEW: the report leaves the bins open. These split the middle band in three so "higher in each bin than the
+# one below it" has two steps to check; the per-context values are published beside them, so the report can
+# re-bin without re-scoring.
+
+REPULSION_KIND = "linear"
+"""The landing map of the repulsion (`sca.intervention.repulsion_mapper`): every state at or above the threshold
+lands at the landing, the form the report describes."""
+# REVIEW: `bezier` is the smooth alternative, continuous in the arriving alignment. The report says states "above
+# an alignment of 0.5" are sent to the landing, which is the linear map.
+
+QUERY_Q = 1
+QUERY_EQ = 3
+"""Offsets within the query unit of the query `?` and the query `=`: at roles `6k + 1` and `6k + 3` of a context
+of k examples. The answer is read from the logits at the query `=`."""
+VERDICT_MARK = 5
+"""Offset of the verdict marker `|` within the query unit of a verification line; the verdict is read from the
+logits there."""
+
+
+def context_margin(alpha: np.ndarray, weights: np.ndarray) -> float:
+    """The op margin of the glossary, on alignments `(L1, N, T)` of N same-length contexts: per slice, the
+    *weights*-weighted mean alignment (uniform over the contexts of the anchored op) less the mean over all
+    contexts, at the role where that gap is largest, averaged over slices.
+
+    The same statistic as the closure of that name in `train_one`, which keeps its own copy: moving it out
+    would change the source of `train_one`, which is its memo evidence, and re-train every run.
+    """
+    m = np.einsum("n,lnt->lt", weights, alpha) - alpha.mean(axis=1)
+    return float(m.max(axis=1).mean())
+
+
+def query_role(k: int, offset: int) -> int:
+    """The role of a query token in a context of *k* examples (`QUERY_Q`, `QUERY_EQ`, `VERDICT_MARK`)."""
+    return 6 * k + offset
+
+
+def fragment_starts(k: int) -> tuple[int, ...]:
+    """The example boundaries a trailing fragment starts at: after each example, the last one leaving the
+    query alone. The starts `train_one` uses for its trajectory.
+    """
+    return tuple(6 * i for i in range(1, k + 1))
+
+
+def _load_run(checkpoint, workdir):
+    """The run's model, its tokenizer, the color token ids in palette order (`sca.data.ops.colors()`, the order
+    `posterior.py` indexes), and the token → palette-index map.
+    """
+    from sca.compute.model import load_checkpoint
+    from sca.data.named_colors import WordTokenizer
+    from sca.data.ops import PALETTE
+    from sca.model import NGPT
+    from mini.store import get
+
+    get(checkpoint, workdir / "model")
+    model, config, _ = load_checkpoint(workdir)
+    assert isinstance(model, NGPT), "the operators act on the between-block stream of nGPT"
+    tokenizer = WordTokenizer(config.tokenizer)
+    color_ids = np.array([tokenizer.stoi[n] for n in PALETTE])
+    tok2color = np.full(model.transformer.wte.shape[0], -1)
+    tok2color[color_ids] = np.arange(len(PALETTE))
+    return model, tokenizer, color_ids, tok2color
+
+
+@dataclass(frozen=True)
+class Holdout:
+    """The held-out contexts of one corpus condition, split by kind: completion contexts stacked `(N, 6k + 6)`,
+    and verification lines stacked `(M, 6k + 8)` (none outside the verification corpus).
+    """
+
+    tokens: np.ndarray
+    op_ids: np.ndarray
+    posterior: np.ndarray
+    ceiling: np.ndarray
+    verify_tokens: np.ndarray
+    verify_op_ids: np.ndarray
+    verdict: np.ndarray
+
+
+def load_holdout(path, k: int) -> Holdout:
+    """Unpack the packed held-out stream `prepare_corpus_condition` published, one context per row."""
+    with np.load(path) as z:
+        tokens, lens, op_ids = z["tokens"], z["context_len"], z["op_ids"]
+        post, ceil, verdict = z["posterior"], z["ceiling"], z["verify_verdict"]
+    starts = np.concatenate([[0], np.cumsum(lens)[:-1]])
+    done = verdict < 0
+
+    def stack(mask: np.ndarray, length: int) -> np.ndarray:
+        assert (lens[mask] == length).all()
+        return tokens[starts[mask][:, None] + np.arange(length)].astype(np.int32)
+
+    return Holdout(
+        stack(done, context_length(k)),
+        op_ids[done],
+        post[done],
+        ceil[done],
+        stack(~done, context_length(k, verify=True)),
+        op_ids[~done],
+        verdict[~done].astype(bool),
+    )
+
+
+def _post_queries(P, ho: Holdout, k: int, tok2color: np.ndarray):
+    """The held-out completion contexts as `posterior.py` `Contexts`, holding what the scoring needs: the true op
+    and the query pair. The examples are left empty: the posterior over ops was computed from them at prep time.
+    """
+    from sca.data.ops import colors
+
+    n_colors = len(colors())
+    a = tok2color[ho.tokens[:, 6 * k]]
+    b = tok2color[ho.tokens[:, 6 * k + 2]]
+    assert (a >= 0).all() and (b >= 0).all(), "query operands are colors"
+    empty = np.zeros((len(a), 0), dtype=np.int64)
+    return P.Contexts(ho.op_ids.astype(np.int64), empty, empty, (a * n_colors + b).astype(np.int64))
+
+
+def _color_probs(logits: np.ndarray, color_ids: np.ndarray) -> np.ndarray:
+    """The model answer distribution over the palette: the softmax over the whole vocabulary, at the color
+    tokens. Mass on a non-color token is left out rather than renormalized away, so it counts as loss.
+    """
+    lg = logits.astype(np.float64)
+    lg -= lg.max(axis=1, keepdims=True)
+    p = np.exp(lg)
+    return (p / p.sum(axis=1, keepdims=True))[:, color_ids]
+
+
+def _match(table, ctx, p: np.ndarray) -> np.ndarray:
+    """Expected exact match per context: the model mass on each answer the true op can give on the query pair,
+    weighted by how often it gives it.
+    """
+    idx = table.idx[ctx.true_op, ctx.query_pair]  # (n, 8), −1 padding
+    prob = table.prob[ctx.true_op, ctx.query_pair]
+    return (np.take_along_axis(p, np.maximum(idx, 0), axis=1) * prob).sum(axis=1)
+
+
+def _per_op(x: np.ndarray, op_ids: np.ndarray) -> list[float | None]:
+    return [float(x[op_ids == o].mean()) if (op_ids == o).any() else None for o in range(N_OPS)]
+
+
+def _target_null(P, table, ctx, post: np.ndarray, removed: int) -> np.ndarray:
+    """`posterior.target_null`, with a context whose posterior underflowed to all on *removed* sent to the
+    uniform over the other ops, where the renormalization would divide by zero.
+    """
+    lost = np.delete(post, removed, axis=1).sum(axis=1) <= 0
+    safe = np.where(lost[:, None], 1.0, post)
+    return P.target_null(table, ctx, safe, removed)
+
+
+def _binned(post_a: np.ndarray, values: np.ndarray, edges: tuple[float, ...]) -> dict:
+    """Count and mean of *values* `(n, ...)` per bin of *post_a*; empty bins are NaN."""
+    b = np.clip(np.digitize(post_a, edges[1:-1], right=False), 0, len(edges) - 2)
+    n = [int((b == i).sum()) for i in range(len(edges) - 1)]
+    mean = [values[b == i].mean(axis=0).tolist() if c else None for i, c in enumerate(n)]
+    return {"n": n, "mean": mean}
+
+
+def eval_one(checkpoint, holdout, k: int, label: str) -> dict:
+    """Every measurement the report takes from one run, on the held-out contexts of its corpus condition, one
+    context per forward pass (the mask arms with the mask on, since it is part of the model).
+
+    On the completion contexts: expected exact match against the ceiling and floor of each context; the
+    calibration KL from the Bayes predictive to the model answer distribution at the query `=`; the mean
+    alignment per op, slice, and role; the op margin; the alignment at the query `?` and the query `=` against
+    the posterior on the anchored op, per context and binned; and the first-operand and trailing-fragment leans,
+    per fragment start and pooled. On the verification lines, if any: verification accuracy. Summaries are
+    returned as JSON; per-context arrays go to the store.
+    """
+    from sca.anchoring import alignment
+    from sca.intervention import Subspace, logits_at, projection
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "eval" / label
+    model, tokenizer, color_ids, tok2color = _load_run(checkpoint, workdir)
+    P = _get_posterior()
+    table = P.build_table(TABLE)
+    ho = load_holdout(get(holdout, workdir / "holdout.npz"), k)
+    a_id = OP_NAMES.index(ANCHORED_OP)
+    ctx = _post_queries(P, ho, k, tok2color)
+    final = len(model.transformer.blocks)
+    q_role, eq_role = query_role(k, QUERY_Q), query_role(k, QUERY_EQ)
+
+    # --- The task and the calibration check --------------------------------------------------------------
+    identity = projection(Subspace.axis(model.transformer.wte.shape[1]), 0.0)
+    p = _color_probs(logits_at(model, ho.tokens, identity, (), eq_role), color_ids)
+    eem = _match(table, ctx, p)
+    floor = P.floor(table, ctx)
+    kl = P.kl(P.predictive(table, ctx, ho.posterior), p)
+    task = {
+        name: {"all": float(x.mean()), "per_op": _per_op(x, ho.op_ids)}
+        for name, x in (("eem", eem), ("ceiling", ho.ceiling), ("floor", floor), ("kl", kl))
+    }
+    task["color_mass"] = {"all": float(p.sum(1).mean())}
+
+    # --- Alignment by op, slice, and role; the op margin ---------------------------------------------------
+    # REVIEW: alignment, the margin, and both leans are measured on the completion contexts alone, so on the
+    # verification corpus they leave its verification lines out and compare with the other arms like for like.
+    cos = alignment(model, ho.tokens)  # (L1, N, T)
+    anchored = ho.op_ids == a_id
+    weights = anchored / anchored.sum()
+    by_slice = np.einsum("n,lnt->lt", weights, cos) - cos.mean(axis=1)  # (L1, T)
+    role_mean = np.stack([cos[:, ho.op_ids == o].mean(axis=1) for o in range(N_OPS)])  # (ops, L1, T)
+
+    # --- Alignment against the posterior on the anchored op ------------------------------------------------
+    post_a = ho.posterior[:, a_id]
+    at_query = cos[:, :, [q_role, eq_role]].transpose(1, 0, 2)  # (N, L1, 2): the query `?`, the query `=`
+    evidence = {
+        "edges": list(EVIDENCE_BINS),
+        "anchored": _binned(post_a[anchored], at_query[anchored], EVIDENCE_BINS),
+        "other": _binned(post_a[~anchored], at_query[~anchored], EVIDENCE_BINS),
+    }
+
+    # --- The leans ------------------------------------------------------------------------------------------
+    fragments, total, count = [], 0.0, 0
+    for s in fragment_starts(k):
+        fc = alignment(model, np.ascontiguousarray(ho.tokens[:, s:]))  # (L1, N, T − s)
+        total += float(fc[final].sum())
+        count += fc.shape[1] * fc.shape[2]
+        fragments.append(
+            {
+                "start": s,
+                "lean": float(fc[final].mean()),
+                "lean_by_slice": fc.mean(axis=(1, 2)).tolist(),
+                "profile": fc.mean(axis=1).tolist(),  # (L1, T − s): where along the fragment the lean sits
+            }
+        )
+    leans = {
+        "op1": float(cos[final, :, 0].mean()),
+        "op1_by_slice": cos[:, :, 0].mean(axis=1).tolist(),
+        "fragment": total / count,
+        "fragments": fragments,
+    }
+
+    # --- Verification accuracy -------------------------------------------------------------------------------
+    verify = None
+    if len(ho.verify_tokens):
+        t_id, f_id = tokenizer.stoi["TRUE"], tokenizer.stoi["FALSE"]
+        lg = logits_at(model, ho.verify_tokens, identity, (), query_role(k, VERDICT_MARK)).astype(np.float64)
+        said_true = lg[:, t_id] > lg[:, f_id]
+        right = said_true == ho.verdict
+        lg -= lg.max(axis=1, keepdims=True)
+        pv = np.exp(lg) / np.exp(lg).sum(axis=1, keepdims=True)
+        mass = np.where(ho.verdict, pv[:, t_id], pv[:, f_id])
+        verify = {
+            "n": int(len(right)),
+            "accuracy": float(right.mean()),
+            "accuracy_per_op": _per_op(right.astype(float), ho.verify_op_ids),
+            "accuracy_by_verdict": {"TRUE": float(right[ho.verdict].mean()), "FALSE": float(right[~ho.verdict].mean())},
+            "verdict_mass": float(mass.mean()),
+        }
+        # REVIEW: accuracy is the verdict whose logit is larger of the two, TRUE or FALSE, rather than the argmax over
+        # the whole vocabulary; `verdict_mass` is the whole-vocabulary probability of the right verdict beside it.
+
+    arrays = put(
+        _npz(
+            op_ids=ho.op_ids.astype(np.int8),
+            posterior_anchored=post_a.astype(np.float32),
+            eem=eem.astype(np.float32),
+            ceiling=ho.ceiling.astype(np.float32),
+            floor=floor.astype(np.float32),
+            kl=kl.astype(np.float32),
+            align_query=at_query.astype(np.float16),
+        ),
+        name=f"ex-2.2.16-{label}-eval.npz",
+    )
+    return {
+        "label": label,
+        "k": k,
+        "n": int(len(ho.tokens)),
+        "n_per_op": [int((ho.op_ids == o).sum()) for o in range(N_OPS)],
+        "roles": {"query ?": q_role, "query =": eq_role},
+        "task": task,
+        "margin": {
+            "value": context_margin(cos, weights),
+            "by_slice": by_slice.max(axis=1).tolist(),
+            "role_by_slice": by_slice.argmax(axis=1).tolist(),
+        },
+        "alignment": role_mean.tolist(),
+        "evidence": evidence,
+        "leans": leans,
+        "verify": verify,
+        "arrays": arrays,
+    }
+
+
+def suppression_edits(sub) -> list[tuple[str, float, Any]]:
+    """Every operator at every dose rule (e) scores: the projection along γ, the repulsion along its landing,
+    and the reflection, as `(operator, dose, edit)`.
+    """
+    from sca.intervention import projection, repulsion
+
+    return [
+        *(("projection", g, projection(sub, g)) for g in DOSE_GAMMAS),
+        *(("repulsion", b, repulsion(sub, REPULSION_THRESHOLD, b, REPULSION_KIND)) for b in REPULSION_LANDINGS),
+        ("reflection", REFLECT_GAMMA, projection(sub, REFLECT_GAMMA)),
+    ]
+
+
+def site_positions(site: str, k: int) -> np.ndarray:
+    """The positions an edit at *site* touches, as a mask over a completion context. Every position is a mask of
+    ones rather than no mask, so all three sites share one compiled program per operator.
+    """
+    mask = np.zeros(context_length(k), dtype=np.float32)
+    match site:
+        case "query ?":
+            mask[query_role(k, QUERY_Q)] = 1
+        case "query =":
+            mask[query_role(k, QUERY_EQ)] = 1
+        case "every position":
+            mask[:] = 1
+        case _:
+            raise ValueError(site)
+    return mask
+
+
+def suppress_one(checkpoint, holdout, k: int, label: str) -> dict:
+    """The suppression pass on one run: each operator at each dose and site (`EDIT_SITES`), acting at every slice,
+    scored on the held-out completion contexts of every op. Per context: expected exact match on the clean pass,
+    under each edit, and under the target null (the posterior with the anchored op removed); and the KL from the
+    target-null predictive to the clean and edited answer distributions. Per-op means are returned; per-context
+    arrays go to the store.
+    """
+    from sca.intervention import Subspace, logits_at
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "suppress" / label
+    model, _, color_ids, tok2color = _load_run(checkpoint, workdir)
+    P = _get_posterior()
+    table = P.build_table(TABLE)
+    ho = load_holdout(get(holdout, workdir / "holdout.npz"), k)
+    a_id = OP_NAMES.index(ANCHORED_OP)
+    ctx = _post_queries(P, ho, k, tok2color)
+    eq_role = query_role(k, QUERY_EQ)
+    sub = Subspace.axis(model.transformer.wte.shape[1])
+    every = tuple(range(len(model.transformer.blocks) + 1))
+
+    null_post = _target_null(P, table, ctx, ho.posterior, a_id)
+    q_null = P.predictive(table, ctx, null_post)
+    null_eem = P.expected_match(table, ctx, null_post)
+
+    edits = suppression_edits(sub)
+    p = _color_probs(logits_at(model, ho.tokens, edits[0][2], (), eq_role), color_ids)
+    clean_eem, clean_kl = _match(table, ctx, p), P.kl(q_null, p)
+
+    records, eem, kl_null = [], [], []
+    for site in EDIT_SITES:
+        mask = site_positions(site, k)
+        for operator, dose, edit in edits:
+            p = _color_probs(logits_at(model, ho.tokens, edit, every, eq_role, mask), color_ids)
+            e, d = _match(table, ctx, p), P.kl(q_null, p)
+            eem.append(e)
+            kl_null.append(d)
+            records.append(
+                {
+                    "operator": operator,
+                    "dose": dose,
+                    "site": site,
+                    "eem": _per_op(e, ho.op_ids),
+                    "drop": _per_op(clean_eem - e, ho.op_ids),
+                    "kl_null": _per_op(d, ho.op_ids),
+                }
+            )
+    arrays = put(
+        _npz(
+            op_ids=ho.op_ids.astype(np.int8),
+            clean_eem=clean_eem.astype(np.float32),
+            null_eem=null_eem.astype(np.float32),
+            clean_kl_null=clean_kl.astype(np.float32),
+            eem=np.stack(eem).astype(np.float32),  # (edit, N), in the order of `edits`
+            kl_null=np.stack(kl_null).astype(np.float32),
+        ),
+        name=f"ex-2.2.16-{label}-suppression.npz",
+    )
+    return {
+        "label": label,
+        "k": k,
+        "slices": list(every),
+        "clean": {"eem": _per_op(clean_eem, ho.op_ids), "kl_null": _per_op(clean_kl, ho.op_ids)},
+        "null": {"eem": _per_op(null_eem, ho.op_ids)},
+        "edits": records,
+        "arrays": arrays,
+    }
+
+
+def design_c() -> dict[str, Any]:
+    """The stage C constants the report reads beside the eval and suppression results."""
+    return {
+        "experiment": "ex-2.2.16",
+        "anchored_op": ANCHORED_OP,
+        "ops": list(OP_NAMES),
+        "final_slice": FINAL_SLICE,
+        "offsets": {"query ?": QUERY_Q, "query =": QUERY_EQ, "verdict mark": VERDICT_MARK},
+        "evidence_bins": list(EVIDENCE_BINS),
+        "middle_band": list(MIDDLE_BAND),
+        "suppression": {
+            "arms": list(SUPPRESSION_ARMS),
+            "sites": list(EDIT_SITES),
+            "gammas": list(DOSE_GAMMAS),
+            "landings": list(REPULSION_LANDINGS),
+            "threshold": REPULSION_THRESHOLD,
+            "kind": REPULSION_KIND,
+            "reflect_gamma": REFLECT_GAMMA,
+            "selectivity_gate": SELECTIVITY_GATE,
+            "grading_min_damage": GRADING_MIN_DAMAGE,
+        },
+        "rules": {
+            "ceiling_margin": CEILING_MARGIN,
+            "seed_band_sd": SEED_BAND_SD,
+            "margin_keep": MARGIN_KEEP,
+            "saturation_level": SATURATION_LEVEL,
+            "kl_calibrated": KL_CALIBRATED,
+            "hinge_cap": HINGE_CAP,
+        },
+    }
+
+
+def publish_evaluation(runs: list[dict], evaled: list[dict], suppressed: list[dict]) -> dict:
+    """The eval and suppression results, each as one JSON under its ref (the per-context arrays referenced by
+    label), and every per-context array under its own ref. *runs* names the arm, seed, and corpus condition
+    of each evaluated run. Stage B's refs are left as they are.
+    """
+    import json
+
+    from mini.store import put, set_ref
+
+    meta = {r["label"]: r for r in runs}
+
+    def slim(r: dict) -> dict:
+        return meta[r["label"]] | {k: v for k, v in r.items() if k != "arrays"}
+
+    for r in evaled:
+        set_ref(EVAL_ARRAYS_REF.format(label=r["label"]), r["arrays"])
+    for r in suppressed:
+        set_ref(SUPPRESSION_ARRAYS_REF.format(label=r["label"]), r["arrays"])
+    body = {"design": design_c(), "runs": [slim(r) for r in evaled]}
+    set_ref(EVAL_REF, put(json.dumps(body).encode(), name="ex-2.2.16-eval.json"))
+    body = {"design": design_c(), "runs": [slim(r) for r in suppressed]}
+    set_ref(SUPPRESSION_REF, put(json.dumps(body).encode(), name="ex-2.2.16-suppression.json"))
+    return {"n_evaled": len(evaled), "n_suppressed": len(suppressed)}
+
+
 # --- Orchestration ----------------------------------------------------------------------------
 
 
@@ -930,18 +1389,65 @@ def run(
     return trained, preps
 
 
+def run_rows(arms: tuple[Arm, ...], seeds: int) -> list[dict]:
+    """Who each run is, in the order `cells` lists them (and so `run` returns them): the arm, the seed, the
+    label, and the corpus condition.
+    """
+    return [
+        {
+            "label": f"{a.name}-s{seed}",
+            "arm": a.name,
+            "seed": seed,
+            "corpus_key": cond_key(*(a.condition if a.group == "control" else CENTRE), a.verify),
+            "k": (a.condition if a.group == "control" else CENTRE)[0],
+        }
+        for a in arms
+        for seed in range(min(a.seeds, seeds))
+    ]
+
+
+def evaluate(
+    ctx: Ctx, arms: tuple[Arm, ...], trained: list[dict], preps: dict[str, dict], seeds: int
+) -> tuple[list[dict], list[dict], list[dict]]:
+    """Stage C over stage B's results: the eval on every run, then the suppression pass on the runs of
+    `SUPPRESSION_ARMS`. Keyed on each checkpoint and held-out set, so a re-run serves both from the store.
+    """
+    rows = run_rows(arms, seeds)
+    assert [r["label"] for r in rows] == [t["label"] for t in trained], "rows follow the order of `cells`"
+    ckpt = [t["checkpoint"] for t in trained]
+    holdout = [preps[r["corpus_key"]]["holdout"] for r in rows]
+    evaled = ctx.map(eval_one, ckpt, holdout, [r["k"] for r in rows], [r["label"] for r in rows], role="eval")
+    sup = [i for i, r in enumerate(rows) if r["arm"] in SUPPRESSION_ARMS]
+    suppressed = ctx.map(
+        suppress_one,
+        [ckpt[i] for i in sup],
+        [holdout[i] for i in sup],
+        [rows[i]["k"] for i in sup],
+        [rows[i]["label"] for i in sup],
+        role="suppress",
+    )
+    return rows, evaled, suppressed
+
+
 def main(ctx: Ctx) -> dict:
     trained, preps = run(ctx, ARMS, N_LINES, HOLDOUT_CONTEXTS, N_TRAJ_PROBE, SEEDS, EPOCHS, TRAJ_STRIDE)
-    return ctx.run(publish_results, trained, preps, role="prep")
+    published = ctx.run(publish_results, trained, preps, role="prep")
+    rows, evaled, suppressed = evaluate(ctx, ARMS, trained, preps, SEEDS)
+    return published | ctx.run(publish_evaluation, rows, evaled, suppressed, role="prep")
 
 
 COMPUTE = {
     # Four corpus builds (~300k contexts each) and the posterior scan over their anchored contexts and
-    # held-out sets; and the fan-in that writes every ref.
+    # held-out sets; and the fan-ins that write every ref.
     "prep": dict(cpu=2, timeout=1800),
     # 13,000 to 16,500 steps at L4 (the budget section works the arithmetic), the trailing-fragment lean measured
     # at every trajectory point; the watchdog covers the checkpoint upload.
     "train": dict(gpu="L4", timeout=3600, watchdog=900, watchdog_grace=900),
+    # Forward passes only, over 22,000 held-out contexts: the eval makes k + 3 of them, the suppression pass 22
+    # (seven edits at three sites, and the clean pass). On four local CPU cores at k = 3 they take about 16 s and
+    # 94 s, so an L4 spends most of its time starting up and the timeouts leave a wide margin.
+    "eval": dict(gpu="L4", timeout=900),
+    "suppress": dict(gpu="L4", timeout=1200),
 }
 
 experiment = Experiment(name="ex-2.2.16", main=main, roles=COMPUTE)
