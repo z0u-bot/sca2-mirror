@@ -196,18 +196,24 @@ The label stays binary on the whole context, since an M3 labeller would likely g
 
 #### The pilot
 
-Round 2 of the [quick route](#quick-route). None of its reads are gated; it proposes the settings that round 3 adopts, by rules frozen with its plan. Three seeds per arm, at d64-L4 unless noted. The arms:
+Round 2 of the [quick route](#quick-route). None of its measurements are gated; it proposes the settings that round 3 adopts, by rules frozen with its plan. Three seeds per arm, at d64-L4 and crop policy `whole` unless noted. The arms:
 
-- the control at three cells of example count and ρ, around three examples and ρ = 0.3, picked from the posterior figures in its method section;
-- one larger control (wider or deeper) at the middle cell, which matters only if d64-L4 falls short of the ceiling, and then saves a round;
-- anchored `difference` at the middle cell, with the whole-line label and with each of the four label variants;
+- the control at three conditions of example count and ρ, around three examples and ρ = 0.3, picked from the posterior figures in its method section;
+- one larger control (wider or deeper) at the middle condition, which matters only if d64-L4 falls short of the ceiling, and then saves a round;
+- anchored `difference` at the middle condition, with the whole-line label and with each of the four label variants;
 - the whole-line label with the pull capped by a hinge, in case the query `?` saturates;
-- the control and the whole-line anchored arm with verification lines in the corpus.
+- the control and the whole-line anchored arm with verification lines in the corpus;
+- the control and the whole-line anchored arm with the newline mask, which stops attention at the line break;
+- the whole-line anchored arm under crop policy `knowable`, as an oracle: it needs to know where the evidence is, so it cannot be adopted, but it bounds what any window-only policy could reach.
 
-Beside the control and anchoring reads, the pilot runs a scoring-only suppression pass on its own checkpoints: the projection, the reflection, and a repulsion, each at the query `?`, the query `=`, and every position.
+<!-- REVIEW: the crop policy, the mask arms, and the oracle come from ex-2.2.15's outcome. Its rule chose `half`; the review chose `whole`, because a whole context always shows its evidence (its report, "The rule for the pilot"). The mask arms and the `knowable` oracle are the review's asks recorded in todo/science/newline-mask-with-each-crop-policy.md. Verify: ex-2.2.15's report and that item. -->
+
+The pilot is [ex-2.2.16](/docs/m2/ex-2.2.16/report.py).
+
+Beside the control and anchoring measurements, the pilot runs a scoring-only suppression pass on its own checkpoints: the projection, the reflection, and a repulsion, each at the query `?`, the query `=`, and every position.
 
 The rules take this shape, with their margins set in the plan:
-**(a)** Grammar: the cell with the widest spread of posteriors, among those where the d64-L4 control comes within the margin of the ceiling, goes forward. If none does, the larger control goes forward; if it also falls short, the grammar is reworked before anything is anchored. That is the one outcome that adds a round.
+**(a)** Grammar: the condition with the widest spread of posteriors, among those where the d64-L4 control comes within the margin of the ceiling, goes forward. If none does, the larger control goes forward; if it also falls short, the grammar is reworked before anything is anchored. That is the one outcome that adds a round.
 **(b)** Label: the whole-line label stays the primary unless a variant clears the task gate by more than the seed band with the anchor held. Variant (d) trains the grading that (b) above reads, so it is reported and not promoted.
 **(c)** Hinge: the capped pull goes forward if the uncapped arm saturates at the query `?`, as the op word did in ex-2.2.14.
 **(d)** Verification: verification lines stay in the corpus if they move completion by less than the seed band, on the control and the anchored arm.
