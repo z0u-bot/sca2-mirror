@@ -15,7 +15,16 @@ rising until the schedule wound down. Round 2 trains for eight times the length 
 and a warmup of fixed length, sweeping the peak learning rate at one seed each, after a learning-rate finder
 on the same config sets the range (`ACTIVE_ROUNDS` holds round 2 back until the finder has run).
 
-    bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 2h
+In round 2 the three HSV ops rose steeply once the decaying learning rate passed below about 0.004, while
+the rates that never got that low (or got there too late) stayed on the plateau. Round 3 keeps the rate near
+that level on purpose: a warmup-stable-decay schedule, written as a dopesheet, warms up to 0.00316, eases to
+0.0025, holds there until 85% of the run, and then anneals to the same floor as the cosine. It trains at
+three seeds, beside two more seeds of the cosine at the same peak, paired by model seed.
+
+    bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 2h --keep-stale-done
+
+`--keep-stale-done` since round 3: its schedule touched `SchedulerConfig` and the scheduler, which the code
+fingerprint of every earlier run follows, though neither changes what those runs computed.
     bin/mini status ex-2.2.17
 """
 
@@ -106,6 +115,11 @@ class Arm:
     warmup_epochs: float | None = None
     """A warmup of fixed length in epochs; `None` keeps ex-2.2.16's rule, a tenth of the run."""
     round: int = 1
+    first_seed: int = 0
+    """The first seed index; a promoted arm starts after the seeds an earlier round already trained."""
+    lr_sheet: str | None = None
+    """A dopesheet for the learning rate, as a multiple of `peak_lr` over the whole run (round 3); `None` keeps
+    the warmup-and-cosine schedule."""
 
 
 # --- Round 1: training length against peak learning rate ----------------------------------------------------
@@ -147,11 +161,53 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1, 2)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
-ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 if a.round in ACTIVE_ROUNDS)
+# --- Round 3: hold the learning rate where the HSV ops rose -------------------------------------------------
+
+HOLD_LR = 0.0025
+"""The rate the round-3 schedule holds: inside the band (0.0022 to 0.004) where round 2's HSV ops rose."""
+
+WSD_SHEET = f"""STEP,PHASE,ACTION,lr
+0,Warmup,,0.01
+125,Ease,,1
+1070,Hold,,{HOLD_LR / SWEEP_LRS[2]:.4f}
+8500,Anneal,,{HOLD_LR / SWEEP_LRS[2]:.4f}
+10000,,,0.01
+"""
+"""The round-3 schedule, keyed in hundredths of a percent of the run and as a multiple of the peak rate: warm up
+over 1.25% of the run (the 5 epochs of round 2), ease to the hold rate by about step 11,000, hold until 85%, and
+anneal to the cosine floor (1% of peak). Keyframes interpolate with minimum jerk, an ease-in-out much like the
+half cosine."""
+
+ROUND_3: tuple[Arm, ...] = (
+    Arm(
+        f"wsd-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "warmup-stable-decay, holding at the rate where round 2's HSV ops rose",
+        3,
+        True,
+        WARMUP_EPOCHS,
+        3,
+        lr_sheet=WSD_SHEET,
+    ),
+    Arm(
+        f"sweep-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "two more seeds of the masked cosine at the same peak, the comparison for `wsd`",
+        3,
+        True,
+        WARMUP_EPOCHS,
+        3,
+        first_seed=1,
+    ),
+)
+
+ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 if a.round in ACTIVE_ROUNDS)
 
 # --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
 
@@ -223,7 +279,7 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
     rows = []
     for a in arms:
         epochs = EPOCHS * a.epoch_mult
-        for seed in range(min(a.seeds, seeds)):
+        for seed in range(a.first_seed, min(a.seeds, seeds)):
             model_seed = SEED_OFFSET + seed
             config = ex2216._make_config(vocab, model_seed, epochs, n_embd, n_layer)
             config.tokenizer = resolved["meta"].tokenizer_config.model_copy()
@@ -236,6 +292,8 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
                 )
             if a.warmup_epochs is not None:
                 config.scheduler.warmup_epochs = a.warmup_epochs
+            if a.lr_sheet is not None:
+                config.scheduler.lr_sheet = a.lr_sheet
             base = ex2216.Condition229(
                 a.name, 1, a.name, lam=0.0, tau=ex2216.TAU, epochs=epochs, ops=ex2216.OP_NAMES, n_lines=ex2216.N_LINES
             )
@@ -251,6 +309,7 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
                     "mask": a.mask,
                     "warmup_epochs": config.scheduler.warmup_epochs,
                     "round": a.round,
+                    "lr_sheet": a.lr_sheet,
                     "seed": seed,
                     "model_seed": model_seed,
                     "label": f"{a.name}-s{seed}",
@@ -454,6 +513,8 @@ def design() -> dict[str, Any]:
         "warmup_epochs": WARMUP_EPOCHS,
         "sweep_lrs": list(SWEEP_LRS),
         "active_rounds": list(ACTIVE_ROUNDS),
+        "hold_lr": HOLD_LR,
+        "wsd_sheet": WSD_SHEET,
         "finder": {"range": list(FINDER_RANGE), "zooms": FINDER_ZOOMS, "steps": FINDER_STEPS},
         "block": ex2216.BLOCK,
         "model": ex2216.MODEL,
