@@ -426,10 +426,10 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-The first experiment on the grammar from the [D2.2 pivot](../d2.2/pivot.md): the model infers the op from a few solved examples, with no word to name it. We train the control at three conditions of example count and replacement rate, anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, and score everything against a ceiling computed from the op table. Frozen rules say what round 3 adopts.
+The first experiment on the grammar from the [D2.2 pivot](/docs/m2/d2.2/pivot.md): the model infers the op from a few solved examples, with no word to name it. We train the control at three conditions of example count and replacement rate, anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, and score everything against a ceiling computed from the op table. Frozen rules say what round 3 adopts.
 ///
 
-This is round 2 of the [quick route](../d2.2/design.md#quick-route). The method section folds in the [posterior scouting report](/todo/science/scout-posterior-in-context-grammar.md): it computes the posterior over ops and the Bayes ceiling from the op table, with no training, and uses them to pick the three grammar conditions for the control.
+This is round 2 of the [quick route](/docs/m2/d2.2/design.md#quick-route). The method section folds in the [posterior scouting report](/todo/science/scout-posterior-in-context-grammar.md): it computes the posterior over ops and the Bayes ceiling from the op table, with no training, and uses them to pick the three grammar conditions for the control.
 
 ## Findings
 
@@ -443,7 +443,7 @@ The method section on the posterior and the ceiling is complete and computed; th
 
 ## Why this experiment
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored an op and every gate passed, but the anchor went to the word that names the op, so the anchored concept was an attribute of one token. The [pivot](../d2.2/pivot.md) takes op words out of the grammar.
+[Ex-2.2.14](/docs/m2/ex-2.2.14/report.py) anchored an op and every gate passed, but the anchor went to the word that names the op, so the anchored concept was an attribute of one token. The [pivot](/docs/m2/d2.2/pivot.md) takes op words out of the grammar.
 
 Each line is now one context: a few solved examples of one op, written with `?` in place of the op word, then a query under the same op. The op is inferred from the examples, and the anchored concept is "the op in this context is `{ex.ANCHORED_OP}`", which no token names.
 
@@ -451,7 +451,7 @@ The pilot does four jobs the old plan spread over four rounds: it scouts the pos
 
 The control is the regression check; a grammar this different needs its own, as ex-2.2.3 did. No model trained on the corpus can know more about the op than the examples say, and the posterior captures that. So instead of fixed accuracy numbers, the task gate is how far the control falls short of the ceiling the posterior sets, with an analytic floor beside it.
 
-The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](../ex-2.2.15/report.py) found that lines cut short by the window carry the first-operand lean. Its review chose `whole` over the rule's `half` because a whole line always shows its evidence, which matters more once the evidence is a set of examples, and its discussion asks the pilot to watch the trailing-fragment lean as well.
+The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](/docs/m2/ex-2.2.15/report.py) found that lines cut short by the window show the first-operand lean. Its review chose `whole` over the rule's `half` because a whole line always shows its evidence, which matters more once the evidence is a set of examples, and its discussion asks the pilot to watch the trailing-fragment lean as well.
 
 ## Glossary
 
@@ -479,7 +479,7 @@ The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines 
 ## Conditions
 
 /// admonition | TODO
-The conditions table: the control at `{"`, `".join(COND_NAMES)}`; one larger control at the center; anchored `{ex.ANCHORED_OP}` at the center under the whole-line label and each of the four label variants; the hinge-capped pull; the control and the whole-line arm with verification lines; the newline mask on the control and the whole-line arm; and `knowable` as an oracle. Three seeds per arm at {ex.MODEL}, crop policy `{ex.CROP_POLICY}`. The list is in the [design](../d2.2/design.md#the-pilot); the table and its prose go here once the arms are settled.
+The conditions table: the control at `{"`, `".join(COND_NAMES)}`; one larger control at the center; anchored `{ex.ANCHORED_OP}` at the center under the whole-line label and each of the four label variants; the hinge-capped pull; the control and the whole-line arm with verification lines; the newline mask on the control and the whole-line arm; and `knowable` as an oracle. Three seeds per arm at {ex.MODEL}, crop policy `{ex.CROP_POLICY}`. The list is in the [design](/docs/m2/d2.2/design.md#the-pilot); the table and its prose go here once the arms are settled.
 ///
 
 ## The grammar rule (a)
@@ -487,6 +487,14 @@ The conditions table: the control at `{"`, `".join(COND_NAMES)}`; one larger con
 /// admonition | TODO
 The frozen rule: the condition with the widest spread of posteriors, among those where the {ex.MODEL} control comes within a margin of the ceiling, goes forward. The margin, the spread statistic (the method proposes the standard deviation of the posterior on the true op), and the larger-control branch to be set. Figure: control EEM per condition as seed dots against the ceiling and floor drawn as dashed lines per condition, with the skill score as a table column.
 ///
+
+<!-- REVIEW: two open points for setting this rule. (1) The calibrated ceiling is not an upper bound on EEM: a control
+that sharpens past calibration can score above it, up to the hard-EM ceiling. "Within a margin of the ceiling" should
+say whether it is one-sided, and whether a control above the ceiling passes. (2) The standard deviation grows with
+bimodality as well as with grading: on the three-example row it peaks at k3-r0.4, which has no more middle-band
+contexts than the center. Among the three proposed conditions the two statistics agree, so the choice matters only if
+the grid changes. -->
+
 
 ## The label rule (b)
 
@@ -564,7 +572,7 @@ Clean examples pin the op down fast, so the example count alone grades very litt
 
 A model that has learned everything the examples say answers the query with the answer distribution weighted by the posterior, $q(y) = \sum_o \pi_o P_o(y \mid c, d)$ for the query pair $(c, d)$. That is the distribution cross-entropy training converges to, and a calibrated model holds it.[^calibrated]
 
-The reports score expected exact match: the probability mass the model puts on the answer distribution of the line. So the ceiling is $\sum_y q(y)\, P_t(y \mid c, d)$ under the true op *t*, averaged over contexts.
+Our reports score expected exact match: the probability mass the model puts on the answers the true op can give, weighted by how often it gives them. So the ceiling is $\sum_y q(y)\, P_t(y \mid c, d)$ under the true op *t*, averaged over contexts.
 
 Told the op, the same predictor scores $\sum_y P_t(y)^2$, which is {TOLD_OP:.3f} over the table. The shortfall from 1 comes from stochastic rounding, and it does not depend on the examples or the noise.
 
@@ -612,13 +620,16 @@ Rule (a) picks the widest spread among the conditions where the control nears it
 
 `{COND_NAMES[1]}` is the center. `{COND_NAMES[0]}` steps ρ down on the same line length: it gives up spread ({spread(*ex.GRAMMAR_CONDITIONS[0]):.2f} against {spread(*ex.CENTRE):.2f}) for a higher ceiling, and is the fallback within the same block size if the control falls short at the center.
 
-`{COND_NAMES[2]}` adds one example at the center ρ, which raises the ceiling by {ceiling(*ex.GRAMMAR_CONDITIONS[2]) - ceiling(*ex.CENTRE):.2f} and keeps most of the spread ({spread(*ex.GRAMMAR_CONDITIONS[2]):.2f}). It asks whether more evidence buys a higher ceiling without flattening the stimulus, at {ex.context_tokens(4)} tokens per line rather than {ex.context_tokens(3)}.
+`{COND_NAMES[2]}` adds one example at the center ρ, which raises the ceiling by {ceiling(*ex.GRAMMAR_CONDITIONS[2]) - ceiling(*ex.CENTRE):.2f} and keeps most of the spread ({spread(*ex.GRAMMAR_CONDITIONS[2]):.2f}), though fewer contexts sit in the middle band ({band_shares(*ex.GRAMMAR_CONDITIONS[2])[1]:.0%} against {band_shares(*ex.CENTRE)[1]:.0%}). It asks whether more evidence buys a higher ceiling without flattening the stimulus, at {ex.context_tokens(4)} tokens per line rather than {ex.context_tokens(3)}.
 
-Two alternatives were weighed. `{cond_name(*ALT_34)}` has the widest spread on the three-example row, but its middle-band share ({band_shares(*ALT_34)[1]:.0%}) is no larger than at the center and its ceiling is {ceiling(*ex.CENTRE) - ceiling(*ALT_34):.2f} lower, so it grades no better and leaves less room between floor and ceiling. `{cond_name(*ALT_435)}` matches the spread at the center ({spread(*ALT_435):.2f}) at a ceiling of {ceiling(*ALT_435):.3f}, which `{COND_NAMES[2]}` beats on ceiling at about the same spread.
+Two alternatives were weighed. `{cond_name(*ALT_34)}` has the widest spread on the three-example row, but its middle-band share ({band_shares(*ALT_34)[1]:.0%}) is no larger than at the center and its ceiling is {ceiling(*ex.CENTRE) - ceiling(*ALT_34):.2f} lower, so it grades no better and leaves less room between floor and ceiling. `{cond_name(*ALT_435)}` comes closer to the spread at the center ({spread(*ALT_435):.2f}, with {band_shares(*ALT_435)[1]:.0%} in the middle band) at a ceiling of {ceiling(*ALT_435):.3f}; `{COND_NAMES[2]}` gives up a little of that spread for {ceiling(*ex.GRAMMAR_CONDITIONS[2]) - ceiling(*ALT_435):.2f} more ceiling.
 
 <!-- REVIEW: the three conditions are a proposal from this scan, for Sandy to confirm or move. The spread statistic
 proposed for rule (a) is the standard deviation of the posterior on the true op; the middle-band share is reported
-beside it. Verify: the conditions table and the grid tables above. -->
+beside it. Verify: the conditions table and the grid tables above.
+REVIEW: the k4-r0.35 sentence said k4-r0.3 "beats it on ceiling at about the same spread"; the scan gives k4-r0.35 the
+larger spread (0.32 against 0.29) and middle-band share (35% against 31%), so the choice is a trade, and the prose now
+says so. The k4-r0.3 sentence also gains its middle-band share, which falls from the center more than its sd does. -->
 
 ### Reading a score against its ceiling
 

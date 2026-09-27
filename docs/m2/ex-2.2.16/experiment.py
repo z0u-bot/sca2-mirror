@@ -78,7 +78,7 @@ count the standard error of a ceiling is about 0.002, well under the differences
 
 MIDDLE_BAND = (0.5, 0.95)
 """The band of the posterior on the true op that the pivot calls graded: above it the context all but names the
-op, below it the evidence favors another op. The share of contexts in the band is reported beside the spread."""
+op, below it the evidence is split or points to another op. The share of contexts in the band is reported beside the spread."""
 
 # --- The proposed grammar conditions ------------------------------------------------------------------------
 
@@ -90,8 +90,8 @@ line length, so it is the fallback within the same block size if the control fal
 center. The third adds one example at the same ρ as the center, which raises the ceiling by about 0.06 and keeps most of the
 spread; it asks whether more evidence buys a higher ceiling without flattening the stimulus."""
 # REVIEW: proposed from the scan in the method section, not yet reviewed. The alternatives weighed there are
-# (3, 0.4), which adds no middle-band share over the center and costs 0.08 of ceiling, and (4, 0.35), which the third
-# condition dominates on ceiling at the same spread. Verify: the grid table in the method section.
+# (3, 0.4), which adds no middle-band share over the center and costs 0.09 of ceiling, and (4, 0.35), which has a
+# little more spread than the third condition (0.32 against 0.29) and 0.04 less ceiling. Verify: the grid table in the method section.
 
 CUBE_RATE: float | None = None
 """The cube-noise rate of the corpus. Left open until the plan is reviewed; the method section gives the cost at
