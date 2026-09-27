@@ -358,7 +358,8 @@ def _load_ex2214():
 def _load_posterior():
     """`posterior.py` beside this module, by path, the same way — the vectorized posterior the corpus prep
     reads (much faster than `sca.data.incontext.posterior_over_ops`'s per-context Python loop over 40k+
-    contexts; `tests/sca/test_ex_2_2_16_posterior.py` checks the two agree).
+    contexts; `tests/sca/test_ex_2_2_16_posterior.py` checks the two agree). Loaded at module init time
+    so it's available in the Modal image.
     """
     from pathlib import Path
 
@@ -374,7 +375,13 @@ def _load_posterior():
     return module
 
 
+def _get_posterior():
+    """Return the cached posterior module loaded at module init time."""
+    return _POSTERIOR_MODULE
+
+
 ex2214 = _load_ex2214()
+_POSTERIOR_MODULE = _load_posterior()
 LAM = ex2214.LAM
 TAU = ex2214.TAU
 Condition229 = ex2214.Condition229
@@ -511,7 +518,7 @@ def prepare_corpus_condition(
     from sca.data.named_colors import WordTokenizer
     from mini.store import put
 
-    P = _load_posterior()
+    P = _get_posterior()
     table = tuple(TABLE)
     anchored_op_id = OP_NAMES.index(ANCHORED_OP)
 
