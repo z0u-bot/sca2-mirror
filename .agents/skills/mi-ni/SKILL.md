@@ -22,7 +22,7 @@ src/mini/
 
 ## Authoring, running, monitoring
 
-- Author a memoized experiment: the `main(ctx)` DAG, repo layout, and cache-friendly design, in [authoring.md](./references/authoring.md). The identity/evidence model behind caching is in [memoization.md](./references/memoization.md).
+- Author a memoized experiment: the `main(ctx)` DAG, repo layout, cache-friendly design, and keeping GPU tasks cheap (L4, jit once), in [authoring.md](./references/authoring.md). The identity/evidence model behind caching is in [memoization.md](./references/memoization.md).
 - Run and monitor one from the CLI: the wake-loop, backend routing, wall-clock budget, and how to delegate or schedule a long run, in [running.md](./references/running.md).
 - Fix and recover: the fix/prune/retry loop, bounded hotfixes, superseded records, and partial `map` failures, in [recovery.md](./references/recovery.md).
 - Store and share large outputs: return `Artifact` handles instead of volume paths, share artifacts across experiments by name, and publish artifacts to a URL, in [storage.md](./references/storage.md).

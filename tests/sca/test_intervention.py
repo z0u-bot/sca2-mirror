@@ -91,6 +91,23 @@ def test_apply_projects_at_the_named_slices_and_positions_only():
     assert np.abs(out.pre[2] - clean[2]).max() > 1e-4
 
 
+def test_apply_compiles_once_per_operator_shape():
+    # Scoring sweeps many subspaces of one shape; each new operator must reuse the compiled forward pass.
+    from sca.intervention import _forward_jit
+
+    def compiled() -> int:
+        return _forward_jit._cached._cache_size()  # ty: ignore[unresolved-attribute]  (equinox types its wrapper as the wrapped fn)
+
+    model = build_model(model_config(), key=jr.PRNGKey(0))
+    tokens = np.random.default_rng(5).integers(1, 16, size=(2, 8)).astype(np.int32)
+    apply(model, tokens, projection(Subspace.axis(WIDTH, 0)), slices=(1,))
+    before = compiled()
+    for axis in (1, 2):
+        apply(model, tokens, projection(Subspace.axis(WIDTH, axis)), slices=(1,))
+    apply(model, tokens, projection(Subspace.direction(unit(np.random.default_rng(6), 1)[0])), slices=(1,))
+    assert compiled() == before
+
+
 def test_ablated_model_never_carries_the_axis():
     model = ablate_weights(build_model(model_config(), key=jr.PRNGKey(1)), Subspace.axis(WIDTH))
     tokens = np.random.default_rng(4).integers(1, 16, size=(4, 8)).astype(np.int32)

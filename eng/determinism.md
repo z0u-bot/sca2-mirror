@@ -20,6 +20,23 @@ The baseline's three final losses were 4.147422, 4.147426, 4.147430 — a drift 
 
 One replica per batch runs 1.6–1.7× slower than its siblings, in the deterministic rows only. It was the middle replica three times running and then the first one, so it reads as an unlucky container rather than anything about the flags — but it does mean a run's slowest cell isn't well predicted by its fastest. The cost figure to plan around is the fast replicas: **~1.7×** (29s → 48s) on a cell this size.
 
+### Re-measured at full loop length (2026-09-27)
+
+The table above is 150 steps, so it is mostly startup and compilation. A second probe ran ex-2.2.14's real `train_one` for 30 epochs (2,970 steps), two single-use containers per cell, jax 0.11.0, timing the steady-state step after the first 200 steps:
+
+| GPU | flags | ms / step | first step (compile) | task wall |
+| --- | --- | --- | --- | --- |
+| L4 | deterministic | 9.3, 11.2 | 11.3s, 10.3s | 85s, 84s |
+| L4 | none | 11.6, 10.7 | 7.8s, 7.5s | 86s, 73s |
+| T4 | deterministic | 19.3, 17.9 | 7.0s, 6.3s | 86s, 78s |
+| T4 | none | 18.2, 20.3 | 7.5s, 8.7s | 79s, 90s |
+
+At this length the flags cost about three seconds of compilation and nothing measurable per step: the two settings overlap within container-to-container spread. The 1.7× above does not carry over to a full run, so it is not a reason to turn the flags off.
+
+The same probe shows what the flags buy. Both deterministic replicas of each cell finished bit-identical, while the two nondeterministic L4 replicas ended at `m_line` 0.867 and 0.888, and the T4 pair at 0.856 and 0.875. Drift in the sixth significant figure at 150 steps grows to the second decimal of a headline metric by 3,000 steps.
+
+It also answers the open question below about GPU models: the deterministic runs agree within a device class and differ across them (`m_line` 0.866 on L4, 0.866 on T4, 0.845 on A10, 0.857 on L40S, one seed throughout). Moving a role to another GPU is a numerics change in the same sense as a jax upgrade.
+
 ## What we set, and why only that
 
 `[tool.mini] env` in `pyproject.toml` carries the CPU scheduler flag plus:
@@ -31,7 +48,7 @@ The pair was measured on its own (last row) rather than inferred from the three-
 
 **Autotuning stays on.** It's the other classic source of GPU nondeterminism — the algorithm pick comes from measured timings, so a noisy host can pick differently — but turning it off changed neither the digest nor the time here. It has a plausible cost on larger models (a worse GEMM), so we're not paying it for a benefit this project hasn't observed. If a future run drifts *with* the flags above, `--xla_gpu_autotune_level=0` is the next thing to reach for.
 
-Not established here: whether the digest holds across GPU *models*. Determinism is a per-device-class property, and the role tables pin `gpu="L4"` anyway.
+The digest does not hold across GPU *models* (measured in the full-length probe above): determinism is a per-device-class property, and the role tables pin `gpu="L4"`.
 
 ## Why the environment, and not a line of Python
 
@@ -80,8 +97,8 @@ The tempting move is to leave the GPU alone and teach the DAG that 4.147422 and 
 - **Keeping the previous result when the new one is within tolerance** does hold the downstream keys still, and it's the only version that's mechanically compatible with content addressing. But it serves a result the current code didn't produce, it needs a tolerance per result *shape* (there isn't a meaningful one for checkpoint bytes), and it makes the DAG's answer depend on run history rather than on inputs — which is the property that makes a memo worth trusting.
 - **Keying downstream on the upstream's identity rather than its bytes** — pass the config and seed, stash the weights beside it — is the honest version, and it's the fallback if determinism ever costs too much. It's also a deliberate trade: a genuine change in the upstream result stops invalidating downstream. Worth pairing with recording the checkpoint digest, so a surprise is at least detectable after the fact.
 
-Determinism is simply the cheaper lever: one flag, one place, ~1.7× on the training role, and the DAG's equality test keeps meaning what it says.
+Determinism is simply the cheaper lever: one flag, one place, a few seconds of compilation per training task, and the DAG's equality test keeps meaning what it says.
 
 ## Re-measuring
 
-The probe isn't checked in — it needs a GPU, so it can't be a test. It's ~70 lines: map the real `train_step` over N replicas with `single_use_containers=True` and `.w(env={"XLA_FLAGS": ...})`, hash `jax.tree.leaves(eqx.filter(model, eqx.is_inexact_array))`, and compare digests across containers. Worth re-running when the model grows a new kind of op, or when the 1.7× starts to hurt.
+The probe isn't checked in — it needs a GPU, so it can't be a test. It's ~70 lines: map the real `train_step` over N replicas with `single_use_containers=True` and `.w(env={"XLA_FLAGS": ...})`, hash `jax.tree.leaves(eqx.filter(model, eqx.is_inexact_array))`, and compare digests across containers. Worth re-running when the model grows a new kind of op, or when a jax upgrade might have changed what the flags cost.
