@@ -54,10 +54,10 @@ Lines get longer, from 6 tokens to about 20 with three examples, and their lengt
 For any context, the posterior over ops given the examples can be computed from the op table: how likely each op is to have produced the answers shown. That gives us three things to design with:
 
 - a _graded stimulus_, how strongly the context points to `difference`, which plays the part redness played for _red_;
-- a _designed null_ for suppression, the answer the model should give if it no longer knows `difference`: the answer distribution weighted by the posterior, with `difference` removed and the rest renormalized;
+- a _target null_ for suppression, the answer the model should give if it no longer knows `difference`: the answer distribution weighted by the posterior, with `difference` removed and the rest renormalized;
 - a _label-noise model_: a labeller that labels contexts by their posterior rather than by their true op is realistically noisy.
 
-The posterior uses the same rounding as the corpus. The corpus rounds stochastically, so the answer to an example is a draw from up to eight colors, and the likelihood of a shown answer under an op is the probability that the rounding of that op gives it (`answer_dist` in `sca.data.ops`).[^nearest] Under replacement op noise (below) the likelihood also includes the noise: with rate ρ, it is 1 − ρ times the probability under the op, plus ρ times the mean probability under the other ops. This is the posterior a model trained on the noisy corpus can reach at best. It also keeps every op above zero, so the designed null is defined on a context that fits `difference` alone: there it weights the other ops by how nearly they fit.
+The posterior uses the same rounding as the corpus. The corpus rounds stochastically, so the answer to an example is a draw from up to eight colors, and the likelihood of a shown answer under an op is the probability that the rounding of that op gives it (`answer_dist` in `sca.data.ops`).[^nearest] Under replacement op noise (below) the likelihood also includes the noise: with rate ρ, it is 1 − ρ times the probability under the op, plus ρ times the mean probability under the other ops. This is the posterior a model trained on the noisy corpus can reach at best. It also keeps every op above zero, so the target null is defined on a context that fits `difference` alone: there it weights the other ops by how nearly they fit.
 
 [^nearest]: A posterior computed with nearest rounding would be sharper than the corpus supports.
 

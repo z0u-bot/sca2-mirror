@@ -184,7 +184,7 @@ The equivalence read moves into the [suppression prereg](#suppress-the-operation
 
 The grammar and the reasons for it are in the [pivot](pivot.md). Each line is one context: a few solved examples of one op, written with a constant `?` in place of the op word, then a query under the same op. Op words never appear, so the op is always inferred. Replacement op noise at a rate ρ shows the answer of another op in some examples, which grades how strongly a context points to its op.
 
-The posterior over ops, computed from the op table under the rounding the corpus uses, gives the design three things: the graded stimulus (the posterior on `difference`), the designed null for suppression, and a noise model for the labeller. It also sets the Bayes ceiling, the best accuracy any model can reach on a context, which takes the place of fixed accuracy numbers in the task gate.
+The posterior over ops, computed from the op table under the rounding the corpus uses, gives the design three things: the graded stimulus (the posterior on `difference`), the target null for suppression, and a noise model for the labeller. It also sets the Bayes ceiling, the best accuracy any model can reach on a context, which takes the place of fixed accuracy numbers in the task gate.
 
 The measurements from [anchor one operation](#anchor-one-operation) stay, with four more:
 **(a)** alignment by position and slice, with the query `?` and `=` read separately;
@@ -203,21 +203,22 @@ Round 2 of the [quick route](#quick-route). None of its measurements are gated; 
 - anchored `difference` at the middle condition, with the whole-line label and with each of the four label variants;
 - the whole-line label with the pull capped by a hinge, in case the query `?` saturates;
 - the control and the whole-line anchored arm with verification lines in the corpus;
-- the control and the whole-line anchored arm with the newline mask, which stops attention at the line break;
-- the whole-line anchored arm under crop policy `knowable`, as an oracle: it needs to know where the evidence is, so it cannot be adopted, but it bounds what any window-only policy could reach.
+- the control and the whole-line anchored arm with the newline mask, which stops attention at the line break.
 
-<!-- REVIEW: the crop policy, the mask arms, and the oracle come from ex-2.2.15's outcome. Its rule chose `half`; the review chose `whole`, because a whole context always shows its evidence (its report, "The rule for the pilot"). The mask arms and the `knowable` oracle are the review's asks recorded in todo/science/newline-mask-with-each-crop-policy.md. Verify: ex-2.2.15's report and that item. -->
+Ex-2.2.15 carried a `knowable` oracle, which pulled a whole labelled line only when its op was in view. Under `whole` every pulled context is wholly in view, so on this grammar the oracle is the same arm as the whole-line arm, and the pilot leaves it out.
+
+<!-- REVIEW: the crop policy and the mask arms come from ex-2.2.15's outcome. Its rule chose `half`; the review chose `whole`, because a whole context always shows its evidence (its report, "The rule for the pilot"). The mask arms and the `knowable` oracle (dropped above) are the review's asks recorded in todo/science/newline-mask-with-each-crop-policy.md. Verify: ex-2.2.15's report and that item. -->
 
 The pilot is [ex-2.2.16](/docs/m2/ex-2.2.16/report.py).
 
 Beside the control and anchoring measurements, the pilot runs a scoring-only suppression pass on its own checkpoints: the projection, the reflection, and a repulsion, each at the query `?`, the query `=`, and every position.
 
 The rules take this shape, with their margins set in the plan:
-**(a)** Grammar: the condition with the widest spread of posteriors, among those where the d64-L4 control comes within the margin of the ceiling, goes forward. If none does, the larger control goes forward; if it also falls short, the grammar is reworked before anything is anchored. That is the one outcome that adds a round.
+**(a)** Corpus: the condition with the widest spread of posteriors, among those where the d64-L4 control comes within the margin of the ceiling, goes forward. If none does, the larger control goes forward; if it also falls short, the grammar is reworked before anything is anchored. That is the one outcome that adds a round.
 **(b)** Label: the whole-line label stays the primary unless a variant clears the task gate by more than the seed band with the anchor held. Variant (d) trains the grading that (b) above reads, so it is reported and not promoted.
 **(c)** Hinge: the capped pull goes forward if the uncapped arm saturates at the query `?`, as the op word did in ex-2.2.14.
 **(d)** Verification: verification lines stay in the corpus if they move completion by less than the seed band, on the control and the anchored arm.
-**(e)** Operator: the operator and dose axis whose damage grades with dose and stays within the selectivity gate on the other ops.
+**(e)** Operator: the operator and dose axis whose damage grades with dose and stays within the selectivity gate on the other ops, scored on the anchored arm that (c) sends forward.
 
 ### Suppress the operation (and the operands)
 
@@ -227,11 +228,11 @@ The headline claim is selective removal: suppress *difference* without suppressi
 
 The dose axis is intervention strength, with the posterior on `difference` as the graded stimulus beside it. Ex-2.2.8 found that a threshold on alignment costs more than projecting everything, so the dose scales the edit itself: the projection keeps a fraction $1-γ$ of the component as $γ$ runs from 0 to 1, and a [repulsion](/todo/science/repulsion-onto-the-fallback.md) sets the alignment the state ends at. Ex-2.2.14 showed that the scaled projection has no partial dose on a state that is almost all concept (below), so the pilot picks between them on data. Prediction: damage to the anchored op rises monotonically with the dose, and the other ops stay within gate along the whole curve.
 
-The per-context prediction at full suppression comes from the designed null: the answer distribution weighted by the posterior over ops, with `difference` removed and the rest renormalized. Against that null, *op-relevance* for a context is the weight the null withholds from the answer of `difference`: near zero where the other ops the context fits give the same answer on the query pair, and near one where none of them does. Predictions: per-context damage follows op-relevance, and stays within the bound the null sets.
+The per-context prediction at full suppression comes from the target null: the answer distribution weighted by the posterior over ops, with `difference` removed and the rest renormalized. Against that null, *op-relevance* for a context is the weight the null withholds from the answer of `difference`: near zero where the other ops the context fits give the same answer on the query pair, and near one where none of them does. Predictions: per-context damage follows op-relevance, and stays within the bound the null sets.
 
 Read the response off the probability mass on the correct answer, or off the distance of the decoded answer from it. Hard accuracy steps rather than grades under a mixture, since greedy decoding keeps the plurality answer, so accuracy is the gate statistic and not the response statistic.
 
-Conditions test the contrast from m1/ex-2.9.2: control, no-fallback, fallback, plus a filtered-corpus row, a control trained with the contexts of `difference` held out. The fallback trains toward the designed null as soft labels, so fallback and no-fallback share the per-context prediction, and the claim of the fallback condition is tighter adherence to it: less seed scatter, more mass on the mixture. That is the removal reference the [baselines item](/todo/science/baseline-comparisons-sca-plan-related-work-delta.md) wanted placed, and the eval contract scores it like any other triple.
+Conditions test the contrast from m1/ex-2.9.2: control, no-fallback, fallback, plus a filtered-corpus row, a control trained with the contexts of `difference` held out. The fallback trains toward the target null as soft labels, so fallback and no-fallback share the per-context prediction, and the claim of the fallback condition is tighter adherence to it: less seed scatter, more mass on the mixture. That is the removal reference the [baselines item](/todo/science/baseline-comparisons-sca-plan-related-work-delta.md) wanted placed, and the eval contract scores it like any other triple.
 
 Operand suppression beside operation suppression, with *red* anchored in the same models, is a follow-up. The first suppression experiments anchor the op alone, so the *red* leftover on `hue-hsv` stays out of their reads.
 
@@ -268,7 +269,7 @@ The D2.2 post.
 **(a)** a context generator: solved examples and a query under one op, `?` in place of the op word, replacement op noise at a rate ρ, and cube noise at a low rate;
 **(b)** a line array and a role array the size of the corpus, computed from the positions of `\n`, in place of the arithmetic on a fixed `LINE_TOKENS`;
 **(c)** an op array beside the corpus, one entry per line, and a labeller keying that reads it;
-**(d)** the posterior over ops for each context and each prefix (the prefix form is for label variant (c)), the designed null, and the Bayes ceiling, all from `answer_dist` in `sca.data.ops`;
+**(d)** the posterior over ops for each context and each prefix (the prefix form is for label variant (c)), the target null, and the Bayes ceiling, all from `answer_dist` in `sca.data.ops`;
 **(e)** a block size large enough to fit at least two whole contexts;
 **(f)** the calibration read;
 **(g)** a hinge cap on the anchor term;

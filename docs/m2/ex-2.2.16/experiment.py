@@ -2,7 +2,7 @@
 
 The first experiment on the grammar the pivot proposed: each line is a context of a few solved examples of one op,
 written with `?` in place of the op word, then a query under the same op. The pilot trains the control at three
-grammar conditions (example count and replacement rate), anchored `difference` with the whole-line label and its
+corpus conditions (example count and replacement rate), anchored `difference` with the whole-line label and its
 variants, and the arms the design lists, at a few seeds each, and proposes by frozen rules what round 3 adopts.
 
 This module holds the design constants only. The DAG comes with the grammar generator, which is being written
@@ -82,7 +82,7 @@ MIDDLE_BAND = (0.5, 0.95)
 """The band of the posterior on the true op that the pivot calls graded: above it the context all but names the
 op, below it the evidence is split or points to another op. The share of contexts in the band is reported beside the spread."""
 
-# --- The proposed grammar conditions ------------------------------------------------------------------------
+# --- The proposed corpus conditions ------------------------------------------------------------------------
 
 GRAMMAR_CONDITIONS: tuple[tuple[int, float], ...] = ((3, 0.2), (3, 0.3), (4, 0.3))
 CENTRE: tuple[int, float] = (3, 0.3)
@@ -121,14 +121,8 @@ CROP_POLICY = "whole"
 a whole context always shows its evidence. Its rule chose `half`; the reasons for `whole` are in the section
 "The rule for the pilot" of that report."""
 
-ORACLE_POLICY = "knowable"
-"""The reference policy: the pull runs only over positions that follow the evidence (here, the tokens from the
-answer of the last example on, where the prefix posterior is at its final value). It needs to know where the
-evidence is, so it cannot be adopted; it bounds what a window-only policy could reach."""
-# REVIEW: on the old grammar `knowable` pulled from the op word on. On this grammar the evidence accrues over
-# the examples, so "where the evidence is" needs a reading; the one here is the answer of the last example, the first
-# position at which the whole context has been seen. The alternative is the prefix-posterior threshold of label
-# variant (c), which would make the oracle the same arm as the variant. Verify: `line_role_arrays` gives the role.
+# The `knowable` oracle of ex-2.2.15 pulled a whole labelled line only when its op was in view. Under `whole` every
+# pulled context is wholly in view, so on this grammar the oracle is the same arm as the primary, and the pilot drops it.
 
 # --- The corpus and the recipe -------------------------------------------------------------------------------
 
@@ -182,8 +176,9 @@ PREFIX_THRESHOLD = 0.5
 is at least this. The bottom of the middle band, so a context whose evidence never clears it is not pulled at all."""
 
 HINGE_CAP = 0.8
-"""The hinge arm: the pull on a position is max(0, cap − cos) in place of 1 − cos, so a state at or above this
-alignment is not pulled further. Set below the cosine near 1 the op word reached in ex-2.2.14, and above what the
+"""The hinge arm: the pull on a position is max(0, cap − cos) in place of 1 − cos. It is a clip, with no remapping: a
+state at or above this alignment has zero anchor gradient, so it is not pulled further, and the anti-subspace term
+(which still acts on it) pushes it back down, so it settles at or below the cap. Set below the cosine near 1 the op word reached in ex-2.2.14, and above what the
 whole-line pull put at the use sites there (about 0.1)."""
 # REVIEW: a proposal; the alternative is 0.5, which would leave the pulled states with half their length off the
 # axis. Rule (c) reads saturation on the uncapped arm, so the cap only matters if the capped arm goes forward.
@@ -195,7 +190,7 @@ class Arm:
 
     name: str
     group: str
-    """Which question the arm serves: `control`, `label`, `hinge`, `verify`, `mask`, or `oracle`."""
+    """Which question the arm serves: `control`, `label`, `hinge`, `verify`, or `mask`."""
     condition: tuple[int, float] = CENTRE
     anchored: bool = False
     label: str = "whole"
@@ -212,23 +207,21 @@ class Arm:
 
 ARMS: tuple[Arm, ...] = (
     *(
-        Arm(f"control-k{k}-r{rho:g}", "control", (k, rho), note="the un-anchored control at each grammar condition")
+        Arm(f"control-k{k}-r{rho:g}", "control", (k, rho), note="the un-anchored control at each corpus condition")
         for k, rho in GRAMMAR_CONDITIONS
     ),
-    Arm("control-large", "control", model=LARGE_MODEL, note="the larger control, read only if rule (a) needs it"),
+    Arm(
+        "control-large",
+        "control",
+        model=LARGE_MODEL,
+        note="the larger control, trained either way and scored only if rule (a) needs it",
+    ),
     *(Arm(f"anchor-{label}", "label", anchored=True, label=label, note=desc) for label, desc in LABEL_VARIANTS),
     Arm("anchor-hinge", "hinge", anchored=True, hinge=True, note="the whole-line pull capped by a hinge"),
     Arm("control-verify", "verify", verify=True, note="the control with verification lines"),
     Arm("anchor-verify", "verify", anchored=True, verify=True, note="the whole-line arm with verification lines"),
     Arm("control-mask", "mask", mask=True, note="the control with the newline mask"),
     Arm("anchor-mask", "mask", anchored=True, mask=True, note="the whole-line arm with the newline mask"),
-    Arm(
-        "anchor-knowable",
-        "oracle",
-        anchored=True,
-        policy=ORACLE_POLICY,
-        note="the whole-line arm under the oracle policy",
-    ),
 )
 """The arms the pilot section of the design lists, in its order. Every anchored arm anchors `ANCHORED_OP` at the
 center condition; the control at the center is the reference for all of them."""
@@ -237,7 +230,7 @@ PRIMARY = "anchor-whole"
 CONTROL = f"control-k{CENTRE[0]}-r{CENTRE[1]:g}"
 N_RUNS = sum(a.seeds for a in ARMS)
 assert PRIMARY in {a.name for a in ARMS} and CONTROL in {a.name for a in ARMS}
-assert N_RUNS == 45
+assert N_RUNS == 42
 
 
 def arm(name: str) -> Arm:
@@ -291,8 +284,12 @@ DOSE_GAMMAS: tuple[float, ...] = (0.25, 0.5, 0.75, 1.0)
 """Rule (e), the dose axis of the projection: the edit removes a fraction γ of the component on e₁ and re-normalizes.
 γ = 1 is the plain projection."""
 
-REPULSION_LANDINGS: tuple[float, ...] = (0.0, -0.5, -1.0)
-"""Rule (e), the dose axis of the repulsion: the alignment a state above the threshold is sent to. −1 is the antipode."""
+REPULSION_LANDINGS: tuple[float, ...] = (0.25, 0.0)
+"""Rule (e), the dose axis of the repulsion: the alignment a state above the threshold is sent to. Both landings sit
+between the threshold and zero, the range the operator was designed for."""
+# REVIEW: an earlier draft carried negative landings down to the antipode (−1), which is outside the use the
+# repulsion was designed for; Sandy has not yet settled how, or whether, it should act on states that lie almost on
+# e₁. Treat these two landings as a placeholder until then.
 
 REPULSION_THRESHOLD = 0.5
 """States below this alignment are left where they are by the repulsion."""
@@ -314,4 +311,4 @@ most this at every dose: the task gate ex-2.2.11 set."""
 GRADING_MIN_DAMAGE = 0.5
 """Rule (e): the damage an operator does "grades with dose" when the seed-mean drop on the contexts of the anchored op is
 non-decreasing along its dose axis, and the drop at full dose is at least this share of the way from the clean
-score to the designed null."""
+score to the target null."""

@@ -11,7 +11,7 @@ generates that corpus and the bookkeeping an anchor needs to pull the hidden op 
 `sample_corpus` draws contexts (`sample_context` draws one); `line_role_arrays` recovers the variable-length
 line and role of every token, since a context's length depends on its example count and on whether it carries
 a verification line (`pivot.md#a-verification-line`); `posterior_over_ops` and the two readings built on it
-(`bayes_ceiling`, `designed_null`) are the posterior the pivot's method section computes from `answer_dist`;
+(`bayes_ceiling`, `target_null`) are the posterior the pivot's method section computes from `answer_dist`;
 and `whole_line_mask` is the per-token pull mask for the whole-line label, keyed on the op array `op_ids`
 returns rather than on an op-word token (`pivot.md#the-proposal`: "the new keying reads the op of each context
 from an array stored beside the corpus").
@@ -372,7 +372,7 @@ def bayes_ceiling(
     return max(mix.values()) if mix else 0.0
 
 
-def designed_null(
+def target_null(
     op_table: Sequence[Op],
     examples: Sequence[Example],
     query: tuple[Rgb, Rgb],

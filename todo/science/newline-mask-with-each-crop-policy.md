@@ -14,3 +14,5 @@ Both could ride in the in-context grammar pilot rather than a run of their own o
 ## Notes
 
 **2026-09-27, ex-2.2.16 prereg** — Added to the pilot's arm list in design.md ("The pilot") and to ex-2.2.16's conditions stub: the mask on the control and the whole-line anchored arm, and `knowable` as an oracle arm. `all-mask`, `half-mask`, and `knowable-mask` on the old grammar are not in the pilot.
+
+**2026-09-27, ex-2.2.16 review** — The `knowable` oracle arm is out of the pilot. Sandy's review: `knowable` pulled the whole labelled line only when its op was in view, and under `whole` every pulled context is wholly in view, so on the in-context grammar it has no separate analogue. The mask arms stay.

@@ -194,7 +194,7 @@ def test_whole_line_mask_label_rate_zero_labels_nothing():
     assert not mask.any()
 
 
-# --- Posterior, Bayes ceiling, designed null ----------------------------------------------------
+# --- Posterior, Bayes ceiling, target null ----------------------------------------------------
 
 
 def test_posterior_is_a_distribution():
@@ -251,13 +251,13 @@ def test_bayes_ceiling_is_a_probability_at_least_as_good_as_the_hidden_op_alone(
         assert ceiling >= floor - 1e-9
 
 
-def test_designed_null_excludes_the_named_op_and_renormalizes():
+def test_target_null_excludes_the_named_op_and_renormalizes():
     rng = np.random.default_rng(0)
     ctx = ic.sample_context(OPS, MIX, k=3, rho=0.3, rng=rng)
-    null = ic.designed_null(OPS, ctx.examples, (ctx.query_lhs, ctx.query_rhs), rho=0.3, exclude="mix")
+    null = ic.target_null(OPS, ctx.examples, (ctx.query_lhs, ctx.query_rhs), rho=0.3, exclude="mix")
     assert pytest.approx(sum(null.values()), abs=1e-9) == 1.0
     # excluding every op leaves nothing
-    empty = ic.designed_null((MIX,), ctx.examples, (ctx.query_lhs, ctx.query_rhs), rho=0.3, exclude="mix")
+    empty = ic.target_null((MIX,), ctx.examples, (ctx.query_lhs, ctx.query_rhs), rho=0.3, exclude="mix")
     assert empty == {}
 
 

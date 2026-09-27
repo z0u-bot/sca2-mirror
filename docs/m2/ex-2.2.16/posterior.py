@@ -141,7 +141,7 @@ def posterior(table: AnswerTable, ctx: Contexts, rho: float, kappa: float) -> np
     """The posterior over ops given the examples, under the noise model the contexts were drawn from: `(n, n_ops)`.
 
     The likelihood of a shown answer under op o is (1 − ρ − κ) P_o(y) + ρ · mean over the other ops of P_o'(y) + κ / 216.
-    The prior is uniform. Every op stays above zero whenever ρ or κ is, which is what lets the designed null weight the
+    The prior is uniform. Every op stays above zero whenever ρ or κ is, which is what lets the target null weight the
     other ops by how nearly they fit on a context that fits one op alone.
     """
     p = table.lookup(ctx.ex_pair, ctx.ex_color)  # (ops, n, k)
@@ -261,7 +261,7 @@ def floor(table: AnswerTable, ctx: Contexts) -> np.ndarray:
     return expected_match(table, ctx, uniform)
 
 
-def designed_null(table: AnswerTable, ctx: Contexts, post: np.ndarray, removed: int) -> np.ndarray:
+def target_null(table: AnswerTable, ctx: Contexts, post: np.ndarray, removed: int) -> np.ndarray:
     """The posterior with one op removed and the rest renormalized: the answer a model should give once it no longer
     knows that op. `(n, n_ops)`, with the removed column at zero.
     """
