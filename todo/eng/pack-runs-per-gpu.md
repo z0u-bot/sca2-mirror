@@ -38,3 +38,7 @@ Probe option 1 first, since a win there costs no science and no memo changes. If
 ### Probe recipe
 
 The 2026-09-27 probe was a throwaway mini experiment: it wrapped `train_one` and swapped `sca.compute.training.sample_anchored_batches` for a generator that timestamps each batch, one role per variant with `single_use_containers=True`, run under `MINI_PROFILE=dev`.
+
+## Notes
+
+**2026-09-27, ex-2.2.16 review** — Sandy asks whether the pilot could pack its seeds. It fits option 2 (every arm has three seeds at one condition, and the pilot has no memo to keep), but its training comes to about $2 over 42 runs, so packing would save pennies and some wall time there. The pilot does not wait on it; a larger sweep is the better first user.

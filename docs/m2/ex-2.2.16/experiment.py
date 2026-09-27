@@ -176,12 +176,21 @@ PREFIX_THRESHOLD = 0.5
 is at least this. The bottom of the middle band, so a context whose evidence never clears it is not pulled at all."""
 
 HINGE_CAP = 0.8
-"""The hinge arm: the pull on a position is max(0, cap − cos) in place of 1 − cos. It is a clip, with no remapping: a
-state at or above this alignment has zero anchor gradient, so it is not pulled further, and the anti-subspace term
-(which still acts on it) pushes it back down, so it settles at or below the cap. Set below the cosine near 1 the op word reached in ex-2.2.14, and above what the
-whole-line pull put at the use sites there (about 0.1)."""
+"""The hinge arm: the anchor term counts an alignment of this as full, 1 − cos/cap in place of 1 − cos, and stops
+pulling above it. Set below the cosine near 1 the op word reached in ex-2.2.14, and above what the whole-line pull put
+at the use sites there (about 0.1). Only the anchor term is remapped; every measurement uses the raw cosine."""
 # REVIEW: a proposal; the alternative is 0.5, which would leave the pulled states with half their length off the
 # axis. Rule (c) reads saturation on the uncapped arm, so the cap only matters if the capped arm goes forward.
+
+HINGE_SOFTNESS = 0.05
+"""How far the corner of the hinge is rounded: the term on a position is (s/cap)·softplus((cap − cos)/s). Well below
+the cap that is 1 − cos/cap; the gradient then fades smoothly to zero over roughly cap ± 2s, where a sharp corner
+would switch it off at the cap. The anti-subspace term pushes back on the state across that band, so a sharp corner
+could make a state flip between pulled and not pulled from step to step; the rounded one gives the two terms a smooth
+point to balance at, near the cap."""
+# REVIEW: the remap alone (max(0, 1 − cos/cap)) is the clip max(0, cap − cos) scaled by 1/cap, so it keeps the corner;
+# the softplus is what removes it. The 1/cap makes the pull below the cap 25% stronger than on the whole-line arm;
+# dropping it would keep the two arms at equal strength there.
 
 
 @dataclass(frozen=True)
