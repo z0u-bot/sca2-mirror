@@ -39,9 +39,11 @@ def realize_lr_sheet(csv: str, total_steps: int) -> np.ndarray:
     """
     from mini.temporal import Dopesheet, Timeline, realize_timeline
 
-    df = realize_timeline(Timeline(Dopesheet.from_csv(StringIO(csv))))
-    steps = df["STEP"].to_numpy(np.float64)
-    frac = steps / steps.max()
+    sheet = Dopesheet.from_csv(StringIO(csv))
+    last = len(sheet) - 1  # the last keyframe; the realized table runs a step past it
+    df = realize_timeline(Timeline(sheet))
+    df = df[df["STEP"] <= last]
+    frac = df["STEP"].to_numpy(np.float64) / last
     return np.interp(np.arange(total_steps + 1) / max(total_steps, 1), frac, df["lr"].to_numpy(np.float64))
 
 
