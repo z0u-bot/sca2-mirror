@@ -116,6 +116,19 @@ class LocalApparatus(Apparatus[LocalVolume]):
         return launch_queued(store)
 
     @override
+    def refresh_queued(self, store: MemoStore, rec: dict[str, Any]) -> None:
+        key, gen = rec["key"], rec.get("gen")
+        if rec.get("pid") or not gen:
+            return
+        spec = _read_spec(store, key)
+        if spec is None or spec.get("gen") != gen or spec.get("env") == self.env:
+            return
+        with _launch_lock(store):  # a launch reads then deletes the spec under this lock
+            cur = store.record(key)
+            if cur.get("gen") == gen and not cur.get("pid"):
+                _stage_spec(store, key, gen, self.env)
+
+    @override
     def cancel(self, store: MemoStore, keys: list[str] | None = None) -> list[str]:
         # Under the launch lock, so a worker exiting mid-cancel can't start a queued
         # task after this snapshot and leave it running unstopped.
@@ -130,7 +143,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:
         """SIGTERM the worker's process group (it's a session leader: pgid == pid)."""
-        if pid := rec.get("pid"):
+        if (pid := rec.get("pid")) and _pid_alive(pid, rec.get("pid_start")):  # not a stranger reusing the pid
             with suppress(ProcessLookupError, PermissionError):
                 os.killpg(pid, signal.SIGTERM)
 
@@ -138,7 +151,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
     def _is_task_alive(self, rec: dict[str, Any]) -> bool:
         """Is the recorded worker pid still a live process? (for ``reap_dead``)."""
         pid = rec.get("pid")
-        return _pid_alive(pid) if pid else True  # no pid yet — can't probe; assume alive
+        return _pid_alive(pid, rec.get("pid_start")) if pid else True  # no pid yet — can't probe; assume alive
 
     @override
     async def amap(
@@ -269,7 +282,7 @@ def launch_queued(store: MemoStore) -> list[str]:
     started: list[str] = []
     with _launch_lock(store):
         running = [r for r in store.records() if r.get("state") == RunState.RUNNING and r.get("gen")]
-        live = sum(1 for r in running if r.get("pid") and _pid_alive(r["pid"]))
+        live = sum(1 for r in running if r.get("pid") and _pid_alive(r["pid"], r.get("pid_start")))
         queued = sorted((r for r in running if not r.get("pid")), key=lambda r: r.get("created_at") or 0)
         for rec in queued[: max(0, cap - live)]:
             key, gen = rec["key"], rec["gen"]
@@ -278,7 +291,7 @@ def launch_queued(store: MemoStore) -> list[str]:
                 continue  # claimed but not staged yet: the tick that claimed it is mid-batch
             env = _launch_env(spec.get("env") or {})
             pid = spawn_taskworker(store.data_dir, key, env=env, inherit=False)  # pid == pgid, for cancel
-            if store.update_if(key, gen, pid=pid):
+            if store.update_if(key, gen, pid=pid, pid_start=_proc_start(pid)):
                 started.append(key)
                 spec_path(store, key).unlink(missing_ok=True)  # the worker holds its env now
             else:  # cancelled or re-claimed since the snapshot; its gen fences the worker's writes
@@ -287,21 +300,39 @@ def launch_queued(store: MemoStore) -> list[str]:
     return started
 
 
-def _pid_alive(pid: int) -> bool:
-    """Whether *pid* is a running process — counting a zombie as *not* alive.
+def _proc_start(pid: int) -> str | None:
+    """An identity for the process now holding *pid*: the boot it belongs to and its start time, or ``None`` where there's no ``/proc`` (or no such process).
 
-    ``os.kill(pid, 0)`` succeeds on a zombie (an exited child not yet reaped), which would keep a hard-killed worker looking alive when it's a direct child of the watcher. On Linux we read ``/proc/<pid>/stat`` and treat state ``Z`` as dead; elsewhere we fall back to a signal-0 probe (no zombie distinction).
+    A pid is reused once its process exits, and across a restart any pid may belong to anything. Recorded next to a worker's pid, this tells a later probe whether the pid still names that worker.
     """
-    proc = Path("/proc") / str(pid)
+    try:
+        return f"{_boot_id()}:{_stat_fields(pid)[19]}"  # field 22 of stat: start time since boot
+    except OSError, IndexError:
+        return None
+
+
+def _boot_id() -> str:
+    return Path("/proc/sys/kernel/random/boot_id").read_text().strip()
+
+
+def _stat_fields(pid: int) -> list[str]:
+    """``/proc/<pid>/stat`` from the state field on. It reads "pid (comm) state ...", and comm may hold spaces or parens, so split after the final ')'."""
+    return (Path("/proc") / str(pid) / "stat").read_text().rsplit(")", 1)[1].split()
+
+
+def _pid_alive(pid: int, start: str | None = None) -> bool:
+    """Whether *pid* is a running process, and, given the *start* identity from :func:`_proc_start`, the same one that was recorded.
+
+    A zombie (an exited child not yet reaped) counts as dead: ``os.kill(pid, 0)`` succeeds on one, which would keep a hard-killed worker looking alive when it's a direct child of the watcher. On Linux we read ``/proc/<pid>/stat``; elsewhere we fall back to a signal-0 probe, with no zombie or identity check. A record from before ``pid_start`` existed (``start`` is ``None``) skips the identity check.
+    """
     if Path("/proc").is_dir():
-        if not proc.exists():
-            return False
         try:
-            # stat is "pid (comm) state ..."; comm may hold spaces/parens, so the
-            # state field is the first token after the final ')'.
-            return (proc / "stat").read_text().rsplit(")", 1)[1].split()[0] != "Z"
+            fields = _stat_fields(pid)
         except OSError:
-            return False  # vanished between the exists() check and the read
+            return False  # no such process, or it vanished mid-read
+        if fields[0] == "Z":
+            return False
+        return start is None or _proc_start(pid) == start
     try:
         os.kill(pid, 0)
         return True

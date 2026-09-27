@@ -3,13 +3,23 @@
 from __future__ import annotations
 
 import json
+import os
 import time
 from pathlib import Path
 
+import pytest
 from rich.console import Console
 
 from mini.experiment import Experiment
-from mini.local_apparatus import LocalApparatus, _launch_env, _stage_spec, launch_queued, spec_path
+from mini.local_apparatus import (
+    LocalApparatus,
+    _launch_env,
+    _pid_alive,
+    _proc_start,
+    _stage_spec,
+    launch_queued,
+    spec_path,
+)
 from mini.monitor import drive_and_watch
 from mini.orchestration import tick
 from mini.runs import RunState
@@ -95,3 +105,46 @@ def test_launch_env_undoes_the_launchers_own_overlay(monkeypatch):
     assert "ONLY_MINE" not in sibling
     assert sibling["OTHER"] == "2"
     assert json.loads(sibling["MINI_TASK_BASE_ENV"]) == {"OTHER": None}
+
+
+def _role_env(x):
+    import os
+    import time
+
+    time.sleep(1)
+    return os.environ.get("ROLEVAR")
+
+
+def test_queued_tasks_launch_with_the_latest_wakes_env(tmp_path: Path):
+    """A wake re-stages waiting tasks, so a config edited between wakes (or a new shell after a restart) applies to them."""
+    exp = Experiment(name="fresh", main=lambda ctx: ctx.map(_role_env, [0, 1, 2]))
+    old = LocalApparatus("fresh", max_workers=1, data_dir=tmp_path / "fresh").w(env={"ROLEVAR": "old"})
+    new = LocalApparatus("fresh", max_workers=1, data_dir=tmp_path / "fresh").w(env={"ROLEVAR": "new"})
+    tick(exp, old)  # the first task starts under the old config; two wait
+    tick(exp, new)
+    assert drive_and_watch(exp, new, poll=0.01, console=Console(quiet=True)) == ["old", "new", "new"]
+
+
+@pytest.mark.skipif(not Path("/proc").is_dir(), reason="identity check needs /proc")
+def test_a_reused_pid_does_not_pass_for_the_worker():
+    """After a restart a worker's pid may name some other process; the recorded start identity tells them apart."""
+    me = os.getpid()
+    start = _proc_start(me)
+    assert start is not None
+    assert _pid_alive(me, start)
+    assert _pid_alive(me)  # a record from before pid_start: existence only
+    assert not _pid_alive(me, "another-boot:" + start.split(":")[1])
+
+
+def test_a_reused_pid_is_reaped_and_not_signalled(tmp_path: Path, monkeypatch):
+    """A RUNNING record whose pid now belongs to a stranger reads dead, and cancel doesn't signal the stranger."""
+    app = LocalApparatus("reuse", data_dir=tmp_path / "reuse")
+    store = app.memo_store()
+    store.records_backend.write(
+        "k", {"key": "k", "state": RunState.RUNNING, "gen": "g", "pid": os.getpid(), "pid_start": "old-boot:1"}
+    )
+    killed: list[int] = []
+    monkeypatch.setattr(os, "killpg", lambda pid, sig: killed.append(pid))
+    assert app.reap_dead(store) == ["k"]
+    app._stop_task({"pid": os.getpid(), "pid_start": "old-boot:1"})
+    assert killed == []

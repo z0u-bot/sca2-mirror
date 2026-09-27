@@ -198,6 +198,12 @@ class Apparatus(ABC, Generic[V]):
         """
         return []
 
+    def refresh_queued(self, store: MemoStore, rec: dict[str, Any]) -> None:
+        """Bring a RUNNING task that is still waiting for a slot up to this apparatus's config.
+
+        A queued task launches later, possibly after a restart and from a new shell, so the tick that finds it waiting re-stages it with the config it would launch it with now. Default: nothing queues.
+        """
+
     def cancel(self, store: MemoStore, keys: list[str] | None = None) -> list[str]:
         """Stop in-flight tasks, mark them CANCELLED, and return their keys.
 
