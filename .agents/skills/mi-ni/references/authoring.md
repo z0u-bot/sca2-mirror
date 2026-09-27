@@ -74,3 +74,12 @@ The experiment's `roles=` table binds each label to hardware kwargs, e.g. `roles
 Spans *inside* the loop that legitimately report no steps get the same allowance on demand, via `mini.blocking_phase(label, timeout_s=…)`. `put`, `get` and `get_many` already declare their own, sized from the payload, so a step that checkpoints after its last training step needs nothing — reach for it only when your own code blocks for longer than the step cadence (a long eval, a download you drive yourself). The budget bounds the span rather than exempting it: a span that hangs is still caught, at `timeout_s`.
 
 A role can also set `env=` — environment for the worker, in place *before* the process starts (a Modal container Secret; locally, the task subprocess's env). Reach for it when a library reads its env once at init and a task setting it on itself would be too late: a Modal container is reused across a map's tasks, so whichever task ran first fixes the setting for the rest. `[tool.mini] env` in `pyproject.toml` gives every experiment a baseline (this project uses it for `XLA_FLAGS`, so GPU results reproduce — see [eng/determinism.md](/eng/determinism.md)); a role's `env=` merges over it key by key. It is *not* a credential channel — the values land on the task record; pass tokens through Modal's `secrets=`.
+
+## Keep GPU tasks cheap
+
+Our models are small, so a GPU task's cost is mostly fixed overhead, and compilation is the part code controls. The scoring pass once spent three quarters of its wall time compiling. Measurements behind these are in [eng/gpu-efficiency.md](/eng/gpu-efficiency.md).
+
+- Use `gpu="L4"`. It's the cheapest per step for these models; faster cards cost more than they save.
+- Jit once, at module level, and pass everything that varies (model, batch, operator) as arguments. A `filter_jit(lambda …)` built per call compiles per call. Give an operator its parameters as an `eqx.Module`, with arrays as leaves and code-path switches as `eqx.field(static=True)`.
+- Keep shapes fixed: a fixed `batch_size`, and a handful of values at most for any static argument.
+- If a task takes longer than its arithmetic should, count compiles before anything else: `jax.config.update("jax_log_compiles", True)`.

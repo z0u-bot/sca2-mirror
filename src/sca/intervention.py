@@ -70,17 +70,39 @@ class Subspace:
         return (h - self.mean) @ self.dual.T
 
 
+class _Edit(eqx.Module):
+    """An operator as a pytree: the subspace's arrays are leaves, so `apply`'s one jitted forward reads them as inputs and a second operator of the same kind and shape reuses its compiled program. A closure would bake them in as constants, and every new closure would compile again."""
+
+    basis: Float[Array, "k C"]
+    dual: Float[Array, "k C"]
+    mean: Float[Array, " C"]
+
+    def __init__(self, sub: Subspace):
+        self.basis, self.dual, self.mean = (jnp.asarray(a) for a in (sub.basis, sub.dual, sub.mean))
+
+    def coefficients(self, h: Float[Array, "... C"]) -> Float[Array, "... k"]:
+        return (h - self.mean) @ self.dual.T
+
+
+class _Projection(_Edit):
+    gamma: float = eqx.field(static=True)
+    renorm: bool = eqx.field(static=True)
+
+    def __init__(self, sub: Subspace, gamma: float, renorm: bool):
+        super().__init__(sub)
+        self.gamma, self.renorm = gamma, renorm
+
+    def __call__(self, h: Float[Array, "... C"]) -> Float[Array, "... C"]:
+        out = h - self.gamma * (self.coefficients(h) @ self.basis)
+        return normalize(out) if self.renorm else out
+
+
 def projection(sub: Subspace, gamma: float = 1.0, renorm: bool = True) -> Operator:
     """Remove a fraction *gamma* of the subspace component, then re-project onto the sphere.
 
     γ = 1 is M1's suppression; γ = 0 is the identity, and the range between is the strength axis a categorical concept grades on. With *renorm* the surviving components pick up the gain `gain(α, γ)`, since the next block expects a unit vector; without it the state leaves the sphere, which is the off-manifold form M1's appendix draws.
     """
-
-    def op(h: Float[Array, "... C"]) -> Float[Array, "... C"]:
-        out = h - gamma * (sub.coefficients(h) @ sub.basis)
-        return normalize(out) if renorm else out
-
-    return op
+    return _Projection(sub, gamma, renorm)
 
 
 def falloff(alpha: Array, a: float, b: float, p: float) -> Array:
@@ -89,19 +111,29 @@ def falloff(alpha: Array, a: float, b: float, p: float) -> Array:
     return jnp.where(alpha >= a, b * t**p, 0.0)
 
 
+class _Shaped(_Edit):
+    a: float = eqx.field(static=True)
+    b: float = eqx.field(static=True)
+    p: float = eqx.field(static=True)
+    renorm: bool = eqx.field(static=True)
+
+    def __init__(self, sub: Subspace, a: float, b: float, p: float, renorm: bool):
+        super().__init__(sub)
+        self.a, self.b, self.p, self.renorm = a, b, p, renorm
+
+    def __call__(self, h: Float[Array, "... C"]) -> Float[Array, "... C"]:
+        alpha = jnp.maximum(self.coefficients(h)[..., 0], 0.0)
+        out = h - (falloff(alpha, self.a, self.b, self.p) * alpha)[..., None] * self.basis[0]
+        return normalize(out) if self.renorm else out
+
+
 def shaped_suppression(sub: Subspace, a: float = 0.0, b: float = 1.0, p: float = 1.0, renorm: bool = True) -> Operator:
     """Shaped suppression on a rank-1 subspace: remove `h(α) · α` of the direction, α = max(0, coefficient).
 
     `a = 0, b = 1, p = 0` reduces to `projection` at γ = 1 for positively aligned states, so its extra freedom is the threshold that leaves the low-alignment bulk alone — the answer to a common component on the axis, if the plain projection turns out to move everything.
     """
     assert sub.basis.shape[0] == 1, "the shaped suppression is defined on a single direction"
-
-    def op(h: Float[Array, "... C"]) -> Float[Array, "... C"]:
-        alpha = jnp.maximum(sub.coefficients(h)[..., 0], 0.0)
-        out = h - (falloff(alpha, a, b, p) * alpha)[..., None] * sub.basis[0]
-        return normalize(out) if renorm else out
-
-    return op
+    return _Shaped(sub, a, b, p, renorm)
 
 
 def repulsion_mapper(alpha, a: float, b: float, kind: str = "linear"):
@@ -129,25 +161,34 @@ def repulsion_mapper(alpha, a: float, b: float, kind: str = "linear"):
     return xp.where(alpha > a, curve((lo + hi) / 2, 1), alpha)
 
 
+class _Repulsion(_Edit):
+    a: float = eqx.field(static=True)
+    b: float = eqx.field(static=True)
+    kind: str = eqx.field(static=True)
+
+    def __init__(self, sub: Subspace, a: float, b: float, kind: str):
+        super().__init__(sub)
+        self.a, self.b, self.kind = a, b, kind
+
+    def __call__(self, h: Float[Array, "... C"]) -> Float[Array, "... C"]:
+        v = self.basis[0]
+        alpha = jnp.maximum(self.coefficients(h)[..., 0], 0.0)
+        rest = h - alpha[..., None] * v
+        norm = jnp.linalg.norm(rest, axis=-1)
+        m = repulsion_mapper(alpha, self.a, self.b, self.kind)
+        u = rest / jnp.maximum(norm, 1e-12)[..., None]
+        out = m[..., None] * v + jnp.sqrt(jnp.maximum(1.0 - m**2, 0.0))[..., None] * u
+        moved = (m != alpha) & (norm > 1e-6)
+        return jnp.where(moved[..., None], out, h)
+
+
 def repulsion(sub: Subspace, a: float, b: float, kind: str = "linear") -> Operator:
     """Repulsion on a rank-1 subspace: rotate each state within the plane it spans with the direction, so that it lands at alignment m(α).
 
     `x' = m(α)·v + √(1 − m(α)²)·u⊥`, with u⊥ the unit vector of what is left of *x* once the direction is removed (`asec_intervention_lobes.tex`). Unlike `projection` and `shaped_suppression`, the output alignment is set rather than what re-normalization leaves, so the write is `arccos m(α) − arccos α` by construction, and a state that arrives fully aligned (u⊥ undefined) is left where it is. States below the threshold, and states with a negative coefficient, are untouched.
     """
     assert sub.basis.shape[0] == 1, "repulsion is defined on a single direction"
-    v = sub.basis[0]
-
-    def op(h: Float[Array, "... C"]) -> Float[Array, "... C"]:
-        alpha = jnp.maximum(sub.coefficients(h)[..., 0], 0.0)
-        rest = h - alpha[..., None] * v
-        norm = jnp.linalg.norm(rest, axis=-1)
-        m = repulsion_mapper(alpha, a, b, kind)
-        u = rest / jnp.maximum(norm, 1e-12)[..., None]
-        out = m[..., None] * v + jnp.sqrt(jnp.maximum(1.0 - m**2, 0.0))[..., None] * u
-        moved = (m != alpha) & (norm > 1e-6)
-        return jnp.where(moved[..., None], out, h)
-
-    return op
+    return _Repulsion(sub, a, b, kind)
 
 
 def _survivor_norm(a: np.ndarray, gamma: float) -> np.ndarray:
@@ -214,6 +255,10 @@ def _forward(
     return jnp.stack(pre), jnp.stack(post), (x @ model.transformer.readout.T) * model.s_z()
 
 
+_forward_jit = eqx.filter_jit(_forward)
+"""Jitted once, here, so its compile cache outlives a call: the operator and positions are arguments, and `filter_jit` keys the cache on their structure, static fields and shapes."""
+
+
 def apply(
     model: NGPT,
     tokens: Int[np.ndarray, "N T"],
@@ -227,10 +272,9 @@ def apply(
     *positions* is an optional (T,) mask of the positions the operator touches; None means all of them. An empty *slices* is the clean forward pass, and the scorer's own control: `pre` and `post` then both equal the residual stream and the logits equal `model(tokens)`.
     """
     pos = None if positions is None else jnp.asarray(np.asarray(positions, dtype=np.float32))
-    run = eqx.filter_jit(lambda m, t: _forward(m, t, operator, tuple(slices), pos))
     pres, posts, logits = [], [], []
     for i in range(0, len(tokens), batch_size):
-        a, b, c = run(model, jnp.asarray(tokens[i : i + batch_size]))
+        a, b, c = _forward_jit(model, jnp.asarray(tokens[i : i + batch_size]), operator, tuple(slices), pos)
         pres.append(np.asarray(a))
         posts.append(np.asarray(b))
         logits.append(np.asarray(c))

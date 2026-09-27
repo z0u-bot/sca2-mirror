@@ -62,6 +62,10 @@ fig, axes = plt.subplots(2, 3, ...)  # 2D
 axes = cast(AxesGrid, axes)
 ```
 
+## JAX
+
+Jit at module level, never inside a function or loop. JAX caches compiled code per function object, so `eqx.filter_jit(lambda …)` built per call recompiles per call, with whatever it closes over baked in. Pass what varies as arguments, and make a parametrized operator an `eqx.Module` so a new value of the same shape reuses the program. `_forward_jit` in `sca/intervention.py` is the pattern; the mi-ni authoring reference has the rest of the GPU conventions.
+
 ## Literate scripts
 
 Our experiments and reports ship code and prose together, as literate scripts (`mini.lit`): the only report form. Aim for literate programming: the Markdown should explain what the next cell does and why, so the report reads as an argument rather than a script with captions.
