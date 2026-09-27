@@ -55,6 +55,7 @@ Experiments spend real money.
 
 - Honor any **budget or time cap** the caller gives. If none is given, treat the job as **small**: one experiment, short timeouts, no speculative extra runs.
 - Make sure tasks are **bounded** (a `--timeout` / a role that sets one); a run with no time bound can burn money indefinitely.
+- Your own wall time is bounded too. If the caller asks you to stay until a long run completes, treat it as a request for a progress report at your budget: the caller holds the long wait, and a subagent that returns leaves no one to read what its background processes print. So start no background process, and leave none running when you report.
 - If a task overruns its expected time, or you see runaway relaunches / unexpected cost, **`bin/mini cancel <exp>` first**, then report. Cancelling is cheap; a forgotten detached GPU run is not.
 
 ## Hotfix rules — hard guardrails
