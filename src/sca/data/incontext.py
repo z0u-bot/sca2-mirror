@@ -206,7 +206,7 @@ def sample_context(
     """Draw one context: *k* solved examples of *hidden_op*, then a clean query under the same op.
 
     Each example is clean with probability ``1 - rho - cube_rate``; with probability *rho* it is
-    *replacement noise*, the answer a uniformly chosen other op of *op_table* would give (the family
+    *replacement op noise*, the answer a uniformly chosen other op of *op_table* would give (the family
     `pivot.md#the-posterior-over-ops` computes a posterior over); with probability *cube_rate* it is *cube
     noise*, a uniformly random grid color (the family the pivot keeps at a low rate and does not fold into
     the posterior). The query's operands are drawn the same way as an example's, but its answer is always

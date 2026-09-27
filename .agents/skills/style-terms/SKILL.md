@@ -79,7 +79,7 @@ From the smallest unit to the largest. The in-context grammar (the [D2.2 pivot](
 
   The last equation of a context, whose answer the model completes. It is always clean.
 
-- replacement noise
+- replacement op noise
 
   Showing, in some examples, the answer another op would give in place of the answer under the true op, at a *replacement rate*. It spreads the posterior over ops, so it is what grades the stimulus. Distinguish it from a wrong answer drawn at random, which no op produces, and from *label noise*, which is the labeller's error and leaves the corpus as it is.
 
