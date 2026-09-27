@@ -75,4 +75,11 @@ Spans *inside* the loop that legitimately report no steps get the same allowance
 
 A role can also set `env=` — environment for the worker, in place *before* the process starts (a Modal container Secret; locally, the task subprocess's env). Reach for it when a library reads its env once at init and a task setting it on itself would be too late: a Modal container is reused across a map's tasks, so whichever task ran first fixes the setting for the rest. `[tool.mini] env` in `pyproject.toml` gives every experiment a baseline (this project uses it for `XLA_FLAGS`, so GPU results reproduce — see [eng/determinism.md](/eng/determinism.md)); a role's `env=` merges over it key by key. It is *not* a credential channel — the values land on the task record; pass tokens through Modal's `secrets=`.
 
-For choosing the GPU and keeping a step's compile count down (jit once, operators as arguments, fixed shapes), follow [eng/gpu-efficiency.md](/eng/gpu-efficiency.md).
+## Keep GPU tasks cheap
+
+Our models are small, so a GPU task's cost is mostly fixed overhead, and compilation is the part code controls. The scoring pass once spent three quarters of its wall time compiling. Measurements behind these are in [eng/gpu-efficiency.md](/eng/gpu-efficiency.md).
+
+- Use `gpu="L4"`. It's the cheapest per step for these models; faster cards cost more than they save.
+- Jit once, at module level, and pass everything that varies (model, batch, operator) as arguments. A `filter_jit(lambda …)` built per call compiles per call. Give an operator its parameters as an `eqx.Module`, with arrays as leaves and code-path switches as `eqx.field(static=True)`.
+- Keep shapes fixed: a fixed `batch_size`, and a handful of values at most for any static argument.
+- If a task takes longer than its arithmetic should, count compiles before anything else: `jax.config.update("jax_log_compiles", True)`.
