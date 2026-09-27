@@ -429,7 +429,7 @@ rf"""
 The first experiment on the grammar from the [D2.2 pivot](../d2.2/pivot.md): the model infers the op from a few solved examples, with no word to name it. We train the control at three conditions of example count and replacement rate, anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, and score everything against a ceiling computed from the op table. Frozen rules say what round 3 adopts.
 ///
 
-This is round 2 of the [quick route](../d2.2/design.md#quick-route). Its method section folds in the [posterior scouting report](/todo/science/scout-posterior-in-context-grammar.md): the posterior over ops and the Bayes ceiling are computed here from the op table, with no training, and they pick the three grammar conditions the control runs at.
+This is round 2 of the [quick route](../d2.2/design.md#quick-route). The method section folds in the [posterior scouting report](/todo/science/scout-posterior-in-context-grammar.md): it computes the posterior over ops and the Bayes ceiling from the op table, with no training, and uses them to pick the three grammar conditions for the control.
 
 ## Findings
 
@@ -443,13 +443,15 @@ The method section on the posterior and the ceiling is complete and computed; th
 
 ## Why this experiment
 
-[Ex-2.2.14](../ex-2.2.14/report.py) anchored an op and every gate passed, but the anchor went to the word that names the op, so the anchored concept was an attribute of one token. The [pivot](../d2.2/pivot.md) takes op words out of the grammar. Each line is now one context: a few solved examples of one op, written with `?` in place of the op word, then a query under the same op. The op is inferred from the examples, and the anchored concept is "the op in this context is `{ex.ANCHORED_OP}`", which no token names.
+[Ex-2.2.14](../ex-2.2.14/report.py) anchored an op and every gate passed, but the anchor went to the word that names the op, so the anchored concept was an attribute of one token. The [pivot](../d2.2/pivot.md) takes op words out of the grammar.
 
-The pilot does four jobs at once, which the old plan would have spread over four rounds. It scouts the posterior (the method section below), trains the new-grammar control, smoke-tests anchoring the inferred op, and pilots the label variants.
+Each line is now one context: a few solved examples of one op, written with `?` in place of the op word, then a query under the same op. The op is inferred from the examples, and the anchored concept is "the op in this context is `{ex.ANCHORED_OP}`", which no token names.
 
-The control is the regression check; a grammar this different needs its own, as ex-2.2.3 did. No model trained on the corpus can know more about the op than the examples say, and the posterior captures exactly that. So instead of fixed accuracy numbers, the task gate is how far the control falls short of the ceiling the posterior sets, with an analytic floor beside it.
+The pilot does four jobs the old plan spread over four rounds: it scouts the posterior (the method section below), trains the new-grammar control, smoke-tests anchoring the inferred op, and pilots the label variants.
 
-The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](../ex-2.2.15/report.py) found that lines cut short by the window carry the first-operand lean, and its review chose `whole` over the rule's `half` because a whole line always shows its evidence, which matters more once the evidence is a set of examples. Its discussion asks the pilot to watch the trailing-fragment lean alongside the first-operand lean.
+The control is the regression check; a grammar this different needs its own, as ex-2.2.3 did. No model trained on the corpus can know more about the op than the examples say, and the posterior captures that. So instead of fixed accuracy numbers, the task gate is how far the control falls short of the ceiling the posterior sets, with an analytic floor beside it.
+
+The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](../ex-2.2.15/report.py) found that lines cut short by the window carry the first-operand lean. Its review chose `whole` over the rule's `half` because a whole line always shows its evidence, which matters more once the evidence is a set of examples, and its discussion asks the pilot to watch the trailing-fragment lean as well.
 
 ## Glossary
 
@@ -532,7 +534,7 @@ What the pilot proposes to round 3, and what it leaves open.
 
 ### The posterior over ops
 
-A context shows *k* solved examples of one op. Each example is a pair and an answer. Under stochastic rounding, the answer is a draw from up to eight colors. So the likelihood of a shown answer *y* under an op *o* is the probability that rounding the result of *o* on that pair gives *y*, written $P_o(y \mid a, b)$ (`answer_dist` in `sca.data.ops`).
+Each example is a pair and an answer, and under stochastic rounding the answer is a draw from up to eight colors. So the likelihood of a shown answer *y* under an op *o* is the probability that rounding the result of *o* on that pair gives *y*, written $P_o(y \mid a, b)$ (`answer_dist` in `sca.data.ops`).
 
 The corpus rounds each channel independently, in proportion to where the raw value sits between grid levels. The posterior uses the same rounding. Nearest rounding would make it sharper than the corpus supports.
 """
@@ -548,15 +550,15 @@ where κ is the cube-noise rate. The posterior over the eleven ops is the produc
 """
 
 rf"""
-Two readings of ρ were possible, and we take the one whose numbers match those of the pivot. The rate is per example, and the replacing op is uniform over the other ten. A replacement is invisible when the replacing op agrees with the true op on the pair. So slightly fewer than a fraction ρ of examples actually mislead, and the posterior is a smooth weighting rather than a count of the ops that fit.
+Of two possible readings of ρ, we take the one whose numbers match the pivot: per example, with the replacing op uniform over the other ten. A replacement is invisible when the replacing op agrees with the true op on the pair, so slightly fewer than a fraction ρ of examples mislead, and the posterior is a smooth weighting rather than a count of the ops that fit.
 
 Under this reading, the shares of contexts in each band of the posterior reproduce the scratch simulation in the pivot: one clean example puts the posterior above {ex.MIDDLE_BAND[1]:g} on {N["clean1_hi"]:.0%} of contexts and three do so on {N["clean3_hi"]:.0%}; at three examples and ρ = 0.35, {N["r35"]["hi"]:.0%} are above the band, {N["r35"]["mid"]:.0%} inside it, and {N["r35"]["lo"]:.0%} below.
 
-The figure shows the whole grid: {len(ex.K_GRID)} example counts by {len(ex.RHO_GRID)} replacement rates, {ex.N_CONTEXTS:,} sampled contexts each, with the true op uniform over the table.
+The figure covers the whole grid, {len(ex.K_GRID)} example counts by {len(ex.RHO_GRID)} replacement rates, with the true op uniform over the table.
 
 {posterior_figure()}
 
-Clean examples pin the op down fast, so the example count alone grades very little. Replacement noise is what spreads the posterior across the range. The spread is widest, at a standard deviation of {N["sd_max"]:.2f}, for {N["sd_max_at"][0]} examples at ρ = {N["sd_max_at"][1]:g}; at the center condition it is {N["sd_centre"]:.2f}, with {N["centre"]["mid"]:.0%} of contexts in the middle band and {N["centre"]["lo"]:.0%} below it.
+Clean examples pin the op down fast, so the example count alone grades very little; replacement noise is what spreads the posterior across the range. The spread is widest, at a standard deviation of {N["sd_max"]:.2f}, for {N["sd_max_at"][0]} examples at ρ = {N["sd_max_at"][1]:g}; at the center condition it is {N["sd_centre"]:.2f}, with {N["centre"]["mid"]:.0%} of contexts in the middle band and {N["centre"]["lo"]:.0%} below it.
 
 ### The Bayes ceiling and the floor
 
@@ -566,7 +568,7 @@ The reports score expected exact match: the probability mass the model puts on t
 
 Told the op, the same predictor scores $\sum_y P_t(y)^2$, which is {TOLD_OP:.3f} over the table. The shortfall from 1 comes from stochastic rounding, and it does not depend on the examples or the noise.
 
-The floor is the predictor with no evidence, uniform over ops. It is the same at every grid point, {FLOOR:.3f} (the sampled values run from {N["floor_range"][0]:.3f} to {N["floor_range"][1]:.3f}).
+The floor (no evidence, uniform over ops) is the same at every grid point, {FLOOR:.3f} (the sampled values run from {N["floor_range"][0]:.3f} to {N["floor_range"][1]:.3f}).
 
 [^calibrated]: A calibrated model is one whose stated probabilities match how often things actually happen: of the answers it gives 30% to, about 30% are right.
 
@@ -584,7 +586,7 @@ With three clean examples the ceiling is {N["ceil_clean3"]:.3f}, within 0.02 of 
 
 **The numbers in the pivot are the hard-accuracy form.** The pivot quotes a ceiling of about 0.74 at three clean examples, 0.58 at ρ = 0.35, and 0.75 for a model told the op. Those are what the same predictor scores when it puts all its mass on the mode of $q$: {N["mode_clean3"]:.3f}, {N["mode_r35"]:.3f}, and {TOLD_OP_MODE:.3f} here.
 
-That form is higher because expected exact match is linear in the model distribution. So the metric itself is maximized by a model that names one color. The calibrated predictor spreads its mass over every rounding of the answer, and scores about 0.05 less at three clean examples and 0.1 less at ρ = 0.35.
+That form is higher because expected exact match is linear in the model distribution, so the metric itself is maximized by a model that names one color. The calibrated predictor spreads its mass over every rounding of the answer, and scores about 0.05 less at three clean examples and 0.1 less at ρ = 0.35.
 
 The ceiling of record is the calibrated one, since that is where training aims. A control scoring above it would have sharpened past calibration, and the calibration check in the measurements would show that. The tables keep the hard form as the maximum of the metric.
 
@@ -594,7 +596,9 @@ Per op, the ceiling is capped by how much the op rounds. `{ex.ANCHORED_OP}` is t
 
 ### Cube noise
 
-A wrong answer drawn from the whole cube usually fits no op, so it removes an example's evidence without pointing anywhere else. The pivot allows it at a low rate, so that the model learns to discount examples that fit nothing. Its cost at the center condition is {N["cube_cost"][ex.CUBE_GRID[1]]:.3f} of ceiling at κ = {ex.CUBE_GRID[1]:g}, {N["cube_cost"][ex.CUBE_GRID[2]]:.3f} at κ = {ex.CUBE_GRID[2]:g}, and {N["cube_cost"][ex.CUBE_GRID[3]]:.3f} at κ = {ex.CUBE_GRID[3]:g}. A posterior that does not know about the cube noise treats a cube color as replacement noise. That posterior is a little sharper, and the metric rewards sharpness (as above), so it scores {N["cube_ignoring"][ex.CUBE_GRID[3]]:.3f} higher at the highest rate. So the ceiling barely depends on whether the model has learned about the cube noise. Whether the corpus carries it is left open (`CUBE_RATE`).
+The pivot allows cube noise at a low rate, so that the model learns to discount examples that fit nothing. At the center condition it costs {N["cube_cost"][ex.CUBE_GRID[1]]:.3f} of ceiling at κ = {ex.CUBE_GRID[1]:g}, {N["cube_cost"][ex.CUBE_GRID[2]]:.3f} at κ = {ex.CUBE_GRID[2]:g}, and {N["cube_cost"][ex.CUBE_GRID[3]]:.3f} at κ = {ex.CUBE_GRID[3]:g}.
+
+A posterior that does not know about cube noise treats a cube color as replacement noise. It is a little sharper, and the metric rewards sharpness (as above), so it scores {N["cube_ignoring"][ex.CUBE_GRID[3]]:.3f} higher at the highest rate. So the ceiling barely depends on whether the model has learned about cube noise. Whether the corpus carries it is left open (`CUBE_RATE`).
 
 {cube_figure()}
 
@@ -602,13 +606,15 @@ A wrong answer drawn from the whole cube usually fits no op, so it removes an ex
 
 ### The three grammar conditions
 
-The pilot trains the control at three conditions of example count and ρ, and rule (a) picks the one with the widest spread among those the control learns to near its ceiling. So the three should differ in spread and in ceiling, and bracket the pivot's working point of three examples at ρ near 0.3. We propose `{COND_NAMES[0]}`, `{COND_NAMES[1]}`, and `{COND_NAMES[2]}`.
+Rule (a) picks the widest spread among the conditions where the control nears its ceiling, so the three should differ in spread and in ceiling, and bracket the pivot's working point of three examples at ρ near 0.3. We propose `{COND_NAMES[0]}`, `{COND_NAMES[1]}`, and `{COND_NAMES[2]}`.
 
 {conditions_table()}
 
-`{COND_NAMES[1]}` is the center. `{COND_NAMES[0]}` steps ρ down on the same line length: it gives up spread ({spread(*ex.GRAMMAR_CONDITIONS[0]):.2f} against {spread(*ex.CENTRE):.2f}) for a higher ceiling, and is the fallback within the same block size if the control falls short at the center. `{COND_NAMES[2]}` adds one example at the same ρ as the center, which raises the ceiling by {ceiling(*ex.GRAMMAR_CONDITIONS[2]) - ceiling(*ex.CENTRE):.2f} and keeps most of the spread ({spread(*ex.GRAMMAR_CONDITIONS[2]):.2f}); it asks whether more evidence buys a higher ceiling without flattening the stimulus, at {ex.context_tokens(4)} tokens per line rather than {ex.context_tokens(3)}.
+`{COND_NAMES[1]}` is the center. `{COND_NAMES[0]}` steps ρ down on the same line length: it gives up spread ({spread(*ex.GRAMMAR_CONDITIONS[0]):.2f} against {spread(*ex.CENTRE):.2f}) for a higher ceiling, and is the fallback within the same block size if the control falls short at the center.
 
-Two alternatives were weighed. `{cond_name(*ALT_34)}` has the widest spread on the three-example row, but its middle-band share ({band_shares(*ALT_34)[1]:.0%}) is no larger than at the center, and its ceiling is {ceiling(*ex.CENTRE) - ceiling(*ALT_34):.2f} lower. So it grades no better and leaves less room between floor and ceiling. `{cond_name(*ALT_435)}` matches the spread at the center ({spread(*ALT_435):.2f}) at a ceiling of {ceiling(*ALT_435):.3f}, which `{COND_NAMES[2]}` beats on ceiling at about the same spread.
+`{COND_NAMES[2]}` adds one example at the center ρ, which raises the ceiling by {ceiling(*ex.GRAMMAR_CONDITIONS[2]) - ceiling(*ex.CENTRE):.2f} and keeps most of the spread ({spread(*ex.GRAMMAR_CONDITIONS[2]):.2f}). It asks whether more evidence buys a higher ceiling without flattening the stimulus, at {ex.context_tokens(4)} tokens per line rather than {ex.context_tokens(3)}.
+
+Two alternatives were weighed. `{cond_name(*ALT_34)}` has the widest spread on the three-example row, but its middle-band share ({band_shares(*ALT_34)[1]:.0%}) is no larger than at the center and its ceiling is {ceiling(*ex.CENTRE) - ceiling(*ALT_34):.2f} lower, so it grades no better and leaves less room between floor and ceiling. `{cond_name(*ALT_435)}` matches the spread at the center ({spread(*ALT_435):.2f}) at a ceiling of {ceiling(*ALT_435):.3f}, which `{COND_NAMES[2]}` beats on ceiling at about the same spread.
 
 <!-- REVIEW: the three conditions are a proposal from this scan, for Sandy to confirm or move. The spread statistic
 proposed for rule (a) is the standard deviation of the posterior on the true op; the middle-band share is reported
@@ -616,7 +622,9 @@ beside it. Verify: the conditions table and the grid tables above. -->
 
 ### Reading a score against its ceiling
 
-The ceiling differs between conditions, so a score is shown two ways. In figures, the y-axis stays raw expected exact match, and the ceiling and floor of each condition are drawn as dashed lines beside its seed marks, so the reader sees how much of the available room a model takes without arithmetic. Where a table compares across conditions, it adds the skill score, (score − floor) / (ceiling − floor), as a column: 0 is a model that ignores the examples and 1 is the Bayes predictor. The ceiling for a model told the op ({TOLD_OP:.3f}) is drawn beside the Bayes ceiling in the control's figure, so that the part of the gap due to inference can be seen.
+The ceiling differs between conditions, so a score is shown two ways. Figures keep raw expected exact match on the y-axis and draw the ceiling and floor of each condition as dashed lines beside its seed marks, so the reader sees without arithmetic how much of the available room a model takes.
+
+A table that compares across conditions adds the skill score as a column (0 is a model that ignores the examples, 1 is the Bayes predictor). The figure for the control also draws the ceiling for a model told the op ({TOLD_OP:.3f}) beside the Bayes ceiling, so that the part of the gap due to inference can be seen.
 
 <!-- REVIEW: this convention is provisional (Sandy is deciding); raw EEM on the axis with dashed bounds per condition,
 the skill score as a table column or summary panel and never the main axis. -->
