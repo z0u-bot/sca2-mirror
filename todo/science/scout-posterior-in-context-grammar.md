@@ -10,3 +10,7 @@ The [D2.2 pivot](/docs/m2/d2.2/pivot.md) proposes a grammar where the model infe
 Those would be easier to review as a `lit` report with figures: the posterior distribution across contexts for a grid of example counts and replacement rates, the ceiling on the same grid, and how much random-cube noise adds. All of it is computable from the op table (`answer_dist` in `sca.data.ops`) under stochastic rounding, with no training. It would also fix the replacement rate and example count for the in-context control.
 
 The [quick route](/docs/m2/d2.2/design.md#quick-route) in the design folds this report into the method section of [the pilot](/docs/m2/d2.2/design.md#the-pilot), so it needs no round of its own.
+
+## Notes
+
+**2026-09-27, Opus, PM** — In progress in [#221](https://github.com/z0u/sca2/pull/221) (open): `docs/m2/ex-2.2.16/posterior.py` computes the posterior and the Bayes ceiling over the example-count and replacement grid, with cube noise, and the pilot's report cites this item from its method section. Close this when #221 merges.
