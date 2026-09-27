@@ -13,9 +13,9 @@ Our models are small (d64, four layers), so on a GPU most tasks are bound by lat
 5. **When a task is slower than its arithmetic, count compiles first.** `jax.config.update("jax_log_compiles", True)` logs one line per compile with the function name, and `jax.monitoring.register_event_duration_secs_listener` receives `/jax/core/compile/backend_compile_duration` events to total the time. A name that repeats dozens of times is the lead.
 6. **Leave the volume commit alone.** A task commits the experiment Volume after writing its result and before recording `DONE`, so a reader that sees `DONE` can always read the result. It costs about 3 s per task. Modal's background sync would get the bytes there eventually, but with no ordering against the record.
 
-## The persistent compilation cache
+## Why no persistent compilation cache
 
-On Modal, mini points `JAX_COMPILATION_CACHE_DIR` at `/hf-cache/jax`, on the same workspace-wide Volume as the Hugging Face cache (`_attach_hf_cache` in `mini/modal_apparatus.py`). Its key covers the lowered program, the XLA flags, the JAX and jaxlib versions and the device kind, so a hit returns the executable a fresh compile would build: numerics don't depend on whether the cache was warm, and the memo key doesn't see it. Like the HF cache, it's disposable. Deleting it costs recompiles, and a torn entry makes JAX warn and compile again. JAX's default threshold applies, so only compiles longer than a second are written. A role that sets `JAX_COMPILATION_CACHE_DIR` in its own `env=` keeps its own value. Locally nothing changes; set the variable yourself if you want the cache there.
+JAX can write compiled programs to disk (`JAX_COMPILATION_CACHE_DIR`) and load them in a later process. We tried it on the shared cache Volume and it doesn't carry across Modal containers: the cache key includes a fingerprint of the GPU topology (`accelerator_config` in `jax/_src/cache_key.py`), and that fingerprint differs from one L4 container to the next. Every other component of the key matched. Each container misses, compiles, and writes its own entries, so the cache adds Volume writes and no hits. Within one process it does dedup identical programs, which rescued the old scoring code (below), but jitting once gets the same result without it. Worth re-checking after a JAX upgrade; the probe logs the key components with `logging.getLogger("jax._src.cache_key").setLevel(logging.DEBUG)`.
 
 ## What we measured: the scoring pass (2026-09-27)
 
@@ -29,6 +29,15 @@ In ex-2.2.12 and ex-2.2.13 the scoring role used more L4 time than training: 160
 | jit once | 53 s | 22 s | 51 (11 of them `_forward`) |
 | jit once, warm persistent cache | 30 s | 0.5 s | |
 
-The cold-cache row is faster than "before" because the cache also dedups identical programs within one process: the 74 lambdas lowered to a few distinct programs. Every variant's output was bit-identical to the original.
+The cold-cache row is faster than "before" because the cache dedups identical programs within one process: the 74 lambdas lowered to a few distinct programs. (The warm rows are one local process reading another's cache, which works on CPU; on Modal it doesn't, see above.) Every variant's output was bit-identical to the original.
 
-GPU_RESULTS_PLACEHOLDER
+On L4, four ex-2.2.13 runs each, one per single-use container:
+
+| code | wall | compiling | compiles |
+| --- | --- | --- | --- |
+| before | 113–208 s (median 164) | 91–175 s | 112–134 |
+| jit once | 35–40 s | 17–21 s | 51–54 |
+
+That's about 4.5× less wall time per task. Scoring was 477 GPU-minutes of ex-2.2.13, so at this ratio it would have been about 100.
+
+Old and new code agree on the GPU to float32 rounding (largest absolute difference 6e-6 over about 10,000 scalars per run), and so does the *same* code run in two containers: in two of the four runs, the old code alone gave results that differed at that level. So the scoring pass is reproducible across GPU containers to rounding and not to the bit, even with the deterministic flags, which means a re-run can change the content hash of a score artifact. In ex-2.2.x the step downstream of the scores is `publish_results`, a CPU task, so a re-run that moves a hash costs one cheap re-publish; a step that feeds scores into more GPU work would pay more.

@@ -209,7 +209,7 @@ def test_memo_worker_mounts_hf_cache(monkeypatch):
 
     That's what lets a multi-stage pipeline's ``from_pretrained`` reuse weights across containers instead of re-downloading per container (#50).
     """
-    from mini.modal_apparatus import HF_CACHE_MOUNT, JAX_CACHE_DIR
+    from mini.modal_apparatus import HF_CACHE_MOUNT
 
     monkeypatch.delenv("MINI_STORE_BUCKET", raising=False)
     monkeypatch.delenv("MINI_PUBLISH_REPO", raising=False)
@@ -224,33 +224,19 @@ def test_memo_worker_mounts_hf_cache(monkeypatch):
     app._memo_worker(train_step)  # one registered worker per task fn (named after it)
     kwargs = app.app.function_kwargs  # pyrefly: ignore [missing-attribute]  (MockModalApp)
     assert isinstance(kwargs["volumes"][HF_CACHE_MOUNT], MockModalVolume)
-    assert {"HF_HOME": HF_CACHE_MOUNT, "JAX_COMPILATION_CACHE_DIR": JAX_CACHE_DIR} in secrets_made
+    assert {"HF_HOME": HF_CACHE_MOUNT} in secrets_made
     assert kwargs["name"].startswith("train_step-")  # dashboard shows the task fn, not _modal_task_entry
 
 
 def test_attach_hf_cache_preserves_user_mounts_and_secrets(monkeypatch):
-    from mini.modal_apparatus import HF_CACHE_MOUNT, JAX_CACHE_DIR, _attach_hf_cache
+    from mini.modal_apparatus import HF_CACHE_MOUNT, _attach_hf_cache
 
     monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())
     monkeypatch.setattr("modal.Secret.from_dict", lambda d: ("secret", d))
     fn_kwargs = {"volumes": {"/vol": "user-vol"}, "secrets": ["user-secret"]}
     _attach_hf_cache(fn_kwargs)
     assert fn_kwargs["volumes"].keys() == {"/vol", HF_CACHE_MOUNT}
-    assert fn_kwargs["secrets"] == [
-        "user-secret",
-        ("secret", {"HF_HOME": HF_CACHE_MOUNT, "JAX_COMPILATION_CACHE_DIR": JAX_CACHE_DIR}),
-    ]
-
-
-def test_attach_hf_cache_leaves_keys_the_role_sets(monkeypatch):
-    # A role that points JAX's cache elsewhere (or at nothing) keeps its own value: no two Secrets define the key.
-    from mini.modal_apparatus import HF_CACHE_MOUNT, _attach_hf_cache
-
-    monkeypatch.setattr("modal.Volume.from_name", lambda name, **kw: MockModalVolume())
-    monkeypatch.setattr("modal.Secret.from_dict", lambda d: ("secret", d))
-    fn_kwargs = {"env": {"JAX_COMPILATION_CACHE_DIR": "/elsewhere"}}
-    _attach_hf_cache(fn_kwargs)
-    assert fn_kwargs["secrets"] == [("secret", {"HF_HOME": HF_CACHE_MOUNT})]
+    assert fn_kwargs["secrets"] == ["user-secret", ("secret", {"HF_HOME": HF_CACHE_MOUNT})]
 
 
 # ---------------------------------------------------------------------------

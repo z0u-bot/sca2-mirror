@@ -163,15 +163,8 @@ def make_image() -> modal.Image:
 # re-download), concurrent writers at worst pull the same model twice, and
 # deleting the Volume is always safe. Locally this tier doesn't exist —
 # ~/.cache/huggingface already persists.
-#
-# JAX's persistent compilation cache shares the tier on the same terms. Its key
-# is the lowered program plus the XLA flags, JAX/jaxlib versions and device
-# kind, so a hit returns the executable a fresh compile would have built, and a
-# task's numerics don't depend on whether the cache was warm. A torn or stale
-# entry makes JAX warn and recompile. See eng/gpu-efficiency.md.
 HF_CACHE_VOLUME = "mini-hf-cache"
 HF_CACHE_MOUNT = "/hf-cache"
-JAX_CACHE_DIR = f"{HF_CACHE_MOUNT}/jax"
 
 # Container-local root for the worker's HFStore warm cache: deliberately NOT under
 # the mounted Volume, where it would be committed alongside results and shadow
@@ -192,16 +185,13 @@ def _attach_env(fn_kwargs: dict[str, Any]) -> None:
 
 
 def _attach_hf_cache(fn_kwargs: dict[str, Any]) -> None:
-    """Mount the shared cache Volume and point ``HF_HOME`` and JAX's compilation cache at it (in place).
+    """Mount the shared HF cache Volume and point ``HF_HOME`` at it (in place).
 
-    The env vars ride in a Secret rather than on the image so a user-supplied ``.w(image=...)`` still gets them. A key the role's ``env=`` sets is left to the role, so call this before :func:`_attach_env` pops it.
+    The env var rides in a Secret rather than on the image so a user-supplied ``.w(image=...)`` still gets it.
     """
     cache = modal.Volume.from_name(HF_CACHE_VOLUME, environment_name=modal_environment(), create_if_missing=True)
     fn_kwargs["volumes"] = {**fn_kwargs.get("volumes", {}), HF_CACHE_MOUNT: cache}
-    role_env = fn_kwargs.get("env") or {}
-    defaults = {"HF_HOME": HF_CACHE_MOUNT, "JAX_COMPILATION_CACHE_DIR": JAX_CACHE_DIR}
-    env: dict[str, str | None] = {k: v for k, v in defaults.items() if k not in role_env}
-    fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), modal.Secret.from_dict(env)]
+    fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), modal.Secret.from_dict({"HF_HOME": HF_CACHE_MOUNT})]
 
 
 # ---------------------------------------------------------------------------
@@ -618,8 +608,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
                 }
             if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
                 fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
-            _attach_hf_cache(fn_kwargs)  # shared HF_HOME and JAX compile cache, reused across containers
             _attach_env(fn_kwargs)  # container-level env (e.g. XLA_FLAGS), in place before the worker starts
+            _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
             self._memo_fns[name] = self.app.function(serialized=True, name=name, **fn_kwargs)(_modal_task_entry)
         return self._memo_fns[name]
 
@@ -790,8 +780,8 @@ class ModalApparatus(Apparatus[ModalVolume]):
             }
         if secret := _hf_store_secret():  # forward HF bucket creds so put/get hit the shared store
             fn_kwargs["secrets"] = [*fn_kwargs.get("secrets", []), secret]
-        _attach_hf_cache(fn_kwargs)  # shared HF_HOME and JAX compile cache, reused across containers
         _attach_env(fn_kwargs)  # container-level env (e.g. XLA_FLAGS), in place before the worker starts
+        _attach_hf_cache(fn_kwargs)  # shared HF_HOME, so from_pretrained caches across containers
         modal_fn = self.app.function(serialized=True, **fn_kwargs)(wrapped_fn)
         return modal_fn, startup_timeout
 
