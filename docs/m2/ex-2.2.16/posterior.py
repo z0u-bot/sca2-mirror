@@ -2,7 +2,7 @@
 
 A context is a few solved examples of one op and a query. The examples are the evidence: each shows a pair and an
 answer, and the answer under stochastic rounding is a draw from up to eight colors (`answer_dist` in `sca.data.ops`),
-so the likelihood of a shown answer under an op is the probability that op's rounding gives it. Replacement noise at a
+so the likelihood of a shown answer under an op is the probability that rounding under that op gives it. Replacement op noise at a
 rate ρ shows the answer of another op instead; cube noise at a rate κ shows a color drawn from the whole grid. The
 posterior is what a model trained on the noisy corpus can reach at best, and the Bayes ceiling is the expected exact
 match of the calibrated predictor that answers the query with the posterior-weighted answer distribution. Expected
@@ -10,7 +10,7 @@ exact match is linear in the model's distribution, so the metric itself peaks at
 (`mode_match`); the calibrated form is the ceiling of record because it is where cross-entropy training aims.
 
 Everything here is a function of the op table and needs no corpus, no generator, and no training. The grammar
-generator is being written separately; this module stays a pure computation so the pilot's method section does not
+generator is being written separately; this module stays a pure computation so the method section of the pilot does not
 depend on it. Once the generator lands, its noise model should match `sample_contexts` (a per-example replacement
 rate, the replacing op uniform over the other ops, and cube noise uniform over the grid), or the ceiling here is not
 the ceiling of the corpus.
@@ -32,7 +32,7 @@ MAX_ANSWERS = 8
 
 @dataclass(frozen=True)
 class AnswerTable:
-    """Every op's answer distribution on every ordered pair, as a padded sparse table.
+    """The answer distribution of every op on every ordered pair, as a padded sparse table.
 
     `idx[o, pair, j]` is the color index of the j-th answer an op can give on a pair and `prob[o, pair, j]` its
     probability; unused slots hold color −1 and probability 0. The pairs are the 216² ordered pairs, indexed as
@@ -61,7 +61,7 @@ class AnswerTable:
         return float(self.prob.max(-1).mean())
 
     def told_op(self) -> float:
-        """Expected exact match of a predictor told the op that answers with the op's own distribution: the mean
+        """Expected exact match of a predictor told the op that answers with the distribution of that op: the mean
         over ops and pairs of Σ_y P_o(y)². This is the ceiling with no inference to do, and it does not depend on the
         example count or the noise.
         """
@@ -69,7 +69,7 @@ class AnswerTable:
 
     def floor(self) -> float:
         """Expected exact match of the predictor with no evidence: the op-marginal answer distribution, uniform over
-        ops, scored against the true op's distribution, averaged over true ops and pairs.
+        ops, scored against the distribution of the true op, averaged over true ops and pairs.
         """
         # For each true op t and pair, Σ_j p_t(y_j) · mean_o P_o(y_j), in chunks of pairs to bound memory.
         total = 0.0
@@ -111,9 +111,9 @@ class Contexts:
 def sample_contexts(
     table: AnswerTable, n: int, k: int, rho: float, kappa: float, rng: np.random.Generator, true_op: int | None = None
 ) -> Contexts:
-    """*n* contexts of *k* examples under one op, with replacement noise at *rho* and cube noise at *kappa*.
+    """*n* contexts of *k* examples under one op, with replacement op noise at *rho* and cube noise at *kappa*.
 
-    Each example draws a pair uniformly over ordered pairs. Its answer is a draw from the true op's distribution with
+    Each example draws a pair uniformly over ordered pairs. Its answer is a draw from the distribution of the true op with
     probability 1 − ρ − κ; with probability ρ it is a draw from the distribution of another op, uniform over the other
     ops; and with probability κ it is a color uniform over the grid. The query pair is uniform and its answer is
     never shown. With *true_op* set, every context has that op; otherwise the op is uniform over the table.
@@ -125,7 +125,7 @@ def sample_contexts(
     shift = rng.integers(1, table.n_ops, size=(n, k))
     replaced = u < rho
     answer_op = np.where(replaced, (ops[:, None] + shift) % table.n_ops, ops[:, None])
-    # A draw from that op's distribution on the pair.
+    # A draw from the distribution of that op on the pair.
     probs = table.prob[answer_op, ex_pair]  # (n, k, 8)
     cum = probs.cumsum(-1)
     draw = rng.random((n, k, 1))
@@ -168,7 +168,7 @@ def prefix_posteriors(table: AnswerTable, ctx: Contexts, rho: float, kappa: floa
 
 def expected_match(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.ndarray:
     """Expected exact match on each query of the predictor that answers with the posterior-weighted answer
-    distribution, scored against the true op's distribution on the query pair: Σ_y q(y) P_t(y), with
+    distribution, scored against the distribution of the true op on the query pair: Σ_y q(y) P_t(y), with
     q = Σ_o post_o P_o(· | query).
     """
     colors = table.idx[ctx.true_op, ctx.query_pair]  # (n, 8)
@@ -178,11 +178,9 @@ def expected_match(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.nd
     return (q * p_true).sum(-1)
 
 
-def mode_match(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.ndarray:
-    """Exact match on each query of the predictor that names the mode of the posterior-weighted answer distribution:
-    P_t(argmax_y q(y)). The hard-accuracy form of `expected_match`, which is what the pivot's scratch simulation
-    scored, and the maximum of expected exact match over all predictors, since the metric is linear in the model's
-    distribution. A calibrated model does not reach it; `expected_match` is the ceiling of record.
+def predictive(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.ndarray:
+    """The Bayes predictive on each query, dense over the grid: `q(y) = Σ_o post_o P_o(y | query)`, shape
+    `(n, 216)`. The distribution a calibrated model holds at the query `=`.
     """
     n = len(ctx.true_op)
     q = np.zeros((n, N_COLORS))
@@ -191,8 +189,57 @@ def mode_match(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.ndarra
         dense = np.zeros((n, N_COLORS + 1))  # the last column catches the padding index −1
         np.put_along_axis(dense, np.where(colors < 0, N_COLORS, colors), probs, axis=1)
         q += post[:, o, None] * dense[:, :N_COLORS]
-    mode = q.argmax(1)
-    return table.lookup(ctx.query_pair, mode)[ctx.true_op, np.arange(n)]
+    return q
+
+
+def mode_match(table: AnswerTable, ctx: Contexts, post: np.ndarray) -> np.ndarray:
+    """Exact match on each query of the predictor that names the mode of the posterior-weighted answer distribution:
+    P_t(argmax_y q(y)). The hard-accuracy form of `expected_match`, which is what the scratch simulation in the pivot
+    scored, and the maximum of expected exact match over all predictors, since the metric is linear in the model's
+    distribution. A calibrated model does not reach it; `expected_match` is the ceiling of record.
+    """
+    mode = predictive(table, ctx, post).argmax(1)
+    return table.lookup(ctx.query_pair, mode)[ctx.true_op, np.arange(len(ctx.true_op))]
+
+
+def kl(q: np.ndarray, p: np.ndarray) -> np.ndarray:
+    """`KL(q ‖ p)` per row, in nats: `Σ_y q(y) log(q(y) / p(y))`, the terms where q is zero dropped.
+
+    With q the Bayes predictive and p a model's answer distribution, its mean over contexts is the model's
+    cross-entropy on the answer less the Bayes-optimal cross-entropy, since the true answers are drawn from q
+    once the true op is marginalized under the posterior: the excess loss of the model over a calibrated one.
+    """
+    safe_q = np.where(q > 0, q, 1.0)
+    return (q * (np.log(safe_q) - np.log(np.maximum(p, 1e-300)))).sum(-1)
+
+
+def entropy(q: np.ndarray) -> np.ndarray:
+    """`H(q)` per row, in nats: the irreducible loss on the answer, which no predictor gets under."""
+    safe_q = np.where(q > 0, q, 1.0)
+    return -(q * np.log(safe_q)).sum(-1)
+
+
+def reference_predictors(table: AnswerTable, ctx: Contexts, rho: float, kappa: float) -> dict[str, np.ndarray]:
+    """Answer distributions on the queries, `(n, 216)` each, for predictors that miss calibration in named ways,
+    to read a model's KL against. `bayes` is the Bayes predictive itself.
+
+    - `floor`: no evidence, the uniform posterior (the same predictor the floor scores).
+    - `one-hidden`: the Bayes predictive with the last example ignored.
+    - `mix-floor`: nine tenths of the Bayes predictive and a tenth of the floor.
+    - `map`: commits to the most probable op and answers with the distribution of that op, mixed with a hundredth
+      of the floor so that the divergence is finite where the committed op misses an answer the true op gives.
+    """
+    post = posterior(table, ctx, rho, kappa)
+    q = predictive(table, ctx, post)
+    n = len(ctx.true_op)
+    uniform = np.full((n, table.n_ops), 1 / table.n_ops)
+    floor_p = predictive(table, ctx, uniform)
+    hidden = Contexts(ctx.true_op, ctx.ex_pair[:, :-1], ctx.ex_color[:, :-1], ctx.query_pair)
+    one_hidden = predictive(table, hidden, posterior(table, hidden, rho, kappa))
+    committed = np.zeros_like(post)
+    committed[np.arange(n), post.argmax(1)] = 1.0
+    map_p = 0.99 * predictive(table, ctx, committed) + 0.01 * floor_p
+    return {"bayes": q, "floor": floor_p, "one-hidden": one_hidden, "mix-floor": 0.9 * q + 0.1 * floor_p, "map": map_p}
 
 
 def skill_score(score: float, floor: float, ceiling: float) -> float:

@@ -1,7 +1,7 @@
 # title: Ex 2.2.16: the in-context grammar pilot
 
 # The design constants come from `experiment.py` beside this script and the posterior computation from
-# `posterior.py` (the script's directory is on sys.path while it runs). Nothing here reads the store yet: the method
+# `posterior.py` (the directory of the script is on sys.path while it runs). Nothing here reads the store yet: the method
 # section is computed from the op table alone, with no training.
 from typing import cast
 
@@ -129,9 +129,42 @@ def per_op(table: P.AnswerTable, k: int, rho: float, n: int, seed: int) -> dict:
     return out
 
 
+@memo
+def calibration_refs(table: P.AnswerTable, conditions: tuple, kappa: float, n: int, seed: int) -> dict:
+    """At each proposed condition, under the cube-noise rate of record: the irreducible loss H(q), the mean KL
+    divergence from the Bayes predictive to each reference predictor, and the expected exact match of the
+    predictor that ignores one example (its shortfall from the ceiling is a scale for the margin of rule (a)).
+    """
+    out = {}
+    for i, (k, rho) in enumerate(conditions):
+        rng = np.random.default_rng([seed, 300, i])
+        ctx = P.sample_contexts(table, n, k, rho, kappa, rng)
+        refs = P.reference_predictors(table, ctx, rho, kappa)
+        q = refs.pop("bayes")
+        hidden = P.Contexts(ctx.true_op, ctx.ex_pair[:, :-1], ctx.ex_color[:, :-1], ctx.query_pair)
+        out[(k, rho)] = {
+            "entropy": float(P.entropy(q).mean()),
+            "kl": {name: float(P.kl(q, p).mean()) for name, p in refs.items()},
+            "ceiling": float(P.expected_match(table, ctx, P.posterior(table, ctx, rho, kappa)).mean()),
+            "one_hidden": float(P.expected_match(table, hidden, P.posterior(table, hidden, rho, kappa)).mean()),
+        }
+    return out
+
+
 SCAN = scan(TABLE, ex.K_GRID, ex.RHO_GRID, ex.N_CONTEXTS, ex.POSTERIOR_SEED)
 CUBE = cube_scan(TABLE, ex.GRAMMAR_CONDITIONS, ex.CUBE_GRID, ex.N_CONTEXTS, ex.POSTERIOR_SEED)
 PER_OP = per_op(TABLE, *ex.CENTRE, ex.N_CONTEXTS // 4, ex.POSTERIOR_SEED)
+CALIB = calibration_refs(TABLE, ex.GRAMMAR_CONDITIONS, ex.CUBE_RATE, ex.N_CONTEXTS // 2, ex.POSTERIOR_SEED)
+
+
+def record_ceiling(k: int, rho: float) -> float:
+    """The ceiling of record at a proposed condition: the calibrated Bayes ceiling at the cube-noise rate of the corpus."""
+    return CUBE[(k, rho, ex.CUBE_RATE)]["ceiling"]
+
+
+def record_floor(k: int, rho: float) -> float:
+    """The floor does not depend on the examples, so cube noise leaves it where the κ = 0 scan put it."""
+    return SCAN[(k, rho)]["floor"]
 
 
 def spread(k: int, rho: float) -> float:
@@ -279,7 +312,7 @@ def cube_draw(cube: dict, conditions: tuple, cube_grid: tuple, alt_text: str) ->
         caption="""
             **What cube noise costs the ceiling.** One line per proposed condition. Filled marks: the ceiling for
             the posterior that knows the cube-noise rate κ. Hollow marks: the ceiling for the posterior that treats
-            every odd example as replacement noise, which is what a model that has not learned about cube noise
+            every odd example as replacement op noise, which is what a model that has not learned about cube noise
             would hold.
         """,
     )
@@ -348,8 +381,8 @@ def conditions_table() -> str:
     return table_html(
         head,
         rows,
-        f"The three proposed grammar conditions. The ceiling and floor are the analytic bounds the control at each "
-        f"condition is scored between; the hard-EM ceiling is the same predictor naming the mode, for comparison "
+        f"The three proposed grammar conditions, at κ = 0. The ceiling and floor are the analytic bounds the control at each "
+        f"condition is scored between (the bounds of record, at the cube-noise rate of the corpus, are under rule (a)); the hard-EM ceiling is the same predictor naming the mode, for comparison "
         f"with the pivot. The band columns are shares of contexts by posterior on the true op, below, inside, and "
         f"above {ex.MIDDLE_BAND[0]:g}–{ex.MIDDLE_BAND[1]:g}. The center condition is `{cond_name(*ex.CENTRE)}`.",
         ref_rows=frozenset({ex.GRAMMAR_CONDITIONS.index(ex.CENTRE)}),
@@ -393,6 +426,98 @@ def cube_table() -> str:
     )
 
 
+def record_table() -> str:
+    head = ["condition", "ceiling (EEM) ↑", "floor", "room", "pass line (ceiling − margin)", "margin / room"]
+    rows = []
+    for k, rho in ex.GRAMMAR_CONDITIONS:
+        c, f = record_ceiling(k, rho), record_floor(k, rho)
+        rows.append(
+            [
+                f"`{cond_name(k, rho)}`",
+                f"{c:.3f}",
+                f"{f:.3f}",
+                f"{c - f:.3f}",
+                f"{c - ex.CEILING_MARGIN:.3f}",
+                f"{ex.CEILING_MARGIN / (c - f):.2f}",
+            ]
+        )
+    return table_html(
+        head,
+        rows,
+        f"The bounds of record for rule (a), at the cube-noise rate of the corpus, κ = {ex.CUBE_RATE:g}: the calibrated "
+        f"Bayes ceiling, the floor, the room between them, the score a control has to reach, and the margin as a "
+        f"share of the room (the pass line is a skill score of one minus this).",
+        ref_rows=frozenset({ex.GRAMMAR_CONDITIONS.index(ex.CENTRE)}),
+    )
+
+
+def arms_table() -> str:
+    head = ["arm", "group", "condition", "model", "anchored", "label", "crop policy", "corpus", "seeds", "what it asks"]
+    rows = []
+    for a in ex.ARMS:
+        extras = [x for x, on in (("hinge", a.hinge), ("verification", a.verify), ("newline mask", a.mask)) if on]
+        rows.append(
+            [
+                f"`{a.name}`",
+                a.group,
+                f"`{cond_name(*a.condition)}`",
+                a.model,
+                "yes" if a.anchored else "—",
+                (f"`{a.label}`" if a.anchored else "—") + (" + hinge" if a.hinge else ""),
+                f"`{a.policy}`" if a.anchored else "—",
+                ", ".join(x for x in extras if x != "hinge") or "—",
+                str(a.seeds),
+                a.note,
+            ]
+        )
+    return table_html(
+        head,
+        rows,
+        f"The {len(ex.ARMS)} arms, {ex.N_RUNS} runs in all. Every anchored arm anchors `{ex.ANCHORED_OP}` at "
+        f"the center condition; `{ex.CONTROL}` is the reference for all of them, and `{ex.PRIMARY}` is the "
+        f"whole-line arm the label, hinge, verification, mask, and oracle arms are compared with. Corpus: what the "
+        f"corpus or attention of the arm adds; verification lines replace {ex.VERIFY_RATE:.0%} of the completion lines.",
+        ref_rows=frozenset({i for i, a in enumerate(ex.ARMS) if a.name in (ex.CONTROL, ex.PRIMARY)}),
+        text_cols=8,
+    )
+
+
+def calibration_table() -> str:
+    head = [
+        "condition",
+        "H(q)",
+        "floor",
+        "commits to the MAP op",
+        "one example ignored",
+        "a tenth of the floor mixed in",
+    ]
+    rows = [
+        [
+            f"`{cond_name(k, rho)}`",
+            f"{v['entropy']:.2f}",
+            f"{v['kl']['floor']:.2f}",
+            f"{v['kl']['map']:.2f}",
+            f"{v['kl']['one-hidden']:.2f}",
+            f"{v['kl']['mix-floor']:.3f}",
+        ]
+        for (k, rho), v in CALIB.items()
+    ]
+    return table_html(
+        head,
+        rows,
+        f"The calibration scale, in nats, at κ = {ex.CUBE_RATE:g}: the irreducible loss H(q) of the Bayes "
+        f"predictive q, then the mean KL divergence from q to four predictors that miss calibration in named ways. "
+        f"A model is called calibrated under {ex.KL_CALIBRATED:g}. Sampled contexts, {ex.N_CONTEXTS // 2:,} per row.",
+        ref_rows=frozenset({ex.GRAMMAR_CONDITIONS.index(ex.CENTRE)}),
+    )
+
+
+def context_roles(k: int) -> str:
+    """The role labels of a context with *k* examples, in the notation of the method section."""
+    sub = str.maketrans("123456", "₁₂₃₄₅₆")
+    return ", ".join(f"a{i} ? b{i} = y{i}".translate(sub) for i in range(1, k + 1)) + ", then the query a ? b = y ⏎"
+
+
 # --- The numbers the prose quotes -------------------------------------------------------------------------------
 
 N = {
@@ -416,7 +541,11 @@ N = {
         kap: CUBE[(*ex.CENTRE, kap)]["ignoring"] - CUBE[(*ex.CENTRE, kap)]["ceiling"] for kap in ex.CUBE_GRID[1:]
     },
     "diff": PER_OP[ex.ANCHORED_OP],
+    "record_centre": (record_ceiling(*ex.CENTRE), record_floor(*ex.CENTRE)),
+    "one_hidden_shortfall": {kr: v["ceiling"] - v["one_hidden"] for kr, v in CALIB.items()},
+    "calib_centre": CALIB[ex.CENTRE],
 }
+ROOM_CENTRE = N["record_centre"][0] - N["record_centre"][1]
 COND_NAMES = [cond_name(k, rho) for k, rho in ex.GRAMMAR_CONDITIONS]
 ALT_34 = (3, 0.4)
 ALT_435 = (4, 0.35)
@@ -426,20 +555,28 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-The first experiment on the grammar from the [D2.2 pivot](/docs/m2/d2.2/pivot.md): the model infers the op from a few solved examples, with no word to name it. We train the control at three conditions of example count and replacement rate, anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, and score everything against a ceiling computed from the op table. Frozen rules say what round 3 adopts.
+The first experiment on the grammar from the [D2.2 pivot](/docs/m2/d2.2/pivot.md): the model infers the op from a few solved examples, with no word to name it. We train the control at three conditions of example count and replacement rate, anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, and score everything against a ceiling computed from the op table. `{ex.ANCHORED_OP}` is an example: we chose it to continue from ex-2.2.14, and the method applies to any op.
 ///
 
 This is round 2 of the [quick route](/docs/m2/d2.2/design.md#quick-route). The method section folds in the [posterior scouting report](/todo/science/scout-posterior-in-context-grammar.md): it computes the posterior over ops and the Bayes ceiling from the op table, with no training, and uses them to pick the three grammar conditions for the control.
 
 ## Findings
 
-/// admonition | TODO
-One line per rule and per prediction, linking to its section, verdict blank. The pilot gates nothing; each of the frozen rules (a)–(e) from the design gets a line saying what it proposed. Sandy to shape.
-///
+The pilot gates nothing. Each rule proposes a setting for round 3, and each prediction is checked in a sentence.
+
+- [The grammar rule (a)](#the-grammar-rule-a) —
+- [The label rule (b)](#the-label-rule-b) —
+- [The hinge rule (c)](#the-hinge-rule-c) —
+- [The verification rule (d)](#the-verification-rule-d) —
+- [The operator rule (e)](#the-operator-rule-e) —
+- [The anchor follows the evidence](#the-anchor-follows-the-evidence) —
+- [The leans under `{ex.CROP_POLICY}`](#the-leans-under-whole) —
 
 ## How to read this draft
 
-The method section on the posterior and the ceiling is complete and computed; the sections it feeds are stubs. The rules and any predictions are not yet frozen. When they are, this note quotes the commit.
+This is a preregistration. The [method](#method) section on the posterior and the ceiling is complete and computed. The conditions, the five rules with their thresholds, and the two predictions are drafted and not yet frozen; when they are, this note quotes the commit. Results replace the `TODO` placeholders in place, and anything conceived after seeing the data goes under [exploratory analyses](#exploratory-analyses), marked as post hoc.
+
+Each rule section opens with the frozen rule and the figure it will be read from. Terms are defined where they first appear and collected in the [glossary](#glossary).
 
 ## Why this experiment
 
@@ -447,11 +584,11 @@ The method section on the posterior and the ceiling is complete and computed; th
 
 Each line is now one context: a few solved examples of one op, written with `?` in place of the op word, then a query under the same op. The op is inferred from the examples, and the anchored concept is "the op in this context is `{ex.ANCHORED_OP}`", which no token names.
 
-The pilot does four jobs the old plan spread over four rounds: it scouts the posterior (the method section below), trains the new-grammar control, smoke-tests anchoring the inferred op, and pilots the label variants.
+This pilot scouts the posterior (see [Method](#method) below), trains the new-grammar control, smoke-tests anchoring the inferred op, and tries the label variants.
 
 The control is the regression check; a grammar this different needs its own, as ex-2.2.3 did. No model trained on the corpus can know more about the op than the examples say, and the posterior captures that. So instead of fixed accuracy numbers, the task gate is how far the control falls short of the ceiling the posterior sets, with an analytic floor beside it.
 
-The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](/docs/m2/ex-2.2.15/report.py) found that lines cut short by the window show the first-operand lean. Its review chose `whole` over the rule's `half` because a whole line always shows its evidence, which matters more once the evidence is a set of examples, and its discussion asks the pilot to watch the trailing-fragment lean as well.
+The crop policy starts as `{ex.CROP_POLICY}`, which pulls only labelled lines wholly inside the training window. [Ex-2.2.15](/docs/m2/ex-2.2.15/report.py) found that lines cut short by the window show the first-operand lean (a leak toward the anchor). Its review chose `whole` over `half`, which its rule had set, because a whole line always shows its evidence, which matters more once the evidence is a set of examples, and its discussion asks the pilot to watch the trailing-fragment lean as well.
 
 ## Glossary
 
@@ -462,68 +599,130 @@ The crop policy starts from `{ex.CROP_POLICY}`, which pulls only labelled lines 
 <dd>A solved equation inside a context, <code>a ? b = y,</code>: the evidence the op is inferred from.</dd>
 <dt>Query</dt>
 <dd>The last equation of a context, whose answer the model completes. It is always clean.</dd>
-<dt>Replacement noise</dt>
+<dt>Replacement op noise</dt>
 <dd>Showing, in some examples, the answer another op would give, at a rate ρ per example. It spreads the posterior over ops, so it grades the stimulus.</dd>
 <dt>Cube noise</dt>
-<dd>Showing, in some examples, a color drawn from the whole grid, at a rate κ. Usually no op produces it, so it removes an example's evidence without pointing anywhere else.</dd>
+<dd>Showing, in some examples, a color drawn from the whole grid, at a rate κ. Usually no op produces it, so it removes the evidence of an example without pointing anywhere else.</dd>
 <dt>Posterior on the true op</dt>
-<dd>How strongly the examples of a context point to the op that generated it, computed from the op table under the rounding and noise the corpus uses. For <code>{ex.ANCHORED_OP}</code> contexts it is the graded stimulus.</dd>
+<dd>How strongly the examples of a context point to the op that generated it, computed from the op table under the stochastic rounding and replacement op noise the corpus uses. For <code>{ex.ANCHORED_OP}</code> contexts it is the graded stimulus.</dd>
 <dt>Bayes ceiling</dt>
 <dd>The expected exact match on the query of the predictor that holds the posterior over ops and answers with the posterior-weighted answer distribution: the score of a calibrated model that has learned everything the examples say, which is where cross-entropy training aims.</dd>
 <dt>Floor</dt>
 <dd>The same predictor with no evidence: uniform over ops, so its answer distribution is the op-marginal. It is what a model that ignores the examples can score.</dd>
 <dt>Skill score</dt>
 <dd>Where a score sits between the floor (0) and the ceiling (1): (score − floor) / (ceiling − floor).</dd>
+<dt>Expected exact match (EEM)</dt>
+<dd>The probability mass the model puts on the colors the answer of the query can be under the true op, weighted by how often the op gives each, per context, then averaged over held-out contexts. The task metric of every report since ex-2.2.9; the ceiling and the floor are in the same units.</dd>
+<dt>KL divergence</dt>
+<dd>How far one distribution is from another, in nats: KL(q ‖ p) = Σ<sub>y</sub> q(y) log(q(y) / p(y)), zero when they agree. Here q is the Bayes predictive on a query and p the model's answer distribution, and the mean over contexts is the model's excess loss over a calibrated one, so 0.05 nats is a twentieth of a nat of loss the model could still shed. The <a href="#the-calibration-check">calibration check</a> gives reference values.</dd>
+<dt>Alignment</dt>
+<dd>The cosine between a state and e₁, the anchored axis: 1 when the state points along the axis, 0 when perpendicular. Measured per position and slice.</dd>
+<dt>Lean (ᾱ)</dt>
+<dd>The mean alignment at a role over the held-out contexts of every op: a leak toward the anchor at a site that carries no evidence about the op. The <em>first-operand lean</em> is ᾱ at the first token of a context, at the last block; the <em>trailing-fragment lean</em> is ᾱ over every position of a context cut to start partway through, fed on its own. Both from ex-2.2.15.</dd>
+<dt>Op margin</dt>
+<dd>How far the contexts of the anchored op sit along e₁ beyond the rest: per slice, the mean alignment over the contexts of the anchored op minus the mean over the contexts of all eleven ops, at the role where that gap is largest, averaged over slices. The quantity the anchor term optimizes, so it checks that the pull landed. The statistic of ex-2.2.14, with roles running over the whole context.</dd>
+<dt>Seed band</dt>
+<dd>The smallest difference between two seed means that a comparison resolves: {ex.SEED_BAND_SD:g}σ√(2/n) at n seeds per arm, with σ the seed standard deviation pooled over the two arms. Rules (b) and (d) use it on expected exact match at the center condition.</dd>
 </dl>
 
 ## Conditions
 
-/// admonition | TODO
-The conditions table: the control at `{"`, `".join(COND_NAMES)}`; one larger control at the center; anchored `{ex.ANCHORED_OP}` at the center under the whole-line label and each of the four label variants; the hinge-capped pull; the control and the whole-line arm with verification lines; the newline mask on the control and the whole-line arm; and `knowable` as an oracle. Three seeds per arm at {ex.MODEL}, crop policy `{ex.CROP_POLICY}`. The list is in the [design](/docs/m2/d2.2/design.md#the-pilot); the table and its prose go here once the arms are settled.
-///
+The pilot trains {len(ex.ARMS)} arms at {ex.SEEDS} seeds each, {ex.N_RUNS} runs. The control runs at the three grammar conditions the method section proposes, `{"`, `".join(COND_NAMES)}` (three or four examples per context, at a replacement rate of 0.2 or 0.3), at {ex.MODEL}, and once more at {ex.LARGE_MODEL} at the center. Everything else runs at the center condition, `{cond_name(*ex.CENTRE)}`.
+
+The anchored arms all anchor `{ex.ANCHORED_OP}` on e₁ with the recipe from ex-2.2.14 and crop policy `{ex.CROP_POLICY}`, and differ in what the label covers: the whole context, or one of the four [label variants](/todo/science/label-variants-in-context-op.md). A hinge arm caps the whole-line pull at an alignment of {ex.HINGE_CAP:g}, so no state is asked to be all concept. Two pairs add something to the corpus or the model on both the control and the whole-line arm: verification lines, and the newline mask, under which attention does not cross a line break. The last arm is the whole-line label under the `{ex.ORACLE_POLICY}` policy, an oracle that pulls only positions after the evidence; it cannot be adopted, since it has to know where the evidence is, and it bounds what a window-only policy could reach.
+
+{arms_table()}
+
+**The labeller.** A context of `{ex.ANCHORED_OP}` draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus rather than on any token; no context of another op is labelled. Under the whole-line label every token of a labelled context is pulled through the pooled anchor term, which asks the context to align somewhere in its span. Variant (a) leaves the embedding slice out of the pull; (b) pulls the latter half of the context; (c) pulls a position once the posterior on `{ex.ANCHORED_OP}` given the examples before it reaches {ex.PREFIX_THRESHOLD:g}; (d) draws the label with probability equal to the posterior on `{ex.ANCHORED_OP}` in place of {ex.LABEL_RATE:g}, scaled so the labelled share of the corpus matches the others.
+
+<!-- REVIEW: the scaling in variant (d) is a reading: the item says "label each context with probability equal to its posterior", which at face value labels most `difference` contexts and raises the total pull fifty-fold over the primary. Scaling by LABEL_RATE / mean posterior keeps the labelled share and makes the arm a test of the *shape* of the label. The alternative is the face-value reading, with the every-line arm of ex-2.2.14 as its comparison. -->
+
+**The seeds.** Three per arm, all fresh; no arm is served from the store. Comparisons between arms are between seed means, with the seed band as the resolution.
 
 ## The grammar rule (a)
 
+**The rule.** A condition *passes* when the seed-mean held-out expected exact match of the {ex.MODEL} control is at least the ceiling of record less {ex.CEILING_MARGIN:g}. Among the passing conditions, the one with the widest spread of the posterior on the true op (its standard deviation across contexts, from the method section; the middle-band share breaks a tie) goes forward. If none passes, the {ex.LARGE_MODEL} control at the center is scored on the same line, and goes forward with the center condition if it passes; if it also falls short, the grammar is reworked before anything is anchored. That is the one outcome that adds a round.
+
+The margin is one-sided. The calibrated ceiling is not the most a model can score: a model that sharpens past calibration can reach the hard-EM ceiling, which is higher (the method section has both). So a control above the ceiling passes, and the calibration check below says whether it got there by sharpening, which is worth knowing before round 3 reads its answer distribution. The bounds of record at each condition, and the score the control has to reach:
+
+{record_table()}
+
+At the center the margin is about {ex.CEILING_MARGIN / ROOM_CENTRE:.0%} of the room between floor and ceiling. For scale, a predictor that ignores one of the three examples and is otherwise Bayes-optimal gives up {N["one_hidden_shortfall"][ex.CENTRE]:.3f} there, so a control that passes has learned to use every example, near enough.
+
+<!-- REVIEW: the defaults drafted here, for Sandy to confirm or move. (1) The ceiling of record is the calibrated Bayes ceiling at κ = CUBE_RATE; the margin is one-sided at CEILING_MARGIN = 0.03, and a control above the ceiling passes and is flagged by the calibration check. The alternative margins are the task gate (0.02) or a skill-score floor of 0.9. (2) The spread statistic is the standard deviation of the posterior on the true op, with the middle-band share beside it as the tie-break. The sd grows with bimodality as well as with grading (k3-r0.4 peaks it on the three-example row with no more middle-band contexts than the center), but among the three proposed conditions the two statistics agree, so the choice matters only if the grid changes. -->
+
+**What we expect.** The {ex.MODEL} control passes at every condition, and `{cond_name(*ex.CENTRE)}` goes forward. The pivot expects the model to be enough because there are no variables to track; the inference is a lookup over eleven ops per example and a pool over examples. A control that passes at `{COND_NAMES[0]}` and misses at the center would say the noise, not the grammar, is what costs it, and the fallback within the same block size is already in the table.
+
+**The calibration check.** The check is the mean over held-out contexts of the KL divergence from the Bayes predictive $q$ (the posterior-weighted answer distribution on the query) to the model's answer distribution $p$ at the query `=`, in nats. Averaged over contexts, it is the model's cross-entropy on the answer less the Bayes-optimal cross-entropy: the loss the model could still shed. A control is *calibrated* at a condition when it is under {ex.KL_CALIBRATED:g} nats. The [method](#the-calibration-check) section gives the scale: a tenth of the floor mixed into the Bayes answer costs about {N["calib_centre"]["kl"]["mix-floor"]:.3f} at the center, ignoring one example {N["calib_centre"]["kl"]["one-hidden"]:.2f}, and committing to the most probable op {N["calib_centre"]["kl"]["map"]:.2f}. We expect the control to be calibrated at every condition it passes; a control that passes and is not calibrated has sharpened, and the direction of the miss (the KL grows fastest where the model puts no mass on an answer $q$ allows, so a sharpened model shows it more than a hedging one) is reported beside it.
+
 /// admonition | TODO
-The frozen rule: the condition with the widest spread of posteriors, among those where the {ex.MODEL} control comes within a margin of the ceiling, goes forward. The margin, the spread statistic (the method proposes the standard deviation of the posterior on the true op), and the larger-control branch to be set. Figure: control EEM per condition as seed dots against the ceiling and floor drawn as dashed lines per condition, with the skill score as a table column.
+One panel: the three conditions and the larger control along the bottom, held-out expected exact match on the y-axis, seeds as faded jittered dots with the seed mean on top. Per column: the ceiling of record as a dashed segment, the floor as a dotted one, the told-op ceiling as a dash-dot rule across the panel, and the failing side below (ceiling − margin) hatched. A table beside it with the seed mean, the skill score, the spread of the condition, and the calibration KL per arm, the passing rows bold.
 ///
-
-<!-- REVIEW: two open points for setting this rule. (1) The calibrated ceiling is not an upper bound on EEM: a control
-that sharpens past calibration can score above it, up to the hard-EM ceiling. "Within a margin of the ceiling" should
-say whether it is one-sided, and whether a control above the ceiling passes. (2) The standard deviation grows with
-bimodality as well as with grading: on the three-example row it peaks at k3-r0.4, which has no more middle-band
-contexts than the center. Among the three proposed conditions the two statistics agree, so the choice matters only if
-the grid changes. -->
-
 
 ## The label rule (b)
 
+**The rule.** The whole-line label stays the primary unless a variant *clears the task gate*: its seed-mean held-out expected exact match at the center, over all contexts, exceeds that of the whole-line arm by more than the seed band, while it *holds the anchor*: its op margin is at least {ex.MARGIN_KEEP:.0%} of the margin of the whole-line arm. If more than one variant qualifies, the one with the higher op margin goes forward. Variant (d) trains the grading that the [evidence section](#the-anchor-follows-the-evidence) reads, so it is reported on the same statistics and not promoted.
+
+The op margin is the one ex-2.2.14 used, with the contexts of the anchored op as the labelled group and roles running over the whole context (the glossary has it). The variants narrow the pull, so their margins can only be lower by construction where the narrowed positions carried it; the bar asks that most of it survives.
+
+**What we expect.** No variant clears the gate. Ex-2.2.14 found that the label share barely moves the margin and that the task is untouched at the rate of the primary, and the variants change less than that. What they may change is where the alignment sits: (a) should leave the embeddings clean, (b) and (c) should put less alignment on the first example, and (c) leaves the middle-band contexts unlabelled. Those are read in the alignment figures of the [evidence section](#the-anchor-follows-the-evidence); this rule scores the task and the margin only.
+
 /// admonition | TODO
-The whole-line label stays the primary unless a variant clears the task gate by more than the seed band with the anchor held; variant (d) is reported and not promoted. Figure: task and margin per label arm.
+Two panels, the five label arms and the control along the bottom. Left: held-out expected exact match, seeds and seed mean per column, the ceiling and floor of the center condition as dashed and dotted rules, the seed band around the whole-line mean shaded. Right: the op margin as a share of the margin of the whole-line arm, a dashed rule at {ex.MARGIN_KEEP:g} with the failing side hatched. A table with the per-op task gap from the control beside it, the largest gap per arm bold where it exceeds the task gate.
 ///
 
 ## The hinge rule (c)
 
+**The rule.** The uncapped whole-line arm *saturates* at the query `?` when the seed-mean alignment at that position, on the held-out contexts of `{ex.ANCHORED_OP}` at the last block, is at least {ex.SATURATION_LEVEL:g}. If it does, the hinge arm goes forward in its place, provided the hinge arm holds the anchor ({ex.MARGIN_KEEP:.0%} of the whole-line margin) and it is within the seed band of the whole-line arm on the task. If the whole-line arm does not saturate, it stays, and the hinge arm is reported.
+
+Saturation is the dose collapse ex-2.2.14 found at the op word: a state that is all concept has no partial dose, because projecting e₁ out of it leaves a remainder too small to mean anything. The query `?` is a constant token with nothing else to hold, so the pooled pull may put the alignment of the whole context there. The hinge caps the pull at {ex.HINGE_CAP:g}: a position at or above that alignment is not pulled further, so the state keeps a part off the axis for the projection to land on.
+
+**What we expect.** We do not predict either way. The pooled term concentrates the pull where alignment comes cheapest, which argues for saturation; the anti-subspace term penalizes the squared alignment of every state, which argues against it, and *red* under the same recipe reached about 0.5 at its own token. What we do expect is that the query `?` carries more alignment than any example position on the whole-line arm, since it is the first position at which the whole context has been seen and its state is free.
+
 /// admonition | TODO
-The capped pull goes forward if the uncapped arm saturates at the query `?`. The saturation level and the figure (alignment by role and slice) to be set.
+Alignment by role and slice: one line per slice (the embedding labeled "emb", then blocks 1 to 4), the roles of a center-condition context along the x-axis in the notation of the method section ({context_roles(ex.CENTRE[0])}), straight segments between roles; the seed mean on the `{ex.ANCHORED_OP}` contexts, with the mean over the other ten ops as a faint line under it. One panel for the whole-line arm and one for the hinge arm, sharing the y-axis, with the saturation level and the hinge cap as dashed rules. A table with the alignment at the query `?` and the query `=` at the last block per arm and per seed.
 ///
 
 ## The verification rule (d)
 
+**The rule.** Verification lines stay in the corpus from round 3 on if they *leave completion unchanged*: the seed-mean held-out expected exact match on completion contexts is within the seed band of the arm without them, on both pairs, `control-verify` against `{ex.CONTROL}` and `anchor-verify` against `{ex.PRIMARY}`. Both pairs have to hold; a corpus that costs the anchored arm and not the control would say the anchor and the second task compete.
+
+A verification line replaces the completion of {ex.VERIFY_RATE:.0%} of contexts with a candidate answer, a marker, and a `TRUE` or `FALSE` verdict ([the pivot](/docs/m2/d2.2/pivot.md#a-verification-line)); the loss is masked on a `FALSE` candidate. The verification accuracy itself (the share of verdicts right, held out) is reported with no gate, as the first number D2.3 gets; so is the op margin of `anchor-verify` against the margin of the whole-line arm.
+
+**What we expect.** Completion is unchanged on both pairs. The verification arms see {1 - ex.VERIFY_RATE:.0%} of the completion lines the others do, over the same steps, and the calibration look in ex-2.2.9 found that the task is limited by distinct lines rather than passes over them; so the cost, if there is one, shows on the ops that round the most. A miss on the control pair would send the rate down before round 3 rather than take verification out.
+
 /// admonition | TODO
-Verification lines stay in the corpus if they move completion by less than the seed band on the control and the anchored arm.
+One panel: the four arms along the bottom in their two pairs, held-out expected exact match on completion contexts, seeds and seed mean per column, the ceiling and floor of the center condition as rules, and the seed band around the reference of each pair shaded. A table beside it with the per-op gap within each pair, the verification accuracy per arm, and the op margin of `anchor-verify` as a share of the margin of the whole-line arm.
 ///
 
 ## The operator rule (e)
 
+**The rule.** A scoring-only suppression pass runs on the checkpoints of the pilot itself, on the whole-line arm and the control at the center: the projection along its dose axis (γ in {", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}: the fraction of the component on e₁ removed), the repulsion along its (a landing at {", ".join(f"{b:g}".replace("-", "−") for b in ex.REPULSION_LANDINGS)}, for states above an alignment of {ex.REPULSION_THRESHOLD:g}), and the reflection (the projection at γ = {ex.REFLECT_GAMMA:g}, one dose, as a reference). Each acts at every slice, at three sites: the query `?`, the query `=`, and every position. The rule is scored on the every-position edit. An operator *grades with dose* when the seed-mean drop in expected exact match on the held-out `{ex.ANCHORED_OP}` contexts is non-decreasing along its dose axis and reaches, at full dose, at least {ex.GRADING_MIN_DAMAGE:.0%} of the way from the clean score to the designed null; it is *selective* when on each of the other ten ops the seed-mean drop is at most {ex.SELECTIVITY_GATE:g} at every dose, with the control under the same edit as the reference. The operator that does both goes forward with its dose axis; if both do, the projection, which is the simpler; if neither does, round 3 inherits the reflection and the repulsion onto the antipode, the pair the [design](/docs/m2/d2.2/design.md#suppress-the-operation-and-the-operands) names for states that lie almost on e₁, and the pilot reports why.
+
+The designed null is the answer a model that has lost `{ex.ANCHORED_OP}` and nothing else would give: the posterior-weighted answer distribution with `{ex.ANCHORED_OP}` removed and the rest renormalized. Its expected exact match on a context is the target the full-dose damage is measured against, per context, from the posterior of the method section.
+
+**What we expect.** The projection grades if the query `?` does not saturate, and collapses (all of its damage in the last step of γ) if it does; the repulsion grades either way, since its dose is where the state lands rather than how much is removed. Selectivity should hold for both at the query sites, which the other ops' contexts share only as syntax, and is the open question at every position, where the edit touches states that carry the other ops. The two query sites are the first bypass measurement: an edit at `?` that does less than the same edit at `=` says the model reads the op from the examples rather than from `?`.
+
 /// admonition | TODO
-The scoring-only suppression pass on the pilot's own checkpoints: projection, reflection, and repulsion, each at the query `?`, the query `=`, and every position; the operator whose damage grades with dose and stays within the selectivity gate on the other ops goes forward.
+One row of panels per site, one panel per operator: the dose axis along the bottom, the drop in expected exact match on `{ex.ANCHORED_OP}` contexts on the y-axis (seed mean with the seed range shaded), the damage of the designed null as a dashed rule, and the largest drop over the other ten ops as a second line with the selectivity gate as a dotted rule and its failing side hatched. A table of the full-dose damage and the largest other-op drop per operator and site, the qualifying operator bold.
 ///
 
-## Predictions
+## The anchor follows the evidence
+
+**What we expect.** On the whole-line arm, the alignment at the query `=` on a held-out `{ex.ANCHORED_OP}` context rises with the posterior on `{ex.ANCHORED_OP}` across the middle band ({ex.MIDDLE_BAND[0]:g} to {ex.MIDDLE_BAND[1]:g}): binned by posterior, the seed-mean alignment at the last block is higher in each bin than the one below it. That is the graded stimulus, the part redness played for *red*, and it is a result the pull did not train for: the label is binary on the true op, so a context whose examples half-fit `{ex.ANCHORED_OP}` was pulled as hard as one that names it. A shortcut, such as a characteristic answer color, would likely not follow the posterior.
+
+Variant (c) leaves the middle-band contexts unlabelled, so grading there under (c) is the cleaner version of the same result; variant (d) trains it and is the comparison. Alignment against the posterior on the *other* ops' contexts (where the posterior on `{ex.ANCHORED_OP}` is low but not zero) is reported beside it, since a graded response should be low and flat there.
 
 /// admonition | TODO
-Any ungated predictions the pilot writes down before the run: the control's distance from the ceiling at {ex.MODEL}; alignment grading with the posterior on `{ex.ANCHORED_OP}` across the middle band; the first-operand and trailing-fragment leans under `{ex.CROP_POLICY}`; calibration of the answer distribution against the posterior-weighted one. Sandy to shape; one section each if any is gated.
+One panel per label arm sharing the axes: the posterior on `{ex.ANCHORED_OP}` along the bottom, the alignment at the query `=` at the last block on the y-axis, held-out `{ex.ANCHORED_OP}` contexts as a faded cloud with the binned seed mean as marks and the seed range as bars; the middle band shaded. A second row with the query `?` in place of `=`. The other ops' contexts as a faint cloud at the low end of each panel.
+///
+
+## The leans under `{ex.CROP_POLICY}`
+
+**What we expect.** On the whole-line arm, both leans stay within the seed band of the control. Ex-2.2.15 found that under `all`, lines cut short by the window taught the model to lean toward e₁ at the first operand of every line, and more so on a trailing fragment shown alone; under `{ex.CROP_POLICY}` both leans sat inside the band of the control. This grammar gives a cut context more to lean with, since a window cuts more contexts than lines and a fragment of a context still looks like a context, so the lean is worth reading again. The first-operand lean is ᾱ at the first token of the context at the last block; the trailing-fragment lean is ᾱ over every position of a context cut to start at each example boundary, fed on its own; both over the held-out contexts of every op, with the mask arms measured with the mask on. The oracle policy is the reference for both.
+
+/// admonition | TODO
+Two panels, the anchored arms and the control along the bottom: the first-operand lean and the trailing-fragment lean, seeds and seed mean per column, the band of the control shaded. A row of small panels below, one per fragment start, showing where along the fragment the lean sits.
 ///
 
 ## Exploratory analyses
@@ -542,19 +741,19 @@ What the pilot proposes to round 3, and what it leaves open.
 
 ### The posterior over ops
 
-Each example is a pair and an answer, and under stochastic rounding the answer is a draw from up to eight colors. So the likelihood of a shown answer *y* under an op *o* is the probability that rounding the result of *o* on that pair gives *y*, written $P_o(y \mid a, b)$ (`answer_dist` in `sca.data.ops`).
+Each example is a pair of operands and an answer, and under stochastic rounding the answer is a draw from up to eight colors. So the likelihood of a shown answer *y* under an op *o* is the probability that rounding the result of *o* on that pair gives *y*, written $P_o(y \mid a, b)$ (`answer_dist` in `sca.data.ops`).
 
-The corpus rounds each channel independently, in proportion to where the raw value sits between grid levels. The posterior uses the same rounding. Nearest rounding would make it sharper than the corpus supports.
+The corpus rounds each channel independently, in proportion to where the raw value sits between grid levels. The posterior uses the same rounding.
 """
 
 r"""
-Replacement noise enters the likelihood as a mixture. With rate ρ, each example shows a draw from another op's distribution instead, the other op uniform over the ten, so
+Replacement op noise enters the likelihood as a mixture. With rate ρ, each example shows a draw from the distribution of another op instead, the other op uniform over the ten, so
 
 $$
-L_o(y \mid a, b) = (1 - \rho - \kappa)\, P_o(y \mid a, b) + \rho \cdot \frac{1}{10} \sum_{o' \neq o} P_{o'}(y \mid a, b) + \frac{\kappa}{216},
+L_o(y \mid a, b) = (1 - \rho - \kappa)\, P_o(y \mid a, b) + \rho \, \mathbb{E}_{o' \neq o}\big[P_{o'}(y \mid a, b)\big] + \frac{\kappa}{216},
 $$
 
-where κ is the cube-noise rate. The posterior over the eleven ops is the product of the example likelihoods under a uniform prior. This is the posterior a model trained on the noisy corpus can reach at best. It also keeps every op above zero whenever ρ or κ is, which is what lets the designed null weight the other ops by how nearly they fit on a context that fits one op alone.
+where $L_o$ is the likelihood of the shown answer under op *o* in the noisy corpus, $\mathbb{E}_{o' \neq o}$ is the mean over the ten other ops, and κ is the cube-noise rate. The posterior over the eleven ops is the product of the example likelihoods under a uniform prior. This is the posterior a model trained on the noisy corpus can reach at best. It also keeps every op above zero whenever ρ or κ is above zero, which is what lets the designed null weight the other ops by how nearly they fit on a context that fits one op alone.
 """
 
 rf"""
@@ -566,7 +765,7 @@ The figure covers the whole grid, {len(ex.K_GRID)} example counts by {len(ex.RHO
 
 {posterior_figure()}
 
-Clean examples pin the op down fast, so the example count alone grades very little; replacement noise is what spreads the posterior across the range. The spread is widest, at a standard deviation of {N["sd_max"]:.2f}, for {N["sd_max_at"][0]} examples at ρ = {N["sd_max_at"][1]:g}; at the center condition it is {N["sd_centre"]:.2f}, with {N["centre"]["mid"]:.0%} of contexts in the middle band and {N["centre"]["lo"]:.0%} below it.
+Clean examples pin the op down fast, so the example count alone grades very little; replacement op noise is what spreads the posterior across the range. The spread is widest, at a standard deviation of {N["sd_max"]:.2f}, for {N["sd_max_at"][0]} examples at ρ = {N["sd_max_at"][1]:g}; at the center condition it is {N["sd_centre"]:.2f}, with {N["centre"]["mid"]:.0%} of contexts in the middle band and {N["centre"]["lo"]:.0%} below it.
 
 ### The Bayes ceiling and the floor
 
@@ -582,7 +781,7 @@ The floor (no evidence, uniform over ops) is the same at every grid point, {FLOO
 
 {ceiling_figure()}
 
-With three clean examples the ceiling is {N["ceil_clean3"]:.3f}, within 0.02 of a model told the op, so almost all of the shortfall is rounding. Replacement noise adds a shortfall that comes from inference: at three examples and ρ = 0.35 the ceiling falls to {N["ceil_r35"]:.3f}, and at the center condition it is {N["ceil_centre"]:.3f}.
+With three clean examples the ceiling is {N["ceil_clean3"]:.3f}, within 0.02 of a model told the op, so almost all of the shortfall is rounding. Replacement op noise adds a shortfall that comes from inference: at three examples and ρ = 0.35 the ceiling falls to {N["ceil_r35"]:.3f}, and at the center condition it is {N["ceil_centre"]:.3f}.
 
 <details markdown="1"><summary>The grid as tables</summary>
 
@@ -606,7 +805,7 @@ Per op, the ceiling is capped by how much the op rounds. `{ex.ANCHORED_OP}` is t
 
 The pivot allows cube noise at a low rate, so that the model learns to discount examples that fit nothing. At the center condition it costs {N["cube_cost"][ex.CUBE_GRID[1]]:.3f} of ceiling at κ = {ex.CUBE_GRID[1]:g}, {N["cube_cost"][ex.CUBE_GRID[2]]:.3f} at κ = {ex.CUBE_GRID[2]:g}, and {N["cube_cost"][ex.CUBE_GRID[3]]:.3f} at κ = {ex.CUBE_GRID[3]:g}.
 
-A posterior that does not know about cube noise treats a cube color as replacement noise. It is a little sharper, and the metric rewards sharpness (as above), so it scores {N["cube_ignoring"][ex.CUBE_GRID[3]]:.3f} higher at the highest rate. So the ceiling barely depends on whether the model has learned about cube noise. Whether the corpus carries it is left open (`CUBE_RATE`).
+A posterior that does not know about cube noise treats a cube color as replacement op noise. It is a little sharper, and the metric rewards sharpness (as above), so it scores {N["cube_ignoring"][ex.CUBE_GRID[3]]:.3f} higher at the highest rate. So the ceiling barely depends on whether the model has learned about cube noise. Whether the corpus carries it is left open (`CUBE_RATE`).
 
 {cube_figure()}
 
@@ -614,7 +813,7 @@ A posterior that does not know about cube noise treats a cube color as replaceme
 
 ### The three grammar conditions
 
-Rule (a) picks the widest spread among the conditions where the control nears its ceiling, so the three should differ in spread and in ceiling, and bracket the pivot's working point of three examples at ρ near 0.3. We propose `{COND_NAMES[0]}`, `{COND_NAMES[1]}`, and `{COND_NAMES[2]}`.
+Rule (a) picks the widest spread among the conditions where the control nears its ceiling, so the three should differ in spread and in ceiling, and bracket the working point of the pivot of three examples at ρ near 0.3. We propose `{COND_NAMES[0]}`, `{COND_NAMES[1]}`, and `{COND_NAMES[2]}`.
 
 {conditions_table()}
 
@@ -637,24 +836,50 @@ The ceiling differs between conditions, so a score is shown two ways. Figures ke
 
 A table that compares across conditions adds the skill score as a column (0 is a model that ignores the examples, 1 is the Bayes predictor). The figure for the control also draws the ceiling for a model told the op ({TOLD_OP:.3f}) beside the Bayes ceiling, so that the part of the gap due to inference can be seen.
 
-<!-- REVIEW: this convention is provisional (Sandy is deciding); raw EEM on the axis with dashed bounds per condition,
-the skill score as a table column or summary panel and never the main axis. -->
+<!-- REVIEW: the default drafted here, for Sandy to confirm: raw EEM on the axis with dashed bounds per condition, the
+skill score as a table column and never the main axis. The alternative is the skill score on the axis, which puts the
+conditions on one scale at the cost of hiding how much of the metric is rounding. -->
+
+### The calibration check
+
+The check compares the model's answer distribution at the query `=`, $p$, with the Bayes predictive $q$ on the same context, through the KL divergence KL(q ‖ p) = Σ<sub>y</sub> q(y) log(q(y) / p(y)), averaged over held-out contexts. Averaged that way it is the cross-entropy of the model on the answer less the cross-entropy of the Bayes predictor, since the true answers are drawn from $q$ once the true op is marginalized under the posterior. So the number is excess loss, in nats, and zero means the model holds exactly the distribution the examples support.
+
+The table gives the scale, at the cube-noise rate of record. H(q) is the irreducible loss: what even the Bayes predictor pays, from rounding and from the ops the examples do not rule out. The other columns are the excess of four predictors that miss calibration in named ways: the floor predictor (no evidence), one that commits to the most probable op and answers with its distribution, one that ignores one of the examples, and one that mixes a tenth of the floor into the Bayes answer.
+
+{calibration_table()}
+
+Two things to take from it. Ignoring one example costs several times the threshold of {ex.KL_CALIBRATED:g}, so a calibrated model is one that uses all of its examples; and committing to one op costs more than ignoring an example, so a model that names the op instead of weighing them shows up here even where its expected exact match is high (that is the sharpening the ceiling of record allows for). The mix column is what the threshold roughly means: less miscalibrated than a Bayes predictor with a tenth of ignorance stirred in.
+
+The ceiling of record at each condition is the Bayes ceiling at κ = {ex.CUBE_RATE:g}, from the [cube table](#cube-noise). The floor does not depend on the examples, so it is the κ = 0 value.
 
 ### The corpus and the training
 
-/// admonition | TODO
-The data spec: one context per line, ops uniform, pairs uniform over ordered pairs, the query clean, the block size (a context of *k* examples is 6*k* + 6 tokens, and the block should fit at least two whole contexts), the holdouts, the labeller keyed per context, and the recipe inherited from ex-2.2.14's primary under crop policy `{ex.CROP_POLICY}`. The generator's noise model must match `posterior.py`: a per-example replacement rate with the replacing op uniform over the other ten, and cube noise uniform over the grid, or the ceiling here is not the ceiling of the corpus.
-///
+One context per line, the op uniform over table A+, every pair uniform over the ordered pairs of the grid, and the query clean; the noise model is the one `posterior.py` assumes, a per-example replacement rate ρ with the replacing op uniform over the other ten and cube noise uniform over the grid at κ = {ex.CUBE_RATE:g}, so the ceiling here is the ceiling of the corpus. The generator is `sca.data.incontext`; a context of *k* examples is 6*k* + 6 tokens, so a line is {ex.context_tokens(3)} tokens at three examples and {ex.context_tokens(4)} at four, and {ex.context_tokens(3, verify=True)} at three with a verification line.
+
+The corpus holds {ex.N_LINES:,} contexts, the line count of ex-2.2.14, so `{ex.ANCHORED_OP}` has about the same number of lines and the labeller the same number of draws (about {ex.N_LINES // ex.N_OPS * ex.LABEL_RATE:.0f} labelled contexts). The training window is {ex.BLOCK} tokens, a random crop of the packed corpus, which holds about two whole contexts at four examples and three at three, with a fragment at each end. Held out: {ex.HOLDOUT_CONTEXTS:,} contexts per op, drawn from the same generator at a seed the corpus does not use.
+
+The line and role of each token come from the positions of `⏎` (`line_role_arrays`), since the length of a context depends on its example count and on whether it carries a verification line. The labeller draws once per context from the op array beside the corpus. Crop policy `{ex.CROP_POLICY}` pulls a labelled context only when the window holds all of it.
+
+The recipe is that of ex-2.2.14, unchanged: λ_a = 0.1 annealed to a 0.1 floor over the last tenth of training, τ = 0.1, the anti-subspace weight from 2.5× the anchor weight to 0.3× by 90% of training, the untied readout, {ex.EPOCHS} epochs at {ex.MODEL}. A context is four times the tokens of an op-word line, so an epoch is about four times the steps of an epoch in ex-2.2.14.
+
+<!-- REVIEW: the corpus size, window, holdout, and verification rate are proposals (their REVIEW notes are on the constants in experiment.py). The step count is the one that changes what "50 epochs" means; the alternative is to hold the step count at that of ex-2.2.14 and take a quarter of the contexts, which the calibration look in ex-2.2.9 argues against (more distinct lines closed the gap on the rounding ops; more passes did not). -->
 
 ### The measurements
 
-/// admonition | TODO
-Held-out expected exact match per condition against its ceiling and floor; the calibration check (the model's answer distribution against the posterior-weighted one); alignment by role and slice with the query `?` and the query `=` measured separately; alignment against the posterior on `{ex.ANCHORED_OP}`; the first-operand and trailing-fragment leans from ex-2.2.15; the op margin; and the scoring-only suppression pass.
-///
+Every arm is scored at the end of training on its held-out contexts, one context per forward pass, with the mask arms measured with the mask on.
+
+- The task: held-out expected exact match, over all contexts and per op, against the ceiling and floor of record for the condition of the arm. Rule (a) scores the controls on it; rules (b) and (d) score the center arms on it.
+- The calibration check: the mean KL divergence from the Bayes predictive to the model's answer distribution at the query `=`, as above, per condition.
+- Alignment by role and slice: the mean cosine with e₁ at every role of the context (the operands, `?`, `=`, and the answer of each example, and of the query) at each of the five slices, on the `{ex.ANCHORED_OP}` contexts and on the other ops', with the query `?` and the query `=` read separately. Rule (c) uses the query `?` at the last block.
+- Alignment against the posterior: the alignment at the query `=` and the query `?` at the last block, per held-out `{ex.ANCHORED_OP}` context, beside the posterior on `{ex.ANCHORED_OP}` for that context, from the method section. The [evidence section](#the-anchor-follows-the-evidence) bins it.
+- The op margin: the statistic of ex-2.2.14 with the contexts of the anchored op as the labelled group and roles running over the whole context, on the same held-out contexts. Rules (b) and (c) take it as a share of the margin of the whole-line arm.
+- The leans: the first-operand lean (ᾱ at the first token, last block) and the trailing-fragment lean (ᾱ over every position of a context cut to start at each example boundary, fed on its own), over the held-out contexts of every op, as ex-2.2.15 measured them. The op margin and both leans are also recorded every 50 training steps on a fixed probe set, as ex-2.2.15 did, so the report can say how each arm got where it landed.
+- The suppression pass: on the whole-line arm and the control, each operator at each dose and site, the held-out expected exact match on `{ex.ANCHORED_OP}` contexts and on those of each other op, against the clean pass and the designed null per context. Rule (e) is scored on it.
+- Verification accuracy on the verification arms, held out, with no gate.
+
+Figures label the roles in the notation of the [posterior section](#the-posterior-over-ops): *a*, *b*, and *y* for the operands and the answer, subscripted by example, with `?` and `=` as themselves.
 
 ### Budget
 
-/// admonition | TODO
-Runs, seeds, and the Modal estimate, once the arm list is settled.
-///
+{ex.N_RUNS} runs: {len(ex.ARMS)} arms at {ex.SEEDS} seeds. Ex-2.2.14 trained 50 runs of {ex.EPOCHS} epochs at {ex.MODEL} on a 300k-line corpus for about $1.80 on Modal and ex-2.2.15 55 runs for about $2.30 (`bin/mini cost`). A context has four times the tokens of an op-word line, so an epoch here is about four times the steps, and the {ex.LARGE_MODEL} control about twice the cost per step of the rest; call it $10 to $15 of training. Eval adds the alignment measurements on eleven held-out sets, the posterior on every held-out context (a table lookup), and the suppression pass, which is scoring only: {len(ex.EDIT_SITES)} sites × ({len(ex.DOSE_GAMMAS)} + {len(ex.REPULSION_LANDINGS)} + 1) edits on six checkpoints. Under $20 in all, at the pace `--max-containers 12 --budget 6h` sets.
 """
