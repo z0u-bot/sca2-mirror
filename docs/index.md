@@ -310,14 +310,6 @@ These experiments were preparation for the main work: exercising the infrastruct
     The first experiment on the D2.2 pivot's grammar, where the model infers the op from a few solved examples and no token names it. Its method section computes, from the op table alone, the posterior over ops across contexts on a grid of example counts and replacement rates, the Bayes ceiling and the floor on the same grid, and what cube noise costs; from those it proposes the three grammar conditions the control trains at. The rest of the plan (the anchored arms, the label variants, the frozen rules for round 3) is stubbed.
 
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `preregistration`</span>
-- [2.2.17. Suppressing the op word](./m2/ex-2.2.17/report.py) (preregistration draft)
-
-    Round 1 of the D2.2 quick route: a scoring-only pass on ex-2.2.14's stored checkpoints. The anchor put `difference` on e₁ at the op word, so the pass edits that state with two operators that have a defined landing there, the reflection and a repulsion onto the antipode, and compares each with a token mask that replaces the state at the op word by the mean over the eleven op words. One row removes e₁ at `=`, where the whole-line pull put a little of the op. Four predictions are frozen: the edits remove the op on the lines where its answer names it, the damage follows each line's op-relevance against a designed null, the other ten ops are untouched, and the axis at `=` marks the op rather than carrying it. The outcome decides how much of the op-word line the write-up reports.
-
-    <span class="tags">`preregistration` `operation` `intervention` `selectivity`</span>
-
-    <!-- mini:figures ./m2/ex-2.2.17/report.py -->
-
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
 
     A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
