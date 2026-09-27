@@ -598,7 +598,7 @@ beside it. Verify: the conditions table and the grid tables above. -->
 
 ### Reading a score against its ceiling
 
-The ceiling differs between conditions, so a score is shown two ways. In figures, the y-axis stays raw expected exact match, and each condition's ceiling and floor are drawn as dashed lines beside its seed marks, so the reader sees how much of the available room a model takes without arithmetic. Where a table compares across conditions, it adds the skill score, (score − floor) / (ceiling − floor), as a column: 0 is a model that ignores the examples and 1 is the Bayes predictor. The ceiling for a model told the op ({TOLD_OP:.3f}) is drawn beside the Bayes ceiling in the control's figure, so that the part of the gap due to inference can be seen.
+The ceiling differs between conditions, so a score is shown two ways. In figures, the y-axis stays raw expected exact match, and the ceiling and floor of each condition are drawn as dashed lines beside its seed marks, so the reader sees how much of the available room a model takes without arithmetic. Where a table compares across conditions, it adds the skill score, (score − floor) / (ceiling − floor), as a column: 0 is a model that ignores the examples and 1 is the Bayes predictor. The ceiling for a model told the op ({TOLD_OP:.3f}) is drawn beside the Bayes ceiling in the control's figure, so that the part of the gap due to inference can be seen.
 
 <!-- REVIEW: this convention is provisional (Sandy is deciding); raw EEM on the axis with dashed bounds per condition,
 the skill score as a table column or summary panel and never the main axis. -->
@@ -606,7 +606,7 @@ the skill score as a table column or summary panel and never the main axis. -->
 ### The corpus and the training
 
 /// admonition | TODO
-The data spec: one context per line, ops uniform, pairs uniform over ordered pairs, the query clean, the block size (a context of *k* examples is {ex.TOKENS_PER_EXAMPLE}*k* + {ex.TOKENS_PER_QUERY} tokens, and the block should fit at least two whole contexts), the holdouts, the labeller keyed per context, and the recipe inherited from ex-2.2.14's primary under crop policy `{ex.CROP_POLICY}`. The generator's noise model must match `posterior.py`: a per-example replacement rate with the replacing op uniform over the other ten, and cube noise uniform over the grid, or the ceiling here is not the ceiling of the corpus.
+The data spec: one context per line, ops uniform, pairs uniform over ordered pairs, the query clean, the block size (a context of *k* examples is 6*k* + 6 tokens, and the block should fit at least two whole contexts), the holdouts, the labeller keyed per context, and the recipe inherited from ex-2.2.14's primary under crop policy `{ex.CROP_POLICY}`. The generator's noise model must match `posterior.py`: a per-example replacement rate with the replacing op uniform over the other ten, and cube noise uniform over the grid, or the ceiling here is not the ceiling of the corpus.
 ///
 
 ### The measurements

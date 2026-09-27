@@ -13,6 +13,7 @@ ops and the Bayes ceiling) from the op table alone, through `posterior.py` besid
 from __future__ import annotations
 
 from sca.data.ops import CANDIDATE_BY_NAME, OP_BY_NAME, Op
+from sca.data.incontext import context_length
 
 DESIGN_ONLY = True
 # Constants without a DAG; `tests/mini/test_experiments_e2e.py` skips the load check while this line is here.
@@ -48,13 +49,12 @@ ROUNDING = "stochastic"
 between grid levels (`sca.data.ops.Rounding`), as every corpus since the handover has. The posterior uses the same
 rounding, so the likelihood of a shown answer under an op is the probability that op's rounding gives it."""
 
-TOKENS_PER_EXAMPLE = 5
-TOKENS_PER_QUERY = 6
-"""`a ? b = y ,` is five tokens; the query `a ? b = y ⏎` is six. A context of k examples is `5k + 6` tokens."""
-
 
 def context_tokens(k: int) -> int:
-    return TOKENS_PER_EXAMPLE * k + TOKENS_PER_QUERY
+    """`a ? b = y ,` is six tokens, and so is the query `a ? b = y ⏎`: a context of k examples is `6k + 6` tokens,
+    the layout `sca.data.incontext` generates.
+    """
+    return context_length(k)
 
 
 # --- The posterior scan (the method section) ---------------------------------------------------------------
