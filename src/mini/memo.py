@@ -1150,9 +1150,20 @@ class MemoStore:
         watchdog_s: float | None = None,
         watchdog_grace_s: float | None = None,
     ) -> None:
-        """Stage the cloudpickled call to disk for a local subprocess worker."""
+        """Stage the cloudpickled call to disk for a local subprocess worker, then mark which attempt it belongs to (:meth:`staged_gen`)."""
         self.root.mkdir(parents=True, exist_ok=True)
         self._call(key).write_bytes(cloudpickle.dumps((fn, args, hooks or [], gen, watchdog_s, watchdog_grace_s)))
+        self._staged_marker(key).write_text(gen or "")  # after the call, so the marker never runs ahead of it
+
+    def _staged_marker(self, key: str) -> Path:
+        return self.root / f"{key}.gen"
+
+    def staged_gen(self, key: str) -> str | None:
+        """The attempt whose call is staged for *key*, without unpickling it; ``None`` if nothing (or a call from before the marker) is staged."""
+        try:
+            return self._staged_marker(key).read_text() or None
+        except OSError:
+            return None
 
     def read_call(self, key: str) -> tuple[Callable, tuple, list[Callable], str | None, float | None, float | None]:
         parts = cloudpickle.loads(self._call(key).read_bytes())

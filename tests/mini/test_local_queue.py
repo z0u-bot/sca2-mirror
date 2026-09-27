@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from rich.console import Console
 
+from mini import local_apparatus
 from mini.experiment import Experiment
 from mini.local_apparatus import (
     LocalApparatus,
@@ -81,14 +82,54 @@ def test_call_staged_by_an_earlier_attempt_is_not_launched(tmp_path: Path):
 
 
 def test_launch_spec_lives_outside_the_project(tmp_path: Path):
-    """The spec may hold an env overlay, so it sits under the state home, readable by its owner only."""
+    """The spec may hold an env overlay, so it sits in the runtime dir (memory), readable by its owner only."""
     store = LocalApparatus("spec", data_dir=tmp_path / "project" / ".mini" / "spec").memo_store()
     _stage_spec(store, "k", "g1", {"XLA_FLAGS": "--xla_cpu_enable_fast_math=false"})
     path = spec_path(store, "k")
-    assert path.is_relative_to(tmp_path / "xdg-state")
+    assert path.is_relative_to(os.environ["XDG_RUNTIME_DIR"])
     assert path.stat().st_mode & 0o777 == 0o600
     assert path.parent.stat().st_mode & 0o777 == 0o700
     assert json.loads(path.read_text()) == {"gen": "g1", "env": {"XLA_FLAGS": "--xla_cpu_enable_fast_math=false"}}
+
+
+def test_without_a_runtime_dir_specs_go_to_a_private_shm_dir(tmp_path: Path, monkeypatch):
+    monkeypatch.delenv("XDG_RUNTIME_DIR")
+    monkeypatch.setattr(local_apparatus, "_SHM", tmp_path / "shm")
+    (tmp_path / "shm").mkdir()
+    store = LocalApparatus("shm", data_dir=tmp_path / "shm-run").memo_store()
+    assert spec_path(store, "k").is_relative_to(tmp_path / "shm" / f"mini-{os.getuid()}")
+    assert (tmp_path / "shm" / f"mini-{os.getuid()}").stat().st_mode & 0o777 == 0o700
+
+
+@pytest.mark.parametrize("plant", ["open", "symlink"])
+def test_an_unsafe_shm_dir_is_passed_over(tmp_path: Path, monkeypatch, plant: str):
+    """/dev/shm is shared: a ``mini-<uid>`` someone else could read, or a symlink planted there, sends specs to the state home instead."""
+    monkeypatch.delenv("XDG_RUNTIME_DIR")
+    monkeypatch.setattr(local_apparatus, "_SHM", tmp_path / "shm")
+    mine = tmp_path / "shm" / f"mini-{os.getuid()}"
+    (tmp_path / "shm").mkdir()
+    if plant == "open":
+        mine.mkdir()
+        mine.chmod(0o777)
+    else:
+        (tmp_path / "elsewhere").mkdir(mode=0o700)
+        mine.symlink_to(tmp_path / "elsewhere")
+    store = LocalApparatus("shm", data_dir=tmp_path / "shm-run").memo_store()
+    assert spec_path(store, "k").is_relative_to(tmp_path / "xdg-state")
+
+
+def test_a_wiped_spec_is_restaged_once_its_call_is(tmp_path: Path):
+    """A reboot clears the runtime dir; the next wake writes a waiting task's spec again, but not before the claiming tick has staged its call."""
+    app = LocalApparatus("wiped", max_workers=1, data_dir=tmp_path / "wiped").w(env={"ROLEVAR": "now"})
+    store = app.memo_store()
+    rec = {"key": "k", "state": RunState.RUNNING, "gen": "g2", "created_at": 0}
+    store.records_backend.write("k", rec)
+    store.write_call("k", _timed, (1,), gen="g1")  # an earlier attempt's call: g2's is still to come
+    app.refresh_queued(store, rec)
+    assert not spec_path(store, "k").exists()
+    store.write_call("k", _timed, (1,), gen="g2")
+    app.refresh_queued(store, rec)
+    assert json.loads(spec_path(store, "k").read_text()) == {"gen": "g2", "env": {"ROLEVAR": "now"}}
 
 
 def test_launch_env_undoes_the_launchers_own_overlay(monkeypatch):

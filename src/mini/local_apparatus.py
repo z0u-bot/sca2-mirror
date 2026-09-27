@@ -21,6 +21,7 @@ import logging
 import os
 import secrets
 import signal
+import stat
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager, nullcontext, suppress
 from pathlib import Path
@@ -121,7 +122,11 @@ class LocalApparatus(Apparatus[LocalVolume]):
         if rec.get("pid") or not gen:
             return
         spec = _read_spec(store, key)
-        if spec is None or spec.get("gen") != gen or spec.get("env") == self.env:
+        if spec is not None and (spec.get("gen") != gen or spec.get("env") == self.env):
+            return  # current already, or the claiming tick is mid-batch
+        # A missing spec was wiped with the runtime dir (a reboot or logout). Re-stage it
+        # only once this attempt's call is staged; before that, the claiming tick is mid-batch.
+        if spec is None and store.staged_gen(key) != gen:
             return
         with _launch_lock(store):  # a launch reads then deletes the spec under this lock
             cur = store.record(key)
@@ -209,15 +214,44 @@ class LocalApparatus(Apparatus[LocalVolume]):
                 yield await task
 
 
-def _state_dir(store: MemoStore) -> Path:
-    """Where this run's queued launch specs wait: under ``$XDG_STATE_HOME/mini`` (``~/.local/state``), outside the project.
+# Shared memory, where a runtime dir is missing (containers often lack $XDG_RUNTIME_DIR).
+_SHM = Path("/dev/shm")
 
-    A spec holds a task's env overlay, which could carry a credential if a role passes one through. Keeping it out of the project tree keeps it away from tooling that reads the checkout (search, agents, the site build). The directory name hashes the run's data dir, so two checkouts never share one.
+
+def _state_dir(store: MemoStore) -> Path:
+    """Where this run's queued launch specs wait, outside the project and preferably in memory.
+
+    A spec holds a task's env overlay, which could carry a credential if a role passes one through. Out of the project tree, it stays away from tooling that reads the checkout (search, agents, the site build); in memory (tmpfs), it never reaches a disk or a backup. The first of these that is usable wins:
+
+    - ``$XDG_RUNTIME_DIR/mini/launch``: the user's own tmpfs, cleared at logout or reboot.
+    - ``/dev/shm/mini-<uid>/launch``: shared memory, used only if ``mini-<uid>`` is a directory this user owns and nobody else can read. ``/dev/shm`` is shared by all users, so someone else could have created that name first.
+    - ``$XDG_STATE_HOME/mini/launch`` (``~/.local/state``): on disk, where there is no tmpfs (macOS).
+
+    A spec wiped from memory is re-staged by the next wake (:meth:`LocalApparatus.refresh_queued`). The directory name hashes the run's data dir, so two checkouts never share one.
     """
-    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
     run = store.data_dir.resolve()
     digest = hashlib.sha256(str(run).encode()).hexdigest()[:12]
-    return base / "mini" / "launch" / f"{run.name}-{digest}"
+    return _launch_base() / f"{run.name}-{digest}"
+
+
+def _launch_base() -> Path:
+    if (runtime := os.environ.get("XDG_RUNTIME_DIR")) and Path(runtime).is_dir():
+        return Path(runtime) / "mini" / "launch"
+    if _SHM.is_dir() and (shm := _private_dir(_SHM / f"mini-{os.getuid()}")):
+        return shm / "launch"
+    return Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state") / "mini" / "launch"
+
+
+def _private_dir(d: Path) -> Path | None:
+    """*d*, created if need be, if it is a real directory owned by this user with no access for anyone else; else ``None``."""
+    with suppress(FileExistsError):
+        d.mkdir(mode=0o700)
+    try:
+        st = d.lstat()  # lstat: a symlink planted by someone else must not pass
+    except OSError:
+        return None
+    ok = stat.S_ISDIR(st.st_mode) and st.st_uid == os.getuid() and st.st_mode & 0o077 == 0
+    return d if ok else None
 
 
 def spec_path(store: MemoStore, key: str) -> Path:

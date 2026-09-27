@@ -170,6 +170,7 @@ def test_orphan_dirs_and_settled_calls_collected(tmp_path: Path, monkeypatch, sw
     apply_gc(store, plan)
     assert not ghost.exists()
     assert not store._call(rec["key"]).exists()
+    assert store.staged_gen(rec["key"]) is None  # its marker goes with it
     assert not spec_path(store, rec["key"]).exists()
     assert store.result(rec["key"]) == 1
 
