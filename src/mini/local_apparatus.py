@@ -7,19 +7,23 @@ Example::
 
     app = LocalApparatus("my-experiment", max_workers=4)
     results = list(app.map(train, configs))
+
+On the memoized path (``bin/mini run``) each task is a detached subprocess, and ``max_workers`` caps how many run at once. The rest wait staged and RUNNING without a pid, which ``mini status`` shows as queued. :func:`launch_queued` starts them as slots free up. It runs when a batch is staged, when a worker exits, and on each tick or watch poll, so a detached run drains its queue with nobody watching.
 """
 
 from __future__ import annotations
 
 import asyncio
+import fcntl
+import json
 import logging
 import os
 import secrets
 import signal
 from concurrent.futures import ThreadPoolExecutor
-from contextlib import nullcontext, suppress
+from contextlib import contextmanager, nullcontext, suppress
 from pathlib import Path
-from typing import Any, AsyncGenerator, Callable, Iterable, TypeVar, override
+from typing import Any, AsyncGenerator, Callable, Iterable, Iterator, TypeVar, cast, override
 
 from mini._queues import QueueLike
 from mini.apparatus import Apparatus
@@ -28,7 +32,7 @@ from mini.local_volume import LocalVolume
 from mini.memo import MemoStore
 from mini.progress import ProgressMessage, progress_context
 from mini.progress_display import RichProgressDisplay
-from mini.runs import data_root, spawn_taskworker
+from mini.runs import RunState, data_root, spawn_taskworker
 from mini.store import Store, project_store, store_context, store_for, store_root_for
 from mini.volume import data_dir_context
 
@@ -47,7 +51,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
     Jobs can report progress via ``emit_progress()`` which is automatically displayed using Rich progress bars when running in a terminal.
     """
 
-    def __init__(self, name: str, max_workers: int = 1, data_dir: Path | str | None = None):
+    def __init__(self, name: str, max_workers: int | None = None, data_dir: Path | str | None = None):
         self.name = name
         self.max_workers = max_workers
         self.watchdog_s: float | None = None
@@ -96,10 +100,31 @@ class LocalApparatus(Apparatus[LocalVolume]):
 
     @override
     def spawn_tasks(self, store: MemoStore, batch: list[tuple[str, str, Callable, tuple, list]]) -> None:
+        """Stage every call, then start as many as the worker cap allows; the rest queue."""
         for key, gen, fn, args, hooks in batch:
             store.write_call(key, fn, args, hooks, gen, self.watchdog_s, self.watchdog_grace_s)  # stage for worker
-            pid = spawn_taskworker(store.data_dir, key, env=self.env)  # pid == pgid, for cancel
-            store.update_if(key, gen, pid=pid)
+            _stage_env(store, key, gen, self.env)  # after the call: it marks the staging complete
+        self.launch_queued(store)
+
+    @override
+    def launch_queued(self, store: MemoStore) -> list[str]:
+        # The cap lives in the run's meta, so a worker launching a sibling on exit
+        # applies it too; the latest wake's --workers wins.
+        if store.meta().get("local_workers") != self.task_slots:
+            store.set_meta(local_workers=self.task_slots)
+        return launch_queued(store)
+
+    @override
+    def cancel(self, store: MemoStore, keys: list[str] | None = None) -> list[str]:
+        # Under the launch lock, so a worker exiting mid-cancel can't start a queued
+        # task after this snapshot and leave it running unstopped.
+        with _launch_lock(store):
+            return super().cancel(store, keys)
+
+    @property
+    def task_slots(self) -> int:
+        """How many detached task workers may run at once: ``max_workers``, else the CPU count."""
+        return self.max_workers or os.cpu_count() or 1
 
     @override
     def _stop_task(self, rec: dict[str, Any]) -> None:
@@ -131,7 +156,8 @@ class LocalApparatus(Apparatus[LocalVolume]):
         # visible in the logs rather than only inferable from the *absence* of
         # Modal's image-build output. ('locally', not 'on CPU': a local box may
         # well have a GPU that JAX/torch will use.)
-        log.info("Running %d jobs locally (%d workers)", n, self.max_workers)
+        workers = self.max_workers or 1
+        log.info("Running %d jobs locally (%d workers)", n, workers)
         run_id = secrets.token_hex(4)
 
         if self._volume is not None:
@@ -139,7 +165,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
 
         progress_display = RichProgressDisplay(n or 0, queue=LocalQueue())
         # Target ~10 emissions/sec overall: interval = max_workers / target_rate_hz
-        emission_interval = self.max_workers / 10.0
+        emission_interval = workers / 10.0
         # Project-scoped artifact store, so a mapped fn's put/get resolves the ambient
         # store on the interactive path too (not only the detached memo worker). Built
         # caller-side and closed over: local execution is in-process threads.
@@ -157,7 +183,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
 
         loop = asyncio.get_running_loop()
 
-        with progress_display, ThreadPoolExecutor(max_workers=self.max_workers) as pool:
+        with progress_display, ThreadPoolExecutor(max_workers=workers) as pool:
             # Submit all tasks
             tasks = [
                 loop.run_in_executor(pool, local_fn, i, *args)
@@ -167,6 +193,81 @@ class LocalApparatus(Apparatus[LocalVolume]):
             # Yield results in input order to match map semantics
             for task in tasks:
                 yield await task
+
+
+def _env_path(store: MemoStore, key: str) -> Path:
+    return store.root / f"{key}.env"  # not .json: that suffix is the record store's
+
+
+def _stage_env(store: MemoStore, key: str, gen: str, env: dict[str, str]) -> None:
+    """Stage the task's env overlay beside its call, for whichever process launches it.
+
+    Written after the call and stamped with the attempt's *gen*, so it also marks the call as staged for this attempt: a call file left by an earlier attempt doesn't count. The launcher may be a sibling worker that has just exited, whose own environment carries its own overlay. So the staged form also keeps the launching process's values for the keys the overlay shadows, and :func:`_launch_env` rebuilds the base from them. Only the overlay and what it shadows are written, never the whole environment.
+    """
+    shadowed = {k: os.environ.get(k) for k in env}
+    _env_path(store, key).write_text(json.dumps({"gen": gen, "env": env, "shadowed": shadowed}))
+
+
+def _staged_gen(store: MemoStore, key: str) -> str | None:
+    """The attempt *key*'s staged call belongs to, or ``None`` while it isn't staged."""
+    try:
+        return json.loads(_env_path(store, key).read_text()).get("gen")
+    except OSError, ValueError:
+        return None
+
+
+def _launch_env(store: MemoStore, key: str) -> dict[str, str]:
+    """The whole environment to launch *key* with: this process's, minus the overlay it was itself launched with, plus *key*'s."""
+    staged = json.loads(_env_path(store, key).read_text())
+    own = os.environ.get(_OWN_ENV_VAR)
+    restore: dict[str, str | None] = {}
+    if own:  # we are a worker: undo our own overlay before applying the sibling's
+        with suppress(OSError, ValueError, KeyError):
+            restore = cast("dict[str, str | None]", json.loads(Path(own).read_text())["shadowed"])
+    env = {k: v for k, v in restore.items() if v is not None} | staged["env"]
+    unset = [k for k, v in restore.items() if v is None and k not in staged["env"]]
+    base = {k: v for k, v in os.environ.items() if k not in unset}
+    return base | env | {_OWN_ENV_VAR: str(_env_path(store, key))}
+
+
+# Points a worker at its own staged env, so when it launches a queued sibling it can undo its overlay first.
+_OWN_ENV_VAR = "MINI_TASK_ENV_FILE"
+
+
+@contextmanager
+def _launch_lock(store: MemoStore) -> Iterator[None]:
+    store.root.mkdir(parents=True, exist_ok=True)
+    with open(store.root / ".launch.lock", "w") as f:
+        fcntl.flock(f, fcntl.LOCK_EX)
+        yield  # released when the file closes
+
+
+def launch_queued(store: MemoStore) -> list[str]:
+    """Start queued tasks while live workers number fewer than the run's cap; return the keys started.
+
+    A queued task is RUNNING with a current ``gen`` and no ``pid``: claimed and staged, waiting for a slot. Live workers are RUNNING records whose pid still runs, so a settled worker (even one still exiting) and a vanished one both free their slot. Launches serialize on a lock file, and each stamps its pid before the lock drops, so two exiting workers can't both start the same task. Nothing starts past the run's wall-clock budget.
+    """
+    if store.budget_expired():
+        return []
+    cap = store.meta().get("local_workers") or os.cpu_count() or 1
+    started: list[str] = []
+    with _launch_lock(store):
+        running = [r for r in store.records() if r.get("state") == RunState.RUNNING and r.get("gen")]
+        live = sum(1 for r in running if r.get("pid") and _pid_alive(r["pid"]))
+        queued = sorted((r for r in running if not r.get("pid")), key=lambda r: r.get("created_at") or 0)
+        for rec in queued[: max(0, cap - live)]:
+            key, gen = rec["key"], rec["gen"]
+            if _staged_gen(store, key) != gen:
+                continue  # claimed but not staged yet: the tick that claimed it is mid-batch
+            pid = spawn_taskworker(
+                store.data_dir, key, env=_launch_env(store, key), inherit=False
+            )  # pid == pgid, for cancel
+            if store.update_if(key, gen, pid=pid):
+                started.append(key)
+            else:  # cancelled or re-claimed since the snapshot; its gen fences the worker's writes
+                with suppress(ProcessLookupError, PermissionError):
+                    os.killpg(pid, signal.SIGTERM)
+    return started
 
 
 def _pid_alive(pid: int) -> bool:

@@ -278,6 +278,7 @@ def tick(experiment: Experiment, apparatus: Apparatus, keep_stale: bool = False)
     *keep_stale* is the bounded-hotfix lever (``--keep-stale-done``): serve DONE results even when their code has since changed, so an edit re-runs only the cells that never finished. Stale FAILED/CANCELLED always relaunches.
     """
     store = apparatus.memo_store()
+    apparatus.launch_queued(store)  # fill slots a hard-killed worker freed without handing them on
     ctx = Ctx(store, apparatus, experiment.resolve_roles(apparatus), keep_stale=keep_stale)
     complete = False
     try:

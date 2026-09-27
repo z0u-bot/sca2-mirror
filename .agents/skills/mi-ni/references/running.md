@@ -70,7 +70,7 @@ Three states look alike from the outside and want different responses.
 
 ### Queued is not running
 
-A record reads RUNNING from launch, but the worker writes `env` as its first action — so until `env` appears, the task is *launched but not started*. `status` shows it as `◌ queued` with its time in queue (`⧖`) instead of a heartbeat, and `watch` tags its bar `— queued`. Locally this is a momentary blip; on Modal a capacity-starved task can sit queued indefinitely, and only the wall-clock budget (below) will reap it. A task stuck on `queued` with an old `⧖` is a scheduling problem (capacity, container boot), not slow code.
+A record reads RUNNING from launch, but the worker writes `env` as its first action — so until `env` appears, the task is *launched but not started*. `status` shows it as `◌ queued` with its time in queue (`⧖`) instead of a heartbeat, and `watch` tags its bar `— queued`. Locally a task queues while `--workers` tasks (default: the CPU count) are already running. Each worker that exits starts the next queued task, so the queue drains even with no driver attached. On Modal a capacity-starved task can sit queued indefinitely, and only the wall-clock budget (below) will reap it. A task stuck on `queued` with an old `⧖` is a scheduling problem (capacity, container boot), not slow code.
 
 ### Dead is not slow
 

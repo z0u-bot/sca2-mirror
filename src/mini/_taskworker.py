@@ -486,6 +486,11 @@ def run_task(data_dir: Path, key: str) -> None:
         watchdog_s=watchdog_s,
         watchdog_grace_s=watchdog_grace_s,
     )
+    # This record has settled, so its slot is free: hand it to the next queued task,
+    # which keeps a capped local run draining with no driver attached.
+    from mini.local_apparatus import launch_queued
+
+    launch_queued(store)
 
 
 def main() -> None:
