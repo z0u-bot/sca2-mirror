@@ -10,6 +10,11 @@ times the length at a lower peak learning rate), and `low` (the same length at t
 and records the held-out expected exact match and calibration KL against training step, not just at the end,
 so the two readings can be told apart.
 
+Round 1 found that more steps help most and that the lower rate helps only with them, with every curve still
+rising until the schedule wound down. Round 2 trains for eight times the length with ex-2.2.16's newline mask
+and a warmup of fixed length, sweeping the peak learning rate at one seed each, after a learning-rate finder
+on the same config sets the range (`ACTIVE_ROUNDS` holds round 2 back until the finder has run).
+
     bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 2h
     bin/mini status ex-2.2.17
 """
@@ -18,7 +23,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 import numpy as np
@@ -86,7 +91,9 @@ record and every run."""
 
 @dataclass(frozen=True)
 class Arm:
-    """One arm of the scout: how long it trains and at what peak learning rate."""
+    """One arm of the scout: how long it trains, at what peak learning rate, and (from round 2) with or without
+    the newline mask and a warmup fixed in length.
+    """
 
     name: str
     epoch_mult: int
@@ -94,15 +101,71 @@ class Arm:
     peak_lr: float
     note: str = ""
     seeds: int = SEEDS
+    mask: bool = False
+    """The newline mask of ex-2.2.16's `control-mask`: attention does not cross a line break."""
+    warmup_epochs: float | None = None
+    """A warmup of fixed length in epochs; `None` keeps ex-2.2.16's rule, a tenth of the run."""
+    round: int = 1
 
 
-ARMS: tuple[Arm, ...] = (
+# --- Round 1: training length against peak learning rate ----------------------------------------------------
+
+ROUND_1: tuple[Arm, ...] = (
     Arm("long", 3, PEAK_LR, "three times ex-2.2.16's steps at its peak LR: the training-length reading alone"),
     Arm("long-low", 3, LOW_LR, "three times the steps at the lower peak LR: both readings at once"),
     Arm("low", 1, LOW_LR, "ex-2.2.16's own length at the lower peak LR: the learning-rate reading alone"),
 )
+
+# --- Round 2: a learning-rate sweep at eight times the length, with the newline mask -------------------------
+
+LONG_MULT = 8
+"""Round 2 trains for eight times ex-2.2.16's length (about 105,600 steps): round 1's curves were still rising
+at three times, and leveled off only as the learning rate decayed."""
+
+WARMUP_EPOCHS = EPOCHS * ex2216.ex2214.ex229.ex223.WARMUP_FRAC
+"""Round 2 warms up over ex-2.2.16's own warmup (5 epochs, about 1,320 steps) whatever the run length, where the
+default rule would stretch it to a tenth of the run (about 10,560 steps at eight times)."""
+
+SWEEP_LRS: tuple[float, ...] = tuple(round(PEAK_LR * 10 ** (-i / 4), 5) for i in range(7))
+"""Peak learning rates a quarter-decade apart, from ex-2.2.16's 0.01 down to 0.00032: one seed each, since
+neighboring rates act as replicates of a smooth curve. Two more seeds follow at the rates worth a closer look."""
+
+ROUND_2: tuple[Arm, ...] = (
+    *(
+        Arm(f"sweep-{lr:g}", LONG_MULT, lr, "one seed of the masked sweep", 1, True, WARMUP_EPOCHS, 2)
+        for lr in SWEEP_LRS
+    ),
+    Arm(
+        f"sweep-nomask-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "the sweep rate nearest `long-low`, without the mask: the mask effect at eight times",
+        1,
+        False,
+        WARMUP_EPOCHS,
+        2,
+    ),
+)
+
+ACTIVE_ROUNDS: tuple[int, ...] = (1,)
+"""The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
+the sweep range."""
+
+ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 if a.round in ACTIVE_ROUNDS)
+
+# --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
+
+FINDER_RANGE = (1e-5, 1.0)
+"""The finder's first sweep of peak learning rates, on a log scale: well below and well above anything trained."""
+
+FINDER_ZOOMS = 3
+FINDER_STEPS = 300
+"""Steps per zoom level. Each level restarts from the same initial model, so a level is a short run of its own
+at a rising learning rate."""
+
+FINDER_ARMS: tuple[tuple[str, bool], ...] = (("finder-mask", True), ("finder-nomask", False))
+"""The finder runs on the round-2 config with and without the newline mask."""
 N_RUNS = sum(a.seeds for a in ARMS)
-assert N_RUNS == 9
 
 
 def arm(name: str) -> Arm:
@@ -151,6 +214,8 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
     over the center control's corpus condition, at fresh model seeds. Reuses ex-2.2.16's `_make_config`,
     `Condition229`, and `schedules`, as its own `cells` does.
     """
+    from sca.config import ModelConfig
+    from sca.data.named_colors import WordTokenizer
     from sca.utils import align
 
     n_embd, n_layer = ex2216.model_dims(ex2216.MODEL)
@@ -165,6 +230,12 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
             config.model.block_size = ex2216.BLOCK
             config.model.tie_embeddings = False
             config.optimizer.learning_rate = a.peak_lr
+            if a.mask:
+                config.model = ModelConfig.model_validate(
+                    config.model.model_dump() | {"line_mask_token": WordTokenizer(config.tokenizer).stoi["\n"]}
+                )
+            if a.warmup_epochs is not None:
+                config.scheduler.warmup_epochs = a.warmup_epochs
             base = ex2216.Condition229(
                 a.name, 1, a.name, lam=0.0, tau=ex2216.TAU, epochs=epochs, ops=ex2216.OP_NAMES, n_lines=ex2216.N_LINES
             )
@@ -177,6 +248,9 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
                     "arm": a.name,
                     "epochs": epochs,
                     "peak_lr": a.peak_lr,
+                    "mask": a.mask,
+                    "warmup_epochs": config.scheduler.warmup_epochs,
+                    "round": a.round,
                     "seed": seed,
                     "model_seed": model_seed,
                     "label": f"{a.name}-s{seed}",
@@ -302,6 +376,55 @@ def train_one(
     }
 
 
+def find_lr(config, corpus, label: str) -> dict:
+    """Run the progressive learning-rate finder (`utils.lr_finder`) on *config*'s model and corpus: Adam at a
+    learning rate rising on a log scale over `FINDER_STEPS` steps, from a fresh model at every zoom level, with
+    the weights re-projected after every step as training does. Returns the suggestion and every level, raw
+    losses included, as plain data.
+    """
+    from dataclasses import asdict
+    from typing import cast
+
+    import jax.random as jr
+
+    from sca.compute.data_pipelines import load_data
+    from sca.data.batches import batches_per_epoch, sample_batches, split_data
+    from sca.model import LanguageModel, build_model
+    from sca.training.loop import loss_fn
+    from sca.training.optimizer import configure_optimizer
+    from utils.lr_finder.lr_finder import lr_finder_search
+    from mini.store import get
+
+    data, _ = load_data(get(corpus, get_data_dir() / "finder" / label / "corpus"))
+    train_data, _ = split_data(data, config.data.train_split)
+    epoch_length = batches_per_epoch(len(train_data), config.data, config.model)
+    model = build_model(config.model, key=jr.key(config.seed))
+    rng = np.random.default_rng(config.seed)
+
+    def batches():
+        while True:
+            yield from sample_batches(train_data, config.data, config.model, epoch_length, rng)
+
+    best, finder_config, history = lr_finder_search(
+        model,
+        lambda m, x, y, _key: loss_fn(m, x, y),
+        lambda learning_rate: configure_optimizer(model, config.optimizer, learning_rate),
+        batches(),
+        start_lr=FINDER_RANGE[0],
+        end_lr=FINDER_RANGE[1],
+        num_zooms=FINDER_ZOOMS,
+        steps_per_zoom=FINDER_STEPS,
+        constrain=lambda m: cast(LanguageModel, m).normalize_weights(),
+        key=jr.key(config.seed + 1),
+    )
+    return {
+        "label": label,
+        "best_lr": float(best),
+        "config": asdict(finder_config),
+        "history": [asdict(h) for h in history],
+    }
+
+
 # --- Publishing ------------------------------------------------------------------------------
 
 TRAJ_REF = "reports/m2/ex-2.2.17/trajectories"
@@ -309,6 +432,7 @@ METRICS_REF = "reports/m2/ex-2.2.17/metrics"
 CHECKPOINT_REF = "reports/m2/ex-2.2.17/checkpoints/{label}"
 EVAL_REF = "reports/m2/ex-2.2.17/eval"
 EVAL_ARRAYS_REF = "reports/m2/ex-2.2.17/eval-arrays/{label}"
+FINDER_REF = "reports/m2/ex-2.2.17/lr-finder"
 
 
 def design() -> dict[str, Any]:
@@ -326,6 +450,11 @@ def design() -> dict[str, Any]:
         "low_lr": LOW_LR,
         "n_traj_points": N_TRAJ_POINTS,
         "n_traj_eem_per_op": N_TRAJ_EEM_PER_OP,
+        "long_mult": LONG_MULT,
+        "warmup_epochs": WARMUP_EPOCHS,
+        "sweep_lrs": list(SWEEP_LRS),
+        "active_rounds": list(ACTIVE_ROUNDS),
+        "finder": {"range": list(FINDER_RANGE), "zooms": FINDER_ZOOMS, "steps": FINDER_STEPS},
         "block": ex2216.BLOCK,
         "model": ex2216.MODEL,
         "ops": list(ex2216.OP_NAMES),
@@ -371,6 +500,17 @@ def publish_evaluation(rows: list[dict], evaled: list[dict]) -> dict:
     return {"n_evaled": len(evaled)}
 
 
+def publish_finder(found: list[dict]) -> dict:
+    """The finder results (JSON, one entry per finder arm)."""
+    import json
+
+    from mini.store import put, set_ref
+
+    body = {"design": design(), "runs": found}
+    set_ref(FINDER_REF, put(json.dumps(body).encode(), name="ex-2.2.17-lr-finder.json"))
+    return {"best_lr": {f["label"]: f["best_lr"] for f in found}}
+
+
 # --- Orchestration ----------------------------------------------------------------------------
 
 
@@ -402,8 +542,21 @@ def run(
     return trained, rows, resolved
 
 
+def finder_configs(resolved: dict) -> list[tuple[str, Any]]:
+    """The finder arms' configs: the round-2 config (without its learning rate, which the finder sweeps) with and
+    without the newline mask, at the first fresh model seed.
+    """
+    probe = Arm("finder", LONG_MULT, PEAK_LR, seeds=1, warmup_epochs=WARMUP_EPOCHS, round=2)
+    return [(label, cells((replace(probe, mask=mask),), resolved, 1)[0]["config"]) for label, mask in FINDER_ARMS]
+
+
 def main(ctx: Ctx) -> dict:
     trained, rows, resolved = run(ctx, ARMS, SEEDS, N_TRAJ_POINTS, N_TRAJ_EEM_PER_OP)
+    probes = finder_configs(resolved)
+    found = ctx.map(
+        find_lr, [c for _, c in probes], [resolved["corpus"]] * len(probes), [lbl for lbl, _ in probes], role="finder"
+    )
+    finder = ctx.run(publish_finder, found, role="prep")
     published = ctx.run(publish_results, trained, rows, role="prep")
     n = len(trained)
     evaled = ctx.map(
@@ -414,15 +567,17 @@ def main(ctx: Ctx) -> dict:
         [r["label"] for r in rows],
         role="eval",
     )
-    return published | ctx.run(publish_evaluation, rows, evaled, role="prep")
+    return published | finder | ctx.run(publish_evaluation, rows, evaled, role="prep")
 
 
 COMPUTE = {
     # One ref resolution and a small corpus-metadata read.
     "prep": dict(cpu=2, timeout=600),
-    # 13,200 steps for `low`, about 39,600 for `long` and `long-low`, at ex-2.2.16's per-step cost; the watchdog
-    # covers the checkpoint upload.
-    "train": dict(gpu="L4", timeout=3600, watchdog=900, watchdog_grace=900),
+    # 13,200 steps for `low`, 39,600 for `long` and `long-low` (about 14 minutes each), and 105,600 for round 2
+    # (about 36 minutes at round 1's pace); the watchdog covers the checkpoint upload.
+    "train": dict(gpu="L4", timeout=5400, watchdog=900, watchdog_grace=900),
+    # 900 finder steps with no trajectory reads: a minute or two, most of it compilation and the corpus download.
+    "finder": dict(gpu="L4", timeout=900),
     # Forward passes only, over 22,000 held-out contexts, as ex-2.2.16's eval role.
     "eval": dict(gpu="L4", timeout=900),
 }
