@@ -564,10 +564,7 @@ def prepare_corpus_condition(
                 loss_mask[int(line_starts[i]) + k * 6 + 4] = True
 
     # --- Held-out contexts, with their posterior and Bayes ceiling ------------------------------------------
-    # REVIEW: drawn `holdout_n` per op directly (`_sample_by_op`), so every op is represented equally, rather
-    # than filtering `HOLDOUT_CONTEXTS` uniform-op draws from `sample_corpus`, which the design's phrase "held-out
-    # contexts... from the same generator" leaves open; either way every context is one `sample_context` draw at
-    # the condition's (k, rho, cube_rate), so the noise model matches the corpus.
+    # `HOLDOUT_CONTEXTS` per op, each one `sample_context` draw at the condition's (k, rho, cube_rate).
     holdout = _sample_by_op(table, k, rho, cube_rate, verify_rate, holdout_n, holdout_seed)
     ho_tokens = encode_corpus(holdout, tokenizer.stoi)
     ho_op = op_ids_of(holdout, table)
@@ -836,7 +833,7 @@ def design() -> dict[str, Any]:
         "seed_offset": SEED_OFFSET,
         "n_runs": N_RUNS,
         "ops": list(OP_NAMES),
-        "grammar_conditions": [list(c) for c in GRAMMAR_CONDITIONS],
+        "corpus_conditions": [list(c) for c in GRAMMAR_CONDITIONS],
         "centre": list(CENTRE),
         "cube_rate": CUBE_RATE,
         "block": BLOCK,
@@ -935,7 +932,7 @@ COMPUTE = {
     # Four corpus builds (~300k contexts each) and the posterior scan over their anchored contexts and
     # held-out sets; and the fan-in that writes every ref.
     "prep": dict(cpu=2, timeout=1800),
-    # About 9,000 steps at L4 (the budget section works the arithmetic), the trailing-fragment lean measured
+    # 13,000 to 16,500 steps at L4 (the budget section works the arithmetic), the trailing-fragment lean measured
     # at every trajectory point; the watchdog covers the checkpoint upload.
     "train": dict(gpu="L4", timeout=3600, watchdog=900, watchdog_grace=900),
 }
