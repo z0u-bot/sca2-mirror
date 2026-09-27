@@ -147,7 +147,7 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1,)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
