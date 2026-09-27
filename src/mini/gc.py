@@ -119,7 +119,9 @@ class LocalGcIO(GcIO):
 
     def delete_call(self, key: str) -> None:
         self._store._call(key).unlink(missing_ok=True)
-        (self._store.root / f"{key}.env").unlink(missing_ok=True)  # the staged env overlay beside it
+        from mini.local_apparatus import spec_path
+
+        spec_path(self._store, key).unlink(missing_ok=True)  # its launch spec, if it never left the queue
 
 
 class ModalGcIO(GcIO):

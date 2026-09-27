@@ -36,6 +36,12 @@ def _no_ambient_backend(monkeypatch):
     monkeypatch.setattr("mini.__main__._peek", lambda name, backend: 0)
 
 
+@pytest.fixture(autouse=True)
+def _tmp_state_home(monkeypatch, tmp_path):
+    """Local launch specs go under ``$XDG_STATE_HOME`` (``mini.local_apparatus._state_dir``); keep a test's out of the real home. Spawned workers inherit it."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg-state"))
+
+
 @pytest.fixture
 def local_store(monkeypatch):
     """Force put/get/get_store onto a LocalStore, hermetically.

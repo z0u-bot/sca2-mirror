@@ -9,7 +9,7 @@ from pathlib import Path
 from rich.console import Console
 
 from mini.experiment import Experiment
-from mini.local_apparatus import LocalApparatus, _launch_env, _stage_env, launch_queued
+from mini.local_apparatus import LocalApparatus, _launch_env, _stage_spec, launch_queued, spec_path
 from mini.monitor import drive_and_watch
 from mini.orchestration import tick
 from mini.runs import RunState
@@ -56,6 +56,7 @@ def test_queue_drains_without_a_driver(tmp_path: Path):
         assert time.time() < deadline, "queue did not drain"
         time.sleep(0.05)
     assert {r["state"] for r in store.records()} == {RunState.DONE}
+    assert not any(spec_path(store, r["key"]).exists() for r in store.records())  # removed at launch
 
 
 def test_call_staged_by_an_earlier_attempt_is_not_launched(tmp_path: Path):
@@ -64,26 +65,33 @@ def test_call_staged_by_an_earlier_attempt_is_not_launched(tmp_path: Path):
     store = app.memo_store()
     store.records_backend.write("k", {"key": "k", "state": RunState.RUNNING, "gen": "new", "created_at": 0})
     store.write_call("k", _timed, (1,), gen="old")
-    _stage_env(store, "k", "old", {})
+    _stage_spec(store, "k", "old", {})
     assert launch_queued(store) == []
     assert "pid" not in store.record("k")
 
 
-def test_launch_env_undoes_the_launchers_own_overlay(tmp_path: Path, monkeypatch):
+def test_launch_spec_lives_outside_the_project(tmp_path: Path):
+    """The spec may hold an env overlay, so it sits under the state home, readable by its owner only."""
+    store = LocalApparatus("spec", data_dir=tmp_path / "project" / ".mini" / "spec").memo_store()
+    _stage_spec(store, "k", "g1", {"XLA_FLAGS": "--xla_cpu_enable_fast_math=false"})
+    path = spec_path(store, "k")
+    assert path.is_relative_to(tmp_path / "xdg-state")
+    assert path.stat().st_mode & 0o777 == 0o600
+    assert path.parent.stat().st_mode & 0o777 == 0o700
+    assert json.loads(path.read_text()) == {"gen": "g1", "env": {"XLA_FLAGS": "--xla_cpu_enable_fast_math=false"}}
+
+
+def test_launch_env_undoes_the_launchers_own_overlay(monkeypatch):
     """A worker launching a sibling passes on the sibling's overlay, not its own."""
-    store = LocalApparatus("env", data_dir=tmp_path / "env").memo_store()
-    store.root.mkdir(parents=True)
     monkeypatch.setenv("SHARED", "base")
     monkeypatch.delenv("ONLY_MINE", raising=False)
-    _stage_env(store, "mine", "g1", {"SHARED": "mine", "ONLY_MINE": "1"})
-    _stage_env(store, "sibling", "g2", {"OTHER": "2"})
-    # Now act as the worker for "mine": its overlay is applied and it points at its staged env.
-    monkeypatch.setenv("SHARED", "mine")
-    monkeypatch.setenv("ONLY_MINE", "1")
-    monkeypatch.setenv("MINI_TASK_ENV_FILE", str(store.root / "mine.env"))
-    env = _launch_env(store, "sibling")
-    assert env["SHARED"] == "base"
-    assert "ONLY_MINE" not in env
-    assert env["OTHER"] == "2"
-    assert env["MINI_TASK_ENV_FILE"] == str(store.root / "sibling.env")
-    assert json.loads((store.root / "sibling.env").read_text())["gen"] == "g2"
+    monkeypatch.delenv("MINI_TASK_BASE_ENV", raising=False)
+    mine = _launch_env({"SHARED": "mine", "ONLY_MINE": "1"})  # as the tick launches "mine"
+    # Now act as that worker, launching a sibling with an overlay of its own.
+    for k, v in mine.items():
+        monkeypatch.setenv(k, v)
+    sibling = _launch_env({"OTHER": "2"})
+    assert sibling["SHARED"] == "base"
+    assert "ONLY_MINE" not in sibling
+    assert sibling["OTHER"] == "2"
+    assert json.loads(sibling["MINI_TASK_BASE_ENV"]) == {"OTHER": None}

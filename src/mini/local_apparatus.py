@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import fcntl
+import hashlib
 import json
 import logging
 import os
@@ -103,7 +104,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         """Stage every call, then start as many as the worker cap allows; the rest queue."""
         for key, gen, fn, args, hooks in batch:
             store.write_call(key, fn, args, hooks, gen, self.watchdog_s, self.watchdog_grace_s)  # stage for worker
-            _stage_env(store, key, gen, self.env)  # after the call: it marks the staging complete
+            _stage_spec(store, key, gen, self.env)  # after the call: it marks the staging complete
         self.launch_queued(store)
 
     @override
@@ -195,43 +196,58 @@ class LocalApparatus(Apparatus[LocalVolume]):
                 yield await task
 
 
-def _env_path(store: MemoStore, key: str) -> Path:
-    return store.root / f"{key}.env"  # not .json: that suffix is the record store's
+def _state_dir(store: MemoStore) -> Path:
+    """Where this run's queued launch specs wait: under ``$XDG_STATE_HOME/mini`` (``~/.local/state``), outside the project.
 
-
-def _stage_env(store: MemoStore, key: str, gen: str, env: dict[str, str]) -> None:
-    """Stage the task's env overlay beside its call, for whichever process launches it.
-
-    Written after the call and stamped with the attempt's *gen*, so it also marks the call as staged for this attempt: a call file left by an earlier attempt doesn't count. The launcher may be a sibling worker that has just exited, whose own environment carries its own overlay. So the staged form also keeps the launching process's values for the keys the overlay shadows, and :func:`_launch_env` rebuilds the base from them. Only the overlay and what it shadows are written, never the whole environment.
+    A spec holds a task's env overlay, which could carry a credential if a role passes one through. Keeping it out of the project tree keeps it away from tooling that reads the checkout (search, agents, the site build). The directory name hashes the run's data dir, so two checkouts never share one.
     """
-    shadowed = {k: os.environ.get(k) for k in env}
-    _env_path(store, key).write_text(json.dumps({"gen": gen, "env": env, "shadowed": shadowed}))
+    base = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    run = store.data_dir.resolve()
+    digest = hashlib.sha256(str(run).encode()).hexdigest()[:12]
+    return base / "mini" / "launch" / f"{run.name}-{digest}"
 
 
-def _staged_gen(store: MemoStore, key: str) -> str | None:
-    """The attempt *key*'s staged call belongs to, or ``None`` while it isn't staged."""
+def spec_path(store: MemoStore, key: str) -> Path:
+    """The launch spec for a queued *key* (see :func:`_stage_spec`)."""
+    return _state_dir(store) / f"{key}.json"
+
+
+def _stage_spec(store: MemoStore, key: str, gen: str, env: dict[str, str]) -> None:
+    """Write *key*'s launch spec: its env overlay, stamped with the attempt's *gen*.
+
+    Written after the call, so it also marks the call as staged for this attempt: a call file left by an earlier attempt doesn't count. Only the overlay is written (config the experiment or project declares), never the launching shell's environment, and only for as long as the task is queued: :func:`launch_queued` deletes the spec once the worker starts. Owner-only permissions, like an SSH key.
+    """
+    d = _state_dir(store)
+    d.mkdir(parents=True, exist_ok=True, mode=0o700)
+    fd = os.open(spec_path(store, key), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump({"gen": gen, "env": env}, f)
+
+
+def _read_spec(store: MemoStore, key: str) -> dict[str, Any] | None:
     try:
-        return json.loads(_env_path(store, key).read_text()).get("gen")
+        return json.loads(spec_path(store, key).read_text())
     except OSError, ValueError:
         return None
 
 
-def _launch_env(store: MemoStore, key: str) -> dict[str, str]:
-    """The whole environment to launch *key* with: this process's, minus the overlay it was itself launched with, plus *key*'s."""
-    staged = json.loads(_env_path(store, key).read_text())
-    own = os.environ.get(_OWN_ENV_VAR)
+# The launching process's values for the keys a worker's overlay replaced (``null`` = unset).
+# It travels in the worker's own environment, which already holds those values, so the
+# shell's environment never reaches disk; a worker reads it to undo its own overlay
+# before it launches a sibling.
+_BASE_ENV_VAR = "MINI_TASK_BASE_ENV"
+
+
+def _launch_env(overlay: dict[str, str]) -> dict[str, str]:
+    """The whole environment to launch a task with: this process's, minus the overlay it was itself launched with, plus *overlay*."""
     restore: dict[str, str | None] = {}
-    if own:  # we are a worker: undo our own overlay before applying the sibling's
-        with suppress(OSError, ValueError, KeyError):
-            restore = cast("dict[str, str | None]", json.loads(Path(own).read_text())["shadowed"])
-    env = {k: v for k, v in restore.items() if v is not None} | staged["env"]
-    unset = [k for k, v in restore.items() if v is None and k not in staged["env"]]
-    base = {k: v for k, v in os.environ.items() if k not in unset}
-    return base | env | {_OWN_ENV_VAR: str(_env_path(store, key))}
-
-
-# Points a worker at its own staged env, so when it launches a queued sibling it can undo its overlay first.
-_OWN_ENV_VAR = "MINI_TASK_ENV_FILE"
+    if own := os.environ.get(_BASE_ENV_VAR):  # we are a worker: undo our own overlay first
+        with suppress(ValueError):
+            restore = cast("dict[str, str | None]", json.loads(own))
+    base = {k: v for k, v in os.environ.items() if k not in restore and k != _BASE_ENV_VAR}
+    base |= {k: v for k, v in restore.items() if v is not None}
+    shadowed = {k: base.get(k) for k in overlay}
+    return base | overlay | {_BASE_ENV_VAR: json.dumps(shadowed)}
 
 
 @contextmanager
@@ -257,13 +273,14 @@ def launch_queued(store: MemoStore) -> list[str]:
         queued = sorted((r for r in running if not r.get("pid")), key=lambda r: r.get("created_at") or 0)
         for rec in queued[: max(0, cap - live)]:
             key, gen = rec["key"], rec["gen"]
-            if _staged_gen(store, key) != gen:
+            spec = _read_spec(store, key)
+            if spec is None or spec.get("gen") != gen:
                 continue  # claimed but not staged yet: the tick that claimed it is mid-batch
-            pid = spawn_taskworker(
-                store.data_dir, key, env=_launch_env(store, key), inherit=False
-            )  # pid == pgid, for cancel
+            env = _launch_env(spec.get("env") or {})
+            pid = spawn_taskworker(store.data_dir, key, env=env, inherit=False)  # pid == pgid, for cancel
             if store.update_if(key, gen, pid=pid):
                 started.append(key)
+                spec_path(store, key).unlink(missing_ok=True)  # the worker holds its env now
             else:  # cancelled or re-claimed since the snapshot; its gen fences the worker's writes
                 with suppress(ProcessLookupError, PermissionError):
                     os.killpg(pid, signal.SIGTERM)
