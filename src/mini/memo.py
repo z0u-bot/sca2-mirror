@@ -940,8 +940,17 @@ class LocalRecordStore(RecordStore):
             yield  # released when the file closes
 
     def read(self, key: str) -> dict[str, Any] | None:
+        # A rename is atomic on a local disk, but a shared-folder mount (virtiofs, as in a devcontainer on
+        # macOS) can show a reader the name missing mid-rename, between `exists` and the open. Retry briefly.
         p = self.root / f"{key}.json"
-        return json.loads(p.read_text()) if p.exists() else None
+        for delay in (0.01, 0.05, 0.2, None):
+            try:
+                return json.loads(p.read_text()) if p.exists() else None
+            except FileNotFoundError:
+                if delay is None:
+                    raise
+                time.sleep(delay)
+        raise AssertionError("unreachable")
 
     def write(self, key: str, record: dict[str, Any]) -> None:
         with self._locked():
