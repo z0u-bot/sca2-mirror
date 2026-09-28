@@ -81,6 +81,32 @@ def test_call_staged_by_an_earlier_attempt_is_not_launched(tmp_path: Path):
     assert "pid" not in store.record("k")
 
 
+def test_an_unstaged_claim_does_not_hold_a_slot(tmp_path: Path, monkeypatch):
+    """An older queued record with no spec for its attempt (a tick that died mid-batch) is passed over, not counted against the cap."""
+    app = LocalApparatus("wedge", max_workers=1, data_dir=tmp_path / "wedge")
+    store = app.memo_store()
+    store.set_meta(local_workers=1)
+    store.records_backend.write("old", {"key": "old", "state": RunState.RUNNING, "gen": "g", "created_at": 0})
+    store.records_backend.write("new", {"key": "new", "state": RunState.RUNNING, "gen": "g", "created_at": 1})
+    store.write_call("new", _timed, (1,), gen="g")
+    _stage_spec(store, "new", "g", {})
+    monkeypatch.setattr(local_apparatus, "spawn_taskworker", lambda *a, **k: os.getpid())
+    assert launch_queued(store) == ["new"]
+
+
+def test_cancelling_a_queued_task_drops_its_spec(tmp_path: Path):
+    app = LocalApparatus("cq", max_workers=1, data_dir=tmp_path / "cq")
+    store = app.memo_store()
+    store.set_meta(local_workers=1)
+    store.records_backend.write("k", {"key": "k", "state": RunState.RUNNING, "gen": "g", "created_at": 0})
+    store.write_call("k", _timed, (1,), gen="g")
+    _stage_spec(store, "k", "g", {"ROLEVAR": "x"})
+    assert app.cancel(store) == ["k"]
+    assert not spec_path(store, "k").exists()
+    assert launch_queued(store) == []
+    assert store.record("k")["state"] == RunState.CANCELLED
+
+
 def test_launch_spec_lives_outside_the_project(tmp_path: Path):
     """The spec may hold an env overlay, so it sits in the runtime dir (memory), readable by its owner only."""
     store = LocalApparatus("spec", data_dir=tmp_path / "project" / ".mini" / "spec").memo_store()
@@ -146,6 +172,13 @@ def test_launch_env_undoes_the_launchers_own_overlay(monkeypatch):
     assert "ONLY_MINE" not in sibling
     assert sibling["OTHER"] == "2"
     assert json.loads(sibling["MINI_TASK_BASE_ENV"]) == {"OTHER": None}
+
+
+def test_a_worker_launches_siblings_from_the_env_it_started_with(monkeypatch):
+    """What a task sets in ``os.environ`` stays with that task."""
+    started = {"PATH": "/bin", "MINI_TASK_BASE_ENV": "{}"}
+    monkeypatch.setenv("SET_BY_TASK", "1")
+    assert "SET_BY_TASK" not in _launch_env({}, started)
 
 
 def _role_env(x):

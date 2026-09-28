@@ -138,7 +138,10 @@ class LocalApparatus(Apparatus[LocalVolume]):
         # Under the launch lock, so a worker exiting mid-cancel can't start a queued
         # task after this snapshot and leave it running unstopped.
         with _launch_lock(store):
-            return super().cancel(store, keys)
+            cancelled = super().cancel(store, keys)
+            for key in cancelled:
+                spec_path(store, key).unlink(missing_ok=True)  # a task cancelled while queued
+            return cancelled
 
     @property
     def task_slots(self) -> int:
@@ -285,13 +288,17 @@ def _read_spec(store: MemoStore, key: str) -> dict[str, Any] | None:
 _BASE_ENV_VAR = "MINI_TASK_BASE_ENV"
 
 
-def _launch_env(overlay: dict[str, str]) -> dict[str, str]:
-    """The whole environment to launch a task with: this process's, minus the overlay it was itself launched with, plus *overlay*."""
+def _launch_env(overlay: dict[str, str], env: dict[str, str] | None = None) -> dict[str, str]:
+    """The whole environment to launch a task with: *env* (this process's, by default), minus the overlay it was itself launched with, plus *overlay*.
+
+    A worker passes the environment it started with, so whatever its task set in ``os.environ`` stays with that task.
+    """
+    env = dict(os.environ) if env is None else env
     restore: dict[str, str | None] = {}
-    if own := os.environ.get(_BASE_ENV_VAR):  # we are a worker: undo our own overlay first
+    if own := env.get(_BASE_ENV_VAR):  # we are a worker: undo our own overlay first
         with suppress(ValueError):
             restore = cast("dict[str, str | None]", json.loads(own))
-    base = {k: v for k, v in os.environ.items() if k not in restore and k != _BASE_ENV_VAR}
+    base = {k: v for k, v in env.items() if k not in restore and k != _BASE_ENV_VAR}
     base |= {k: v for k, v in restore.items() if v is not None}
     shadowed = {k: base.get(k) for k in overlay}
     return base | overlay | {_BASE_ENV_VAR: json.dumps(shadowed)}
@@ -305,7 +312,7 @@ def _launch_lock(store: MemoStore) -> Iterator[None]:
         yield  # released when the file closes
 
 
-def launch_queued(store: MemoStore) -> list[str]:
+def launch_queued(store: MemoStore, env: dict[str, str] | None = None) -> list[str]:
     """Start queued tasks while live workers number fewer than the run's cap; return the keys started.
 
     A queued task is RUNNING with a current ``gen`` and no ``pid``: claimed and staged, waiting for a slot. Live workers are RUNNING records whose pid still runs, so a settled worker (even one still exiting) and a vanished one both free their slot. Launches serialize on a lock file, and each stamps its pid before the lock drops, so two exiting workers can't both start the same task. Nothing starts past the run's wall-clock budget.
@@ -317,14 +324,17 @@ def launch_queued(store: MemoStore) -> list[str]:
     with _launch_lock(store):
         running = [r for r in store.records() if r.get("state") == RunState.RUNNING and r.get("gen")]
         live = sum(1 for r in running if r.get("pid") and _pid_alive(r["pid"], r.get("pid_start")))
-        queued = sorted((r for r in running if not r.get("pid")), key=lambda r: r.get("created_at") or 0)
-        for rec in queued[: max(0, cap - live)]:
+        # Staged for its current attempt; one that isn't (its claiming tick is mid-batch,
+        # or it runs on another backend) must not take a slot from one that is.
+        queued = [
+            (r, spec)
+            for r in sorted((r for r in running if not r.get("pid")), key=lambda r: r.get("created_at") or 0)
+            if (spec := _read_spec(store, r["key"])) is not None and spec.get("gen") == r["gen"]
+        ]
+        for rec, spec in queued[: max(0, cap - live)]:
             key, gen = rec["key"], rec["gen"]
-            spec = _read_spec(store, key)
-            if spec is None or spec.get("gen") != gen:
-                continue  # claimed but not staged yet: the tick that claimed it is mid-batch
-            env = _launch_env(spec.get("env") or {})
-            pid = spawn_taskworker(store.data_dir, key, env=env, inherit=False)  # pid == pgid, for cancel
+            launch_env = _launch_env(spec.get("env") or {}, env)
+            pid = spawn_taskworker(store.data_dir, key, env=launch_env, inherit=False)  # pid == pgid, for cancel
             if store.update_if(key, gen, pid=pid, pid_start=_proc_start(pid)):
                 started.append(key)
                 spec_path(store, key).unlink(missing_ok=True)  # the worker holds its env now
