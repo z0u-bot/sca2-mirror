@@ -35,8 +35,6 @@ Subagent definitions in `.claude/agents/` pin a model, matching each task to the
 - Sonnet 5: Hands-on terminal and agentic loops; implementing an agreed fix.
 - Haiku 4.5: Monitoring and babysitting on a bounded budget.
 
-Experiments on Modal split by phase. The first launch of new experiment code goes to the `experiment-monitor` agent on Sonnet (`model: sonnet` in the Agent call), since that is when bugs turn up and fixing them is diagnosis. Waiting out a long run stays in the main session, as one background `bin/mini watch --timeout … --json` loop that runs `bin/mini run` after each settled stage and wakes the session when the run completes or a task fails. Haiku takes short, bounded passes: check a run, retry what flaked, report. Brief a monitor with a wall-time budget, never "until it completes".
-
 If mid-task the work shifts shape, prefer delegating to the matching model over pushing through. Escalating or returning "I couldn't resolve this" is always a successful outcome.
 
 ## Environment
