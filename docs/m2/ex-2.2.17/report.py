@@ -17,7 +17,9 @@ import experiment as ex
 from mini.lit import memo
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
+from sca.config import SchedulerConfig
 from sca.data.ops import colors
+from sca.training.scheduler import configure_schedule
 from sca.vis import plot_rgb_cube
 
 X = ex.ex2216
@@ -40,6 +42,11 @@ SUPPORT = 0.02
 HUE_GAPS = (0, 30, 90, 150, 180.1)
 CUBE_RUN = f"sweep-{PEAK:g}-s1"
 RGB = np.array(colors(), dtype=float) / 15
+# Squared distance on the color grid, in grid steps (the levels are 0 to 15 in steps of 3), between every pair.
+GRID_D2 = ((RGB[:, None] - RGB[None]) ** 2).sum(-1) * 25
+# Bins of the squared distance to the nearest support color: one step, √2, √3, 2 to √5, √6 to 3, and further.
+DIST_BINS = ((1, 1), (2, 2), (3, 3), (4, 5), (6, 9), (10, 75))
+DIST_LABELS = ("1", "1.4", "1.7", "2–2.2", "2.4–3", "over 3")
 
 
 # --- Helpers -------------------------------------------------------------------------------------------------
@@ -118,6 +125,7 @@ def kl(label: str) -> float:
 
 
 CEILING = RUNS[SCORED[0]]["task"]["ceiling"]["all"]
+EPOCH_LENGTH = round(TRAJ[SCORED[0]]["step"][-1] / RUNS[SCORED[0]]["epochs"])
 PASS = CEILING - X.CEILING_MARGIN
 CEILING_PER_OP = np.array(RUNS[SCORED[0]]["task"]["ceiling"]["per_op"])
 
@@ -204,6 +212,56 @@ def run_summary(p16: np.ndarray, q: np.ndarray, op: np.ndarray, info: dict) -> d
 SUMMARY = {lbl: run_summary(ANSWERS[lbl], PREDICTIVE, OP_IDS, INFO) for lbl in SCORED}
 
 
+@memo
+def support_distance(q: np.ndarray, conf: np.ndarray) -> np.ndarray:
+    """On the confident contexts, the squared grid distance from every grid color to the nearest color in the
+    support of the Bayes predictive (contexts × 216; zero on the support).
+    """
+    supp = q[conf] >= SUPPORT
+    d2 = np.empty(supp.shape)
+    for s in range(0, len(supp), 500):
+        d2[s : s + 500] = np.where(supp[s : s + 500, :, None], GRID_D2[None], np.inf).min(1)
+    return np.rint(d2)
+
+
+def operand_box(pair: np.ndarray) -> np.ndarray:
+    """Whether each grid color lies in the box the two operands of a query span, channel by channel (contexts × 216)."""
+    a, b = RGB[pair // len(RGB)], RGB[pair % len(RGB)]
+    lo, hi = np.minimum(a, b)[:, None], np.maximum(a, b)[:, None]
+    return ((RGB[None] >= lo) & (RGB[None] <= hi)).all(-1)
+
+
+@memo
+def leak_by_distance(p16: np.ndarray, d2: np.ndarray, any_op: np.ndarray, box: np.ndarray) -> dict:
+    """On the confident contexts, off the support, the mean mass per grid color on other ops' answers and on
+    colors no op gives, in bins of distance to the support, over all colors and within the operand box; and the
+    share of the other-op mass in each bin.
+    """
+    p = p16.astype(float)
+    out = {"other": [], "none": [], "other_box": [], "none_box": [], "share": []}
+    total = (p * (d2 > 0) * any_op).sum()
+    for lo, hi in DIST_BINS:
+        b = (d2 >= lo) & (d2 <= hi)
+        out["other"].append(float(p[b & any_op].mean()))
+        out["none"].append(float(p[b & ~any_op].mean()))
+        out["other_box"].append(float(p[b & box & any_op].mean()))
+        out["none_box"].append(float(p[b & box & ~any_op].mean()))
+        out["share"].append(float((p * (b & any_op)).sum() / total))
+    return out
+
+
+_conf = INFO["post_true"] > CONFIDENT
+_d2 = support_distance(PREDICTIVE, _conf)
+_box = operand_box(DETAIL["query_pair"][_conf])
+LEAK_DIST = {lbl: leak_by_distance(ANSWERS[lbl][_conf], _d2, INFO["any_op"][_conf], _box) for lbl in SCORED}
+DIST_RATIO = np.array([np.array(v["other"]) / np.array(v["none"]) for v in LEAK_DIST.values()])
+DIST_RATIO_BOX = np.array([np.array(v["other_box"]) / np.array(v["none_box"]) for v in LEAK_DIST.values()])
+DIST_SHARE = np.mean([v["share"] for v in LEAK_DIST.values()], axis=0)
+# Grid colors per confident context in each bin: other ops' answers, and the rest.
+DIST_N_OTHER = [float(((_d2 >= lo) & (_d2 <= hi) & INFO["any_op"][_conf]).sum(1).mean()) for lo, hi in DIST_BINS]
+DIST_N_NONE = [float(((_d2 >= lo) & (_d2 <= hi) & ~INFO["any_op"][_conf]).sum(1).mean()) for lo, hi in DIST_BINS]
+
+
 def ceiling_by(key: str, n: int) -> list[float]:
     return [float(HO_CEILING[INFO[key] == i].mean()) for i in range(n)]
 
@@ -226,7 +284,6 @@ NOISE_MEAN = mean_over_runs("by_noise")
 GAP_MEAN = mean_over_runs("by_gap")
 OFF_OTHER = mean_over_runs("off_other")
 OFF_NONE = mean_over_runs("off_none")
-_conf = INFO["post_true"] > CONFIDENT
 _off = PREDICTIVE < SUPPORT
 UNIFORM_SHARE = np.array(
     [
@@ -245,7 +302,19 @@ LEAK_R = float(np.corrcoef(_leak, _final)[0, 1])
 # --- Figures ------------------------------------------------------------------------------------------------
 
 
-def group_lines_draw(ax_top: np.ndarray, ax_lr: Axes, lines: list[tuple], k: int = 3) -> None:
+def lr_curve(label: str) -> tuple[np.ndarray, np.ndarray]:
+    """The learning rate a run followed, from its schedule: fine over the warm-up and coarser after it."""
+    row = RUNS[label]
+    total = row["epochs"] * EPOCH_LENGTH
+    config = SchedulerConfig(
+        epochs=row["epochs"], warmup_epochs=row["warmup_epochs"], min_lr_factor=0.01, lr_sheet=row["lr_sheet"]
+    )
+    schedule = configure_schedule(config, row["peak_lr"], EPOCH_LENGTH)
+    steps = np.unique(np.r_[np.linspace(0, total * 0.03, 200), np.linspace(0, total, 1200)].astype(int))
+    return steps, np.asarray(schedule(steps), dtype=float)
+
+
+def group_lines_draw(ax_top: np.ndarray, ax_lr: np.ndarray, lines: list[tuple], k: int = 3) -> None:
     def smooth(y: np.ndarray) -> np.ndarray:
         pad = np.pad(y, (k // 2, k // 2), mode="edge")
         return np.convolve(pad, np.ones(k) / k, mode="valid")
@@ -259,8 +328,9 @@ def group_lines_draw(ax_top: np.ndarray, ax_lr: Axes, lines: list[tuple], k: int
             y = np.array(t["eem"]) if group is None else np.array(t["eem_per_op"])[:, idx].mean(1)
             ax.plot(np.array(t["step"]) / 1e3, smooth(y), color=color, ls=ls, lw=lw)
     for label, color, ls, lw, legend in lines:
-        t = TRAJ[label]
-        ax_lr.plot(np.array(t["step"]) / 1e3, t["lr"], color=color, ls=ls, lw=lw, label=legend)
+        steps, lr = lr_curve(label)
+        for i, ax in enumerate(ax_lr):
+            ax.plot(steps / 1e3, lr, color=color, ls=ls, lw=lw, label=legend if i == 0 else f"_{legend}")
 
 
 @memo
@@ -268,23 +338,24 @@ def groups_draw(lines: list[tuple], name: str, caption: str, alt_text: str) -> s
     @themed(name=name, alt_text=alt_text, caption=caption)
     def _plot() -> plt.Figure:
         fig = plt.figure(figsize=(8.4, 6.8), layout="constrained")
-        grid = fig.add_gridspec(3, 3, height_ratios=[1, 1, 0.75])
+        grid = fig.add_gridspec(3, 3, height_ratios=[1, 1, 0.6])
         top = [fig.add_subplot(grid[i // 3, i % 3]) for i in range(len(GROUPS))]
         for ax in top[1:]:
             ax.sharex(top[0])
             ax.sharey(top[0])
-        lr = fig.add_subplot(grid[2, :], sharex=top[0])
-        group_lines_draw(np.array(top), lr, lines)
+        lr = [fig.add_subplot(grid[2, i], sharex=top[0]) for i in range(3)]
+        for ax in lr[1:]:
+            ax.sharey(lr[0])
+        group_lines_draw(np.array(top), np.array(lr), lines)
         top[0].set_ylim(0, 0.85)
         for ax in top[::3]:
             ax.set_ylabel("held-out EEM")
-        for ax in top[3:]:
+        lr[0].set_yscale("log")
+        lr[0].set_ylim(1e-5, 1.5e-2)
+        lr[0].set_ylabel("learning rate")
+        for ax in lr:
             ax.set_xlabel("step (thousands)", fontsize=8)
-        lr.set_yscale("log")
-        lr.set_ylim(1e-5, 1.5e-2)
-        lr.set_ylabel("learning rate")
-        lr.set_xlabel("step (thousands)")
-        handles, labels = lr.get_legend_handles_labels()
+        handles, labels = lr[0].get_legend_handles_labels()
         keep = [(h, lbl) for h, lbl in zip(handles, labels, strict=True) if not lbl.startswith("_")]
         fig.legend(
             *zip(*keep, strict=True), loc="outside upper center", ncols=min(len(keep), 4), frameon=False, fontsize=7
@@ -417,7 +488,7 @@ def hue_gap_draw(per_gap: list, eem_gap: list, ceil_gap: list, alt_text: str) ->
         name="hsvmix-hue-gap",
         alt_text=alt_text,
         caption="""
-            **hsvmix by the hue gap between its operands.** As in the figure above, for hsvmix contexts with a
+            **`hsvmix` by the hue gap between its operands.** As in the figure above, for `hsvmix` contexts with a
             posterior on the true op above 0.9 and two chromatic operands, grouped by how far apart their hues are.
             Under each panel: the expected exact match, mean over the scored runs, against the Bayes ceiling.
         """,
@@ -429,6 +500,41 @@ def hue_gap_draw(per_gap: list, eem_gap: list, ceil_gap: list, alt_text: str) ->
             plot_rgb_cube(ax, em, truth=eq, s=7, view="wheel")
             ax.set_title(f"{HUE_GAPS[i]:.0f}°–{min(HUE_GAPS[i + 1], 180):.0f}°", fontsize=9)
             ax.text(0, -1.3, f"{eem_gap[i]:.2f} of {ceil_gap[i]:.2f}", ha="center", fontsize=8)
+        return fig
+
+    return _plot()
+
+
+@memo
+def leak_distance_draw(ratio: np.ndarray, ratio_box: np.ndarray, alt_text: str) -> str:
+    @themed(
+        name="leak-distance",
+        alt_text=alt_text,
+        caption=f"""
+            **Other ops' answers against other colors at the same distance.** On confident contexts, off the support
+            of the Bayes predictive: the mean mass per grid color on other ops' answers divided by the mean mass per
+            grid color on colors no op gives, with colors grouped by their distance to the nearest support color.
+            Thin lines are the {len(ratio)} scored runs, the thick line their mean. Left, all off-support colors;
+            right, only those inside the box the two operands span. A ratio of 1 (dashed) would mean distance alone
+            sets the mass.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.2), layout="constrained", sharey=True)
+        c = light_dark("#1f5fa8", "#7fb2ff")
+        x = np.arange(len(DIST_LABELS))
+        for ax, r in zip(axes, (ratio, ratio_box), strict=True):
+            for row in r:
+                ax.plot(x, row, color=c, lw=0.6, alpha=0.35)
+            ax.plot(x, r.mean(0), color=c, lw=2, marker="o", ms=4)
+            ax.axhline(1, ls="--", color=rule_color(), lw=1)
+            ax.set_xticks(x, DIST_LABELS)
+            ax.set_xlabel("distance to the support (grid steps)")
+        axes[0].set_yscale("log")
+        axes[0].set_ylim(0.8, 80)
+        axes[0].set_ylabel("mass ratio, other ops' answers\nagainst other colors")
+        axes[0].set_title("all off-support colors", fontsize=9)
+        axes[1].set_title("inside the operand box", fontsize=9)
         return fig
 
     return _plot()
@@ -466,22 +572,111 @@ TOTAL_GAP = CEILING - float(np.mean([SUMMARY[lbl]["eem"] for lbl in SCORED]))
 # How much of the whole gap each band carries: its share of contexts times its gap.
 BAND_SHARE = [n * g / sum(N_BAND) / TOTAL_GAP for n, g in zip(N_BAND, BAND_GAP, strict=True)]
 
+OFF_TOTAL = OFF_OTHER + OFF_NONE
+LIGHTEN, DARKEN = OPS.index("lighten"), OPS.index("darken")
+WIDE, DEEP = f"d128-sweep-{PEAK:g}-s0", f"d64L6-sweep-{PEAK:g}-s0"
+# How often the top answer of the model is the top answer of the Bayes predictive, on confident contexts of an op.
+TOP_MATCH = {
+    o: float(
+        np.mean(
+            [
+                (ANSWERS[lbl][_conf & (OP_IDS == o)].argmax(1) == PREDICTIVE[_conf & (OP_IDS == o)].argmax(1)).mean()
+                for lbl in SCORED
+            ]
+        )
+    )
+    for o in (LIGHTEN, DARKEN)
+}
+# How much more mass a color no op gives gets inside the operand box than over all off-support colors.
+BOX_LIFT = float(np.mean([np.array(v["none_box"]) / np.array(v["none"]) for v in LEAK_DIST.values()]))
+
 rf"""
-This scout set out to lift ex-2.2.16's center control (the unanchored d64-L4 model on the corpus condition `k3-r0.3`) to its Bayes ceiling. Ex-2.2.16 trained it for 50 epochs at a peak learning rate of 0.01 and it reached 0.27 held-out expected exact match (EEM), against a ceiling of {CEILING:.3f}. The pass line that experiment set for its controls is {X.CEILING_MARGIN:g} below the ceiling, at {PASS:.3f}.
+# Ex 2.2.17: the center control plateau, a scout
 
-<details><summary>The measurements</summary>
+/// tip |
+<!-- tl;dr -->
+Seven rounds of training took ex-2.2.16's center control from 0.27 to about 0.45 held-out expected exact match, where it leveled off, {PASS - eem(BEST):.3f} short of the pass line at best. It matches the Bayes ceiling where the examples leave the op uncertain, and falls short where they settle it, keeping some of its mass on answers that the ruled-out ops would give.
+///
 
-Held-out *expected exact match* is the probability that an answer drawn from the model's distribution at the query `=` is a correct answer of the true op, averaged over {len(OP_IDS):,} held-out contexts, {len(OP_IDS) // X.N_OPS:,} per op. The *Bayes ceiling* is the same score for the ideal predictor, which weighs the ops by how well each explains the examples of a context and answers with the resulting mixture. It is below 1 because some ops round stochastically and because noisy examples leave the op uncertain. The *calibration KL* is the KL divergence from that ideal answer distribution to the model's, in nats: how much more the model loses on the answer than the ideal predictor does. Zero means the model holds the same distribution the examples support.
+This scout set out to lift ex-2.2.16's center control (the unanchored d64-L4 model on the corpus condition `k3-r0.3`) to its Bayes ceiling of {CEILING:.3f}. Ex-2.2.16 trained it for 50 epochs at a peak learning rate of 0.01, and it reached 0.27. More steps, a newline mask, and a lower rate took it to about 0.45. Past that, neither the shape of the schedule, nor twice the steps, nor a wider or deeper model changed the final score by more than the spread between seeds. The best run, `{BEST}`, reached {eem(BEST):.3f}.
 
-</details>
+To see where the rest of the gap sits, we scored the answer distribution of each model against the Bayes predictive, context by context. Part of the gap is in how firmly the model commits to the op its examples support, and `hsvmix` adds a separate shortfall.
 
-Seven rounds of training moved the control from 0.27 to about 0.45. The rest of the gap did not move. Past the first two rounds, neither the shape of the learning-rate schedule, nor twice the training steps, nor a wider or deeper model changed the final score by more than the spread between seeds. The best run, `{BEST}`, reached {eem(BEST):.3f}, still {PASS - eem(BEST):.3f} short of the pass line.
+## Observations
 
-Scoring the answer distributions against the Bayes predictive shows where the gap sits. The model matches the ceiling where the examples say little about the op, and falls short where they point clearly to one op. Even when the examples settle the op, it keeps some mass on answers that other ops would give, at several times the rate chance would put there. So part of the gap is in how firmly the model commits to the op the examples support. The op hsvmix adds a second, separate shortfall that grows with the distance between the operand hues.
+Each line is a measurement on the runs of this scout, with no gate.
 
-## Rounds 1 and 2: more steps and a lower rate
+- **E1** [More steps, a lower rate, and the mask](#more-steps-a-lower-rate-and-the-mask-e1): eight times the steps of ex-2.2.16, with the newline mask, took the control from 0.27 to about 0.45. Peak rates from 0.00178 to 0.01 ended within 0.04 of each other, and the mask was the largest single difference ({NOMASK["task"]["eem"]["all"]:.3f} without it and {MASKED["task"]["eem"]["all"]:.3f} with it, at {PEAK:g}).
+- **E2** [Schedule, length, and model size](#schedule-length-and-model-size-e2): the cosine, warmup-stable-decay, and staircase schedules end together, at {min(SPREAD_8X):.3f} to {max(SPREAD_8X):.3f} over nine runs. Sixteen times the steps, a wider model, and a deeper one stay within the seed range. The wider model learns faster and is less well calibrated.
+- **E3** [Where the gap sits](#where-the-gap-sits-e3): the model matches the ceiling on contexts whose examples leave the op uncertain, and falls short on those that point to one op. The contexts with a posterior on the true op from 0.5 to 0.99 are {sum(N_BAND[1:3]) / sum(N_BAND):.0%} of the total and hold {sum(BAND_SHARE[1:3]):.0%} of the gap.
+- **E4** [The leak onto other ops](#the-leak-onto-other-ops-e4): where the examples settle the op, the model keeps {OFF_TOTAL.min():.0%} to {OFF_TOTAL.max():.0%} of its mass off the support of the Bayes predictive, and more than half of that on answers another op would give. At the same distance from the support, a color that is another op's answer gets {DIST_RATIO.mean(0).min():.0f} to {DIST_RATIO.mean(0).max():.0f} times the mass of one that no op gives.
+- **E5** [Answers in the color cube](#answers-in-the-color-cube-e5): for ten of the eleven ops, the expected answer of the model sits close to the Bayes one, with no shared direction to the difference. `hsvmix` is the exception.
+- **E6** [`hsvmix` and the hue gap](#hsvmix-and-the-hue-gap-e6): `hsvmix` gets {GAP_MEAN[0] / CEIL_GAP[0]:.0%} of its ceiling when the operand hues are close and {GAP_MEAN[3] / CEIL_GAP[3]:.0%} when they are nearly opposite. Width and depth did not change it.
 
-Round 1 tested two ideas at three seeds each: that the peak learning rate of 0.01 was too high, or that the model needed more steps. The `low` arm trained for ex-2.2.16's length at 0.003; `long` trained for three times the length at 0.01; and `long-low` did both. Neither change alone did much, and the two together did the most.
+## Scope
+
+This is a scout, run in rounds, each designed on the results of the one before. There is no preregistration and no gate. The pass line that ex-2.2.16 set for its controls, {X.CEILING_MARGIN:g} below the ceiling at {PASS:.3f}, is a reference point here. Most conditions after round 1 have one seed, and the three-seed conditions span about 0.03, so a difference smaller than that is not a change.
+
+## Why
+
+The anchoring experiments on the in-context grammar compare an anchored model with an unanchored control on the same contexts. At 0.27 against a ceiling of {CEILING:.2f}, ex-2.2.16's center control had learned about half of what its examples allow, so that comparison would mix the effect of the anchor with the unfinished training of both models. We wanted a control recipe that comes close to the ceiling, or else to know where it levels off and why.
+
+## The runs
+
+Every run is the unanchored model of ex-2.2.16 on `k3-r0.3`, with an untied readout. Lengths are multiples of the 50 epochs ({X.EPOCHS * EPOCH_LENGTH:,} steps) that ex-2.2.16 trained for.
+
+"""
+
+table_html(
+    ["round", "what changes", "length", "peak LR", "mask", "seeds"],
+    [
+        [
+            "1",
+            "`low`, `long`, and `long-low`: a lower rate, more steps, or both",
+            "1×, 3×, 3×",
+            "0.003, 0.01, 0.003",
+            "no",
+            "3",
+        ],
+        [
+            "2",
+            "a sweep of the peak rate, and one run without the mask",
+            "8×",
+            f"{SWEEP[0]['peak_lr']:g} to {SWEEP[-1]['peak_lr']:g}",
+            "yes",
+            "1",
+        ],
+        ["3", "warmup-stable-decay schedule, and two more seeds of the cosine", "8×", f"{PEAK:g}", "yes", "3"],
+        ["4", "staircase schedule", "8×", f"{PEAK:g}", "yes", "3"],
+        ["5", "each of the three schedules", "16×", f"{PEAK:g}", "yes", "1"],
+        ["6", "a wider model, d128-L4", "8×", f"{PEAK:g}", "yes", "1"],
+        ["7", "a deeper model, d64-L6", "8×", f"{PEAK:g}", "yes", "1"],
+    ],
+    "**The rounds.** Length is a multiple of the steps of ex-2.2.16. The schedule is the cosine unless the row says otherwise.",
+    text_cols=2,
+)
+
+rf"""
+
+The newline mask stops each position from attending past the start of its own line. Every schedule starts with a linear warm-up from 1% of the peak rate: over the first tenth of the run in round 1, and over 1,320 steps (5 epochs, ex-2.2.16's own warm-up) from round 2 on, whatever the length. The cosine then anneals to 1% of the peak by the end of the run.
+
+## The measurements
+
+Held-out *expected exact match* (EEM) is the probability that an answer drawn from the distribution of the model at the query `=` is a correct answer of the true op. We average it over {len(OP_IDS):,} held-out contexts, {len(OP_IDS) // X.N_OPS:,} per op.
+
+The *Bayes ceiling* is the same score for an ideal predictor. That predictor weighs each op by how well it explains the examples of a context, then answers with the resulting mixture of ops; we call that mixture the *Bayes predictive*. The ceiling is below 1 for two reasons: some ops round stochastically, and noisy examples leave the op uncertain.
+
+The *calibration KL* is the KL divergence[^kl] from the Bayes predictive to the distribution of the model, in nats. It measures how much more the model loses on the answer than the ideal predictor does. Zero means the model holds the distribution the examples support.
+
+[^kl]: A KL divergence measures how different one probability distribution is from another. It is zero when they match and grows as they differ.
+
+The *posterior on the true op* is the probability the ideal predictor gives the true op after seeing the examples. Replacement op noise lowers it. We call a context *confident* when that posterior is above {CONFIDENT:g}.
+
+The *support* of the Bayes predictive on a context is the set of grid colors to which it gives at least {SUPPORT:g}. Probability mass on any other color is *off support*. An off-support color is *another op's answer* when some op, applied to the query operands, can give it. Distances are on the color grid, in grid steps: one step is the spacing between neighboring levels of a channel, and the far corner of the cube is 5√3 ≈ 8.7 steps from black.
+
+## More steps, a lower rate, and the mask (E1)
+
+Round 1 tested two ideas at three seeds each, without the newline mask: that the peak rate of 0.01 was too high, or that the model needed more steps. The `low` arm trained for the length of ex-2.2.16 at 0.003, `long` for three times the length at 0.01, and `long-low` did both. Neither change alone did much, and the two together did the most.
 
 """
 
@@ -502,7 +697,7 @@ table_html(
 
 rf"""
 
-Every round-1 curve was still rising when the cosine schedule wound down. So round 2 trained for eight times the length ({STEPS_8X:,.0f} steps), with ex-2.2.16's newline mask, which stops each position attending past the start of its own line. A learning-rate finder on the same configuration, which trains briefly at a rising rate and looks for where the loss falls fastest, put the steepest descent near {FINDER_STEEP["finder-mask"]:.4f}. Round 2 then swept the peak rate from {SWEEP[-1]["peak_lr"]:g} down to {SWEEP[0]["peak_lr"]:g} at one seed each.
+Every round-1 curve was still rising when the cosine schedule wound down. So round 2 trained for eight times the length ({STEPS_8X:,.0f} steps), with the mask. We ran a learning-rate finder on the same configuration. It trains briefly at a rising rate and looks for where the loss falls fastest; here, the steepest descent was near {FINDER_STEEP["finder-mask"]:.4f}. Round 2 then swept the peak rate from {SWEEP[-1]["peak_lr"]:g} down to {SWEEP[0]["peak_lr"]:g} at one seed each, with one more run at {PEAK:g} without the mask. The figure below follows each run through training, one panel per group of ops, with the learning rate it followed underneath.
 
 """
 
@@ -514,24 +709,26 @@ groups_draw(
     + [(NOMASK["label"], "0.5", "--", 1.6, f"{PEAK:g}, no mask")],
     "round2",
     f"""
-        **Round 2: the peak learning rate at eight times the length.** Each panel is one group of ops; the y-axis is
-        held-out expected exact match on a probe set during training (a running mean over three points), with the
-        Bayes ceiling of the group dashed. One seed per peak rate, shaded by rate. The gray dashed curve is the
-        unmasked run at {PEAK:g}. The bottom panel is the learning rate each run followed.
+        **Round 2: the peak learning rate at eight times the length.** Each panel of the top two rows is one group of
+        ops; the y-axis is held-out expected exact match on a probe set during training (a running mean over three
+        points), with the Bayes ceiling of the group dashed. One seed per peak rate, shaded by rate. The gray dashed
+        curve is the unmasked run at {PEAK:g}. The bottom row is the learning rate each run followed, repeated under
+        each column; the near-vertical rise at the left edge is the warm-up.
     """,
     f"""
         Six line charts of held-out expected exact match against training step, one per op group, and a learning-rate
-        chart below them. The runs with peak rates from 0.00178 to 0.01 all end between 0.41 and 0.45 overall; the
-        lower rates end lower. The HSV-channel panel shows sharp rises partway through training, earlier for
+        chart under each column. The runs with peak rates from 0.00178 to 0.01 all end between 0.41 and 0.45 overall;
+        the lower rates end lower. The HSV-channel panel shows sharp rises partway through training, earlier for
         mid-range rates. The unmasked run ends lowest of the mid-range rates, at {NOMASK["task"]["eem"]["all"]:.2f}.
+        Each learning rate rises steeply over the first 1,320 steps, then decays along a cosine.
     """,
 )
 
 rf"""
 
-Four peak rates from 0.00178 to 0.01 ended within 0.04 of each other, and the best was {BEST_SWEEP["peak_lr"]:g} at {BEST_SWEEP["task"]["eem"]["all"]:.3f}. The mask made the largest single difference in the scout: at {PEAK:g}, the unmasked run scored {NOMASK["task"]["eem"]["all"]:.3f} and the masked one {MASKED["task"]["eem"]["all"]:.3f}. The HSV-channel ops rose steeply once the decaying rate fell below about 0.004, which is what shaped the next two rounds. The later rounds all train with the mask at a peak rate of {PEAK:g}, the middle of the good range.
+Four peak rates from 0.00178 to 0.01 ended within 0.04 of each other, and the best was {BEST_SWEEP["peak_lr"]:g} at {BEST_SWEEP["task"]["eem"]["all"]:.3f}. The mask made the largest single difference in the scout: at {PEAK:g}, the unmasked run scored {NOMASK["task"]["eem"]["all"]:.3f} and the masked one {MASKED["task"]["eem"]["all"]:.3f}. The HSV-channel ops rose steeply once the decaying rate fell below about 0.004, which shaped the next two rounds. From round 3 on, every run trains with the mask at a peak rate of {PEAK:g}, the middle of the good range.
 
-## Rounds 3 to 7: schedule, length, and model size
+## Schedule, length, and model size (E2)
 
 Round 3 tried a warmup-stable-decay (WSD) schedule, which warms up to {PEAK:g}, holds near {ex.HOLD_LR:g} until 85% of the run, and then anneals to the same floor as the cosine. Round 4 tried a staircase: holds at {", ".join(f"{s:g}" for s in ex.STAIRS)}, with short anneals between them, the last hold covering the final 11% of the run. Both ran at three seeds, beside two more seeds of the cosine.
 
@@ -550,13 +747,13 @@ groups_draw(
     "schedules",
     f"""
         **Rounds 3 and 4: three schedules at eight times the length.** As in the round-2 figure, with three seeds per
-        schedule, all masked at a peak rate of {PEAK:g}.
+        schedule, all masked, at a peak rate of {PEAK:g}.
     """,
     """
         Six line charts of held-out expected exact match against training step, one per op group, and the three
-        learning-rate schedules below. The warmup-stable-decay and staircase runs are flat through their holds and
-        rise at each drop in the rate. By the end, the three schedules sit on top of one another in every group,
-        and the seeds differ more than the schedules.
+        learning-rate schedules under each column. The warmup-stable-decay and staircase runs are flat through their
+        holds and rise at each drop in the rate. By the end, the three schedules sit on top of one another in every
+        group, and the seeds differ more than the schedules.
     """,
 )
 
@@ -576,15 +773,15 @@ conditions_draw(
     f"""
         Two dot charts over eight conditions. Left, expected exact match: every condition sits between 0.43 and 0.47,
         below the dashed pass line at {PASS:.3f} and the solid ceiling at {CEILING:.3f}. Right, the calibration KL:
-        between 0.36 and 0.56 for every condition except the wider d128-L4 model, at {kl(f"d128-sweep-{PEAK:g}-s0"):.2f}.
+        between 0.36 and 0.56 for every condition except the wider d128-L4 model, at {kl(WIDE):.2f}.
     """,
 )
 
 rf"""
 
-At eight times the length, the nine runs of the three schedules span {min(SPREAD_8X):.3f} to {max(SPREAD_8X):.3f}. Sixteen times the length adds between 0.002 and 0.006 to the seed-0 run of each schedule. The wider and deeper models gain 0.023 and 0.017 on their seed-0 pair, but seed 0 is the weakest seed under every schedule, and the plain model at seed 1 reaches {eem(f"sweep-{PEAK:g}-s1"):.3f}. With one seed each, I read neither as a change.
+At eight times the length, the nine runs of the three schedules span {min(SPREAD_8X):.3f} to {max(SPREAD_8X):.3f}. Sixteen times the length adds between 0.002 and 0.006 to the seed-0 run of each schedule. The wider and deeper models gain 0.023 and 0.017 on their seed-0 pair, but seed 0 is the weakest seed under every schedule, and the plain model at seed 1 reaches {eem(f"sweep-{PEAK:g}-s1"):.3f}.
 
-Two things about the wider model stand apart from its final score. It learns faster: its HSV channels make their jump near 15k steps, against 25k to 45k for the d64 runs, and it leads through the first half of training. And it is much less well calibrated, at a KL of {kl(f"d128-sweep-{PEAK:g}-s0"):.2f} against about 0.5, with a lower training loss than the d64 runs. So it is about as accurate as the others while being more confident than the examples support, which fits a model that has fitted more of its training corpus.
+Two things about the wider model stand apart from its final score. It learns faster: its HSV channels make their jump near 15k steps, against 25k to 45k for the d64 runs, and it leads through the first half of training. And it is much less well calibrated, at a KL of {kl(WIDE):.2f} against about 0.5, with a lower training loss than the d64 runs. So it is about as accurate as the others while being more confident than the examples support, which fits a model that has fitted more of its training corpus.
 
 """
 
@@ -593,8 +790,8 @@ groups_draw(
         (f"sweep-{PEAK:g}-s1", "C0", ":", 0.9, "d64-L4, seeds 1 and 2"),
         (f"sweep-{PEAK:g}-s2", "C0", ":", 0.9, "_d64-L4, seeds 1 and 2"),
         (f"sweep-{PEAK:g}-s0", "C0", "-", 1.6, "d64-L4"),
-        (f"d128-sweep-{PEAK:g}-s0", "C1", "-", 1.6, "d128-L4 (wider)"),
-        (f"d64L6-sweep-{PEAK:g}-s0", "C4", "-", 1.6, "d64-L6 (deeper)"),
+        (WIDE, "C1", "-", 1.6, "d128-L4 (wider)"),
+        (DEEP, "C4", "-", 1.6, "d64-L6 (deeper)"),
     ],
     "model-size",
     f"""
@@ -604,18 +801,16 @@ groups_draw(
     """,
     """
         Six line charts of held-out expected exact match against training step, one per op group, and the shared
-        cosine schedule below. The wider model rises fastest early, most visibly in the HSV-channel panel, and all
-        three models end close together, within the range of the d64-L4 seeds.
+        cosine schedule under each column. The wider model rises fastest early, most visibly in the HSV-channel panel,
+        and all three models end close together, within the range of the d64-L4 seeds.
     """,
 )
 
 rf"""
 
-## Where the gap sits
+## Where the gap sits (E3)
 
-The final evaluation reports one number per op, so the scout added a scoring pass. For every held-out context it records the full answer distribution of the model at the query `=`, for the {len(SCORED)} masked runs at {PEAK:g} (every run of rounds 3 to 7 and round 2's cosine). It then redraws the held-out contexts from their seed, which recovers what ex-2.2.16 did not publish: which examples in each context carry replacement op noise. The redrawn contexts match the published ones token for token.
-
-The first question is whether the gap depends on how much the examples say about the op. The figure below groups the held-out contexts two ways: by the posterior on the true op (the probability the ideal predictor gives the true op after reading the examples), and by the number of noisy examples.
+To see where the rest of the gap sits, we scored the final answer distribution of every masked run at {PEAK:g}, context by context (see [Method](#method)). The figure below groups the held-out contexts two ways: by the posterior on the true op, and by the number of examples that carry replacement op noise.
 
 """
 
@@ -636,14 +831,17 @@ rf"""
 
 Where the examples leave the op uncertain (a posterior below 0.5, or two or more noisy examples out of three), the model scores what the ideal predictor scores. The gap opens once the examples point to one op: {BAND_GAP[1]:.3f} in the band from 0.5 to 0.9 and {BAND_GAP[2]:.3f} from 0.9 to 0.99, and it narrows to {BAND_GAP[3]:.3f} where the posterior is above 0.99. Those two middle bands hold {sum(N_BAND[1:3]) / sum(N_BAND):.0%} of the contexts and {sum(BAND_SHARE[1:3]):.0%} of the gap. All {len(SCORED)} runs share this shape, whatever their schedule, length, or model.
 
-A model that knew the true op would lose nothing to op uncertainty. So in the confident band (posterior above {CONFIDENT:g}), what remains of the gap is about how the model computes each op, or about the model hesitating over an op the examples have settled. The two can be told apart by where the model puts the mass it does not put on a plausible answer. The table below counts the mass outside the support of the Bayes predictive (grid colors to which it gives less than {SUPPORT:g}) and splits it by whether some other op would give that color as its answer on the same query.
+## The leak onto other ops (E4)
+
+A model that knew the true op would lose nothing to op uncertainty. So on confident contexts, what remains of the gap is about how the model computes each op, or about the model spreading its mass over ops the examples have ruled out. Where the model puts its off-support mass tells the two apart. The table below splits that mass by whether another op would give the color on the same query.
 
 """
 
 table_html(
     [
         "op",
-        "Bayes ceiling",
+        "ceiling, all contexts",
+        "ceiling, confident",
         "mass off support",
         "on other ops' answers",
         "on no op's answer",
@@ -653,8 +851,9 @@ table_html(
     [
         [
             f"`{name}`",
+            f"{CEILING_PER_OP[o]:.2f}",
             f"{HO_CEILING[(OP_IDS == o) & _conf].mean():.2f}",
-            f"{OFF_OTHER[o] + OFF_NONE[o]:.3f}",
+            f"{OFF_TOTAL[o]:.3f}",
             f"{OFF_OTHER[o]:.3f}",
             f"{OFF_NONE[o]:.3f}",
             f"{OTHER_SHARE[o]:.0%}",
@@ -663,21 +862,44 @@ table_html(
         for o, name in enumerate(OPS)
     ],
     f"""
-        **The mass each op leaks on confident contexts.** Contexts whose posterior on the true op is above
-        {CONFIDENT:g}; mass means over the {len(SCORED)} scored runs. "Share if spread evenly" is the share that would
-        land on other ops' answers if the off-support mass were spread evenly over the off-support grid colors.
+        **The mass each op leaks on confident contexts.** The Bayes ceiling of each op over all its held-out contexts,
+        and over its confident contexts (posterior on the true op above {CONFIDENT:g}). The mass columns are on the
+        confident contexts, as means over the {len(SCORED)} scored runs. "Share if spread evenly" is the share that
+        would land on other ops' answers if the off-support mass were spread evenly over the off-support colors.
     """,
 )
 
 rf"""
 
-On every op, the model keeps between {min(OFF_OTHER + OFF_NONE):.0%} and {max(OFF_OTHER + OFF_NONE):.0%} of its mass off the support, and about half or more of that sits on answers another op would give, where an even spread would put under a tenth. Lighten and darken are the clearest: the Bayes predictive gives the answer with certainty, the model puts its top answer there on every confident context, and still about {OFF_OTHER[OPS.index("lighten")]:.0%} of its mass goes to other ops' answers. So the model hedges across ops more than its examples justify. The runs that hedge more also score lower: across the {len(SCORED)} runs, the mean leak on other ops' answers correlates with the final score at r = {LEAK_R:.2f}, which covers much of the seed-to-seed spread.
+On every op, the model keeps between {OFF_TOTAL.min():.0%} and {OFF_TOTAL.max():.0%} of its mass off the support, and more than half of that sits on answers another op would give, where an even spread would put under a tenth.
 
-One caution on this reading: other ops' answers are often near the true answer in the cube, so part of this mass may be near misses rather than a choice of op. A comparison against colors at the same distance would separate the two.
+`lighten` and `darken` are the clearest case. Each gives one answer per query, with no rounding, and on a confident context the examples have ruled out the other ops, so the Bayes predictive puts all its mass on that answer and the ceiling is 1. Over all their contexts, where noisy examples often leave the op uncertain, their ceilings are {CEILING_PER_OP[LIGHTEN]:.2f} and {CEILING_PER_OP[DARKEN]:.2f}. On their confident contexts the top answer of the model is the Bayes answer {min(TOP_MATCH.values()):.0%} of the time or more, and still about {OFF_OTHER[LIGHTEN]:.0%} of its mass goes to other ops' answers.
 
-### Answers in the color cube
+Other ops' answers are often near the true answer in the cube, and some ops give similar answers (`lighten` and `screen` both brighten), so part of this mass could be near misses. To separate the two, we compare colors at the same distance from the support. If nearness alone set the mass, a color that is another op's answer would get the same mass as one that no op gives at that distance. We also repeat the comparison inside the box the two operands span, since several ops give answers between their operands.
 
-The cubes below put the model answers beside the Bayes answers, one panel per op, on the confident contexts of `{CUBE_RUN}`. Each context is drawn at its expected answer color: the mean color of the answer distribution, which moves toward the middle of the cube as mass spreads.
+"""
+
+leak_distance_draw(
+    DIST_RATIO,
+    DIST_RATIO_BOX,
+    f"""
+        Two line charts of a mass ratio on a log scale against distance to the support, from 1 to over 3 grid steps.
+        Left, all off-support colors: the mean ratio is {DIST_RATIO.mean(0)[0]:.1f} at one step and rises to
+        {DIST_RATIO.mean(0)[-1]:.0f} beyond three steps. Right, inside the operand box: {DIST_RATIO_BOX.mean(0)[0]:.1f}
+        at one step, and {DIST_RATIO_BOX.mean(0).max():.0f} at most. Every run lies above the dashed line at 1 at every
+        distance.
+    """,
+)
+
+rf"""
+
+At every distance, the colors that are other ops' answers get more mass: {DIST_RATIO.mean(0)[0]:.1f} times as much one step from the support, and more further out. Nearness does shape the leak, since {DIST_SHARE[0]:.0%} of the mass on other ops' answers sits one step from the support. The operand box also matters: at the same distance, a color no op gives gets {BOX_LIFT:.1f} times as much mass when it lies inside the box as off-support colors do on average. But inside the box, other ops' answers still get {DIST_RATIO_BOX.mean(0).min():.0f} to {DIST_RATIO_BOX.mean(0).max():.0f} times the mass of other colors at the same distance.
+
+So the model favors the answers of the ops its examples have ruled out, beyond what nearness or the operands account for. The runs that leak more also score lower: across the {len(SCORED)} runs, the mean leak on other ops' answers correlates with the final score at r = {LEAK_R:.2f}.
+
+## Answers in the color cube (E5)
+
+The cubes below put the answers of the model beside the Bayes answers, one panel per op, on the confident contexts of `{CUBE_RUN}`. Each context is drawn at its expected answer color: the mean color of the answer distribution, which moves toward the middle of the cube as mass spreads.
 
 """
 
@@ -693,9 +915,11 @@ cubes_draw(
 
 rf"""
 
-For ten of the eleven ops, the model expected answer sits within a fraction of one grid step of the Bayes one, with no shared direction to the displacement. So the model is not biased toward some region of the cube; the leak above is spread thinly. hsvmix is the exception, and the ops table shows it: it leaks {OFF_OTHER[HSVMIX] + OFF_NONE[HSVMIX]:.0%} of its mass on confident contexts, and {OFF_NONE[HSVMIX]:.0%} of its mass goes to colors no op gives. It is the one op where the computation itself falls short.
+None of the stubs is long. For ten of the eleven ops, the expected answer of the model sits within a fraction of a grid step of the Bayes one, with no shared direction to the difference. So the model has learned these ops well, and the leak above is spread thinly around the cube. `hsvmix` is the exception, as the ops table shows: it keeps {OFF_TOTAL[HSVMIX]:.0%} of its mass off support on confident contexts, and {OFF_NONE[HSVMIX]:.0%} goes to colors no op gives. It is the one op where the computation itself falls short.
 
-hsvmix mixes two colors in hue, saturation, and value, with the hue taken around the color wheel. Grouping its confident contexts by how far apart the operand hues are shows where it struggles.
+## `hsvmix` and the hue gap (E6)
+
+`hsvmix` mixes two colors in hue, saturation, and value, with the hue taken around the color wheel. Grouping its contexts (posterior above 0.9, two chromatic operands) by how far apart the operand hues are shows where it struggles.
 
 """
 
@@ -712,17 +936,23 @@ hue_gap_draw(
 
 rf"""
 
-With nearby hues the model gets {GAP_MEAN[0] / CEIL_GAP[0]:.0%} of what the ceiling allows; with near-opposite hues it gets {GAP_MEAN[3] / CEIL_GAP[3]:.0%}. Near-opposite hues are where the midpoint around the wheel moves furthest for a small change in either operand, and at exactly opposite hues the direction around the wheel is a tie. So hsvmix asks for a more precise computation than the other ops, and the model has not learned it. Width and depth did not help this either: hsvmix scored {RUNS[f"d128-sweep-{PEAK:g}-s0"]["task"]["eem"]["per_op"][HSVMIX]:.2f} on d128-L4 and {RUNS[f"d64L6-sweep-{PEAK:g}-s0"]["task"]["eem"]["per_op"][HSVMIX]:.2f} on d64-L6, against {RUNS[f"sweep-{PEAK:g}-s0"]["task"]["eem"]["per_op"][HSVMIX]:.2f} on their seed-0 pair.
+With nearby hues the model gets {GAP_MEAN[0] / CEIL_GAP[0]:.0%} of what the ceiling allows; with near-opposite hues it gets {GAP_MEAN[3] / CEIL_GAP[3]:.0%}. Near-opposite hues are where the midpoint around the wheel moves furthest for a small change in either operand, and at exactly opposite hues the direction around the wheel is a tie. So `hsvmix` asks for a more precise computation than the other ops, and the model has not learned it. Width and depth did not help: `hsvmix` scored {RUNS[WIDE]["task"]["eem"]["per_op"][HSVMIX]:.2f} on d128-L4 and {RUNS[DEEP]["task"]["eem"]["per_op"][HSVMIX]:.2f} on d64-L6, against {RUNS[f"sweep-{PEAK:g}-s0"]["task"]["eem"]["per_op"][HSVMIX]:.2f} on their seed-0 pair.
 
-## What this means for the recipe
+## What we make of it
 
-The control now sits at about 0.45 on the center condition, with the mask, a peak rate of {PEAK:g}, and eight times ex-2.2.16's steps. That falls short of the pass line, but it is a model that does in-context inference over ops: it tracks the ceiling across the whole range of evidence, and its shortfall is concentrated in how firmly it commits once the op is clear, plus one op it computes poorly. That seems a workable baseline for the anchoring experiments, which compare an anchored model with this control on the same contexts.
+The control now sits at about 0.45 on the center condition, with the mask, a peak rate of {PEAK:g}, and eight times the steps of ex-2.2.16. That falls short of the pass line, but it is a model that does in-context inference over ops. It tracks the ceiling across the whole range of evidence, its answers land close to the Bayes answers on ten ops, and its shortfall is concentrated in how firmly it commits once the op is clear, plus one op it computes poorly. That seems a workable baseline for the anchoring experiments, which compare an anchored model with this control on the same contexts.
 
-Two questions from this scout are on the backlog: whether a curriculum over the replacement rate changes how firmly the model commits ([noise curriculum](/todo/science/noise-curriculum-center-control.md)), and whether the wider model with a tuned rate can reach the same level in half the steps ([a cheaper recipe](/todo/science/cheaper-center-control-recipe.md)). The wider model learned faster here, which is some encouragement for the second.
+Four questions from this scout are on the backlog. Two are about the recipe: whether a curriculum over the replacement rate changes how firmly the model commits ([noise curriculum](/todo/science/noise-curriculum-center-control.md)), and whether the wider model with a tuned rate can reach the same level in half the steps ([a cheaper recipe](/todo/science/cheaper-center-control-recipe.md)); the wider model learned faster here, which is some encouragement for the second. Two are about the op set: whether to drop ops whose answers sit close together in the cube ([similar ops](/todo/science/drop-ops-with-similar-answers.md)), and whether `hsvmix` needs more training on hue, saturation, and value, or should leave the op set ([hsvmix](/todo/science/hsvmix-hue-precision.md)).
 
-<details><summary>Cost</summary>
+## Method
 
-The scout cost about \$15 on Modal, nearly all of it L4 time for training. A step takes the same time on d64-L4 and d128-L4 (about 2,000 to 3,000 steps a minute), since at these sizes the step is bound by latency rather than arithmetic, so the cost follows the step count. An eight-times run is about 40 minutes of training.
+**Scoring.** For every held-out context we score the full answer distribution of the model at the query `=`, over the 216 color tokens, for the {len(SCORED)} masked runs at {PEAK:g}: every run of rounds 3 to 7 and the round-2 cosine. We then redraw the held-out contexts from their seed to recover which examples carry replacement op noise, which ex-2.2.16 did not publish; the redrawn contexts match the published ones token for token. The answer table, the posterior, and the Bayes predictive come from ex-2.2.16.
 
-</details>
+**Schedules.** WSD and the staircase are dopesheets: tables of the rate, as a multiple of the peak, at points through the run, stretched to its length. Each warms up over its first 1.25% (1,320 steps at eight times, twice that at sixteen). The learning-rate panels are drawn from the schedule of each run, which matches the rate logged during training.
+
+**Distance to the support.** For each confident context and each off-support color, the grid distance to the nearest color in the support, binned at one step, √2, √3, 2 to √5, √6 to 3, and beyond. Within a bin, the mass per color is the mean over every pair of context and color in it. The operand box holds the grid colors that lie between the two operands on every channel.
+
+**Cubes.** Up to 90 contexts per op (or per hue-gap group), a fixed sample from `{CUBE_RUN}`; any run would do, since the runs agree closely on every summary above.
+
+**Budget.** The scout cost about \$15 on Modal, nearly all of it L4 time for training. A step takes the same time on d64-L4 and d128-L4 (about 2,000 to 3,000 steps a minute), since at these sizes the step is bound by latency rather than arithmetic, so the cost follows the step count. An eight-times run is about 40 minutes of training.
 """
