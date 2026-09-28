@@ -27,6 +27,7 @@ same three seeds, to see what each drop is worth and whether the curves still cl
 
 All three schedules ended near 0.45 at eight times, the seeds differing more than the schedules. Round 5 trains
 each schedule for sixteen times the length, at one seed first, to see whether more steps move that level.
+They did not (a gain of 0.002 to 0.006), so round 6 trains one seed of the wider d128-L4 model at eight times.
 
     bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 3h --keep-stale-done
 
@@ -127,6 +128,8 @@ class Arm:
     lr_sheet: str | None = None
     """A dopesheet for the learning rate, as a multiple of `peak_lr` over the whole run (round 3); `None` keeps
     the warmup-and-cosine schedule."""
+    model: str | None = None
+    """A model size of the form `d<embd>-L<layer>` (round 6); `None` keeps ex-2.2.16's center control, d64-L4."""
 
 
 # --- Round 1: training length against peak learning rate ----------------------------------------------------
@@ -168,7 +171,7 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4, 5)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
@@ -270,7 +273,27 @@ ROUND_5: tuple[Arm, ...] = tuple(
 run). The sheets stretch with the run, so their holds double in length, and so does their warmup (2.5% of the
 run); the cosine keeps its warmup of 5 epochs."""
 
-ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 + ROUND_5 if a.round in ACTIVE_ROUNDS)
+# --- Round 6: a wider model -----------------------------------------------------------------------------------
+
+ROUND_6: tuple[Arm, ...] = (
+    Arm(
+        f"d128-sweep-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "the masked cosine at eight times, on ex-2.2.16's larger control (d128-L4): is the level near 0.45 capacity?",
+        1,
+        True,
+        WARMUP_EPOCHS,
+        6,
+        model=ex2216.LARGE_MODEL,
+    ),
+)
+"""Rounds 2 to 5 all ended near 0.45 whatever the schedule or length, each op group short of its own ceiling by a
+similar amount. One seed of the wider model (seed 0, pairing with `sweep-0.00316-s0`) tests capacity first."""
+
+ARMS: tuple[Arm, ...] = tuple(
+    a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 + ROUND_5 + ROUND_6 if a.round in ACTIVE_ROUNDS
+)
 
 # --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
 
@@ -337,10 +360,10 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
     from sca.data.named_colors import WordTokenizer
     from sca.utils import align
 
-    n_embd, n_layer = ex2216.model_dims(ex2216.MODEL)
     vocab = align(resolved["meta"].tokenizer_config.vocab_size, 64)
     rows = []
     for a in arms:
+        n_embd, n_layer = ex2216.model_dims(a.model or ex2216.MODEL)
         epochs = EPOCHS * a.epoch_mult
         for seed in range(a.first_seed, min(a.seeds, seeds)):
             model_seed = SEED_OFFSET + seed
@@ -373,6 +396,7 @@ def cells(arms: tuple[Arm, ...], resolved: dict, seeds: int = SEEDS) -> list[dic
                     "warmup_epochs": config.scheduler.warmup_epochs,
                     "round": a.round,
                     "lr_sheet": a.lr_sheet,
+                    "model": a.model or ex2216.MODEL,
                     "seed": seed,
                     "model_seed": model_seed,
                     "label": f"{a.name}-s{seed}",
