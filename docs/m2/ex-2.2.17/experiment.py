@@ -25,7 +25,10 @@ Round 3 ended level with the cosine, its curves flat through the hold and rising
 Round 4 steps the rate down a staircase (0.0021, 0.001, 0.0001, then 1e-5 for the last 11% of the run) at the
 same three seeds, to see what each drop is worth and whether the curves still climb at the lowest rate.
 
-    bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 2h --keep-stale-done
+All three schedules ended near 0.45 at eight times, the seeds differing more than the schedules. Round 5 trains
+each schedule for sixteen times the length, at one seed first, to see whether more steps move that level.
+
+    bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 3h --keep-stale-done
 
 `--keep-stale-done` since round 3: its schedule touched `SchedulerConfig` and the scheduler, which the code
 fingerprint of every earlier run follows, though neither changes what those runs computed.
@@ -165,7 +168,7 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4, 5)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
@@ -242,7 +245,32 @@ ROUND_4: tuple[Arm, ...] = (
     ),
 )
 
-ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 if a.round in ACTIVE_ROUNDS)
+# --- Round 5: twice the length, under each schedule ----------------------------------------------------------
+
+LONGER_MULT = 16
+"""Round 5 trains for sixteen times ex-2.2.16's length (about 211,200 steps), at one seed per schedule first."""
+
+ROUND_5: tuple[Arm, ...] = tuple(
+    replace(
+        a,
+        name=f"{a.name.split('-')[0]}{LONGER_MULT}x-{SWEEP_LRS[2]:g}",
+        epoch_mult=LONGER_MULT,
+        seeds=1,
+        round=5,
+        first_seed=0,
+        note=f"{a.note}; at sixteen times the length",
+    )
+    for a in (
+        next(b for b in ROUND_2 if b.name == f"sweep-{SWEEP_LRS[2]:g}"),
+        ROUND_3[0],
+        ROUND_4[0],
+    )
+)
+"""The cosine, `wsd`, and `stairs` at sixteen times, one seed each (seed 0, so each pairs with its eight-times
+run). The sheets stretch with the run, so their holds double in length, and so does their warmup (2.5% of the
+run); the cosine keeps its warmup of 5 epochs."""
+
+ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 + ROUND_5 if a.round in ACTIVE_ROUNDS)
 
 # --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
 
@@ -552,6 +580,7 @@ def design() -> dict[str, Any]:
         "wsd_sheet": WSD_SHEET,
         "stairs": list(STAIRS),
         "stairs_sheet": STAIRS_SHEET,
+        "longer_mult": LONGER_MULT,
         "finder": {"range": list(FINDER_RANGE), "zooms": FINDER_ZOOMS, "steps": FINDER_STEPS},
         "block": ex2216.BLOCK,
         "model": ex2216.MODEL,
@@ -672,8 +701,9 @@ COMPUTE = {
     # One ref resolution and a small corpus-metadata read.
     "prep": dict(cpu=2, timeout=600),
     # 13,200 steps for `low`, 39,600 for `long` and `long-low` (about 14 minutes each), and 105,600 for round 2
-    # (about 36 minutes at round 1's pace); the watchdog covers the checkpoint upload.
-    "train": dict(gpu="L4", timeout=5400, watchdog=900, watchdog_grace=900),
+    # (about 36 minutes at round 1's pace), and 211,200 for round 5 (up to about 90 minutes when containers
+    # share a host); the watchdog covers the checkpoint upload.
+    "train": dict(gpu="L4", timeout=3 * 3600, watchdog=900, watchdog_grace=900),
     # 900 finder steps with no trajectory reads: a minute or two, most of it compilation and the corpus download.
     "finder": dict(gpu="L4", timeout=900),
     # Forward passes only, over 22,000 held-out contexts, as ex-2.2.16's eval role.
