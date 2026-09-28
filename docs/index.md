@@ -310,6 +310,13 @@ These experiments were preparation for the main work: exercising the infrastruct
     The first experiment on the D2.2 pivot's grammar, where the model infers the op from a few solved examples and no token names it. Its method section computes, from the op table alone, the posterior over ops across contexts on a grid of example counts and replacement rates, the Bayes ceiling and the floor on the same grid, and what cube noise costs; from those it proposes the three grammar conditions the control trains at. The rest of the plan (the anchored arms, the label variants, the frozen rules for round 3) is stubbed.
 
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `preregistration`</span>
+- [2.2.17. The center control plateau](./m2/ex-2.2.17/report.py) (done)
+
+    A scout on ex-2.2.16's unanchored control at `k3-r0.3`, over seven rounds of learning rate, length, schedule, and model size. A newline mask, a lower peak rate, and eight times the steps lift it from 0.27 to about 0.45 held-out expected exact match, against a Bayes ceiling of 0.52; past that, no schedule, length, width, or depth moves it by more than the seed spread. Scoring the answer distributions shows the model on the ceiling where the examples leave the op uncertain, and short of it where they settle the op, with mass kept on other ops' answers and a shortfall on hsvmix that grows with the hue gap.
+
+    <span class="tags">`scouting` `in-context` `training`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.17/report.py -->
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
 
     A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
