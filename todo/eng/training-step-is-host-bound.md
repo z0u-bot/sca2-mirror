@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [performance, modal, experiments]
 opened: 2026-09-28
 ---
@@ -17,7 +17,7 @@ Three timing probes in September 2026 (dev profile, ex-2.2.14's corpus and prima
 
 **The "unexplained floor" was recompilation.** The first two probes of the step alone reported 50–75 ms/step, which turned out to be compile time inside the timed loops. `Scale` built its `(1,)` gains from a bare Python float, so they started weakly typed; a step handed them back strong, and the jitted step compiled again for the new signature, then once more when Adam's moments followed a step later. Every training task paid three compiles where one would do: about 15 s of an 85 s `train_one` on an L4. Fixed in `Scale` with an explicit dtype (weights bit-identical on CPU; a model test guards it), which moves the memo fingerprint of every task that builds a model. That only matters when an experiment is re-ticked, since published reports read pinned artifacts.
 
-## Several steps per dispatch: about 3× faster, same numbers
+## Several steps per dispatch: faster, same numbers
 
 With the recompiles removed, a fourth probe timed the step `train_anchored` uses, every variant in the same container, on four containers (us-east and us-central), 384 steps per variant:
 
@@ -33,14 +33,31 @@ With the recompiles removed, a fourth probe timed the step `train_anchored` uses
 
 The scanned runs ended with weights bit-identical to the per-step loop on the GPU (max abs difference 0.0 after 384 steps), so scan changes cost and nothing else. It also levels the hosts: the slow container went from 16.4 to 3.4 ms, since there is much less host work left to be slow at. Packing seeds does not add to it: with scan the L4 is doing real work, and 8 seeds cost about 8× one. So scan, which keeps one cell per task, is the lever; [`pack-runs-per-gpu`](./pack-runs-per-gpu.md) has little left to offer at d64.
 
-## What scanning `train_anchored` needs
+## Scanning `train_anchored`
 
-The loop does per-step host work that a scan has to batch up:
+`train_anchored` now runs its steps sixteen per dispatch (`SCAN_STEPS` in `sca.compute.training`), as a `lax.scan` whose steps each sit inside a `lax.cond` on a live flag. The loop does per-step host work that the scan has to batch up:
 
-- The anchor and anti weights are schedule values computed on the host per step. They become a length-K array per dispatch.
-- `emit_metrics` and the `_Window` means read every step's losses. The scan returns them stacked, and the host emits them after the dispatch.
-- Trajectory records (every `traj_stride` steps) and epoch ends (validation, checkpoints) need the model at a given step, so a dispatch must not cross one. Shortening the dispatch there gives a new shape and another compile. Padding it to K with a per-step "live" flag, where a dead step passes the state through, keeps one compile at the price of a few wasted steps per boundary.
-- Batches keep their draw order: an epoch's training batches are all drawn before its validation crops, whatever the dispatch size.
-- `emit_progress` and the watchdog see progress once per dispatch, which is fine at K = 8–32 (well under a second).
+- The anchor and anti weights are schedule values computed on the host per step. They go in as length-16 arrays.
+- `emit_metrics` and the `_Window` means need every step's losses. The scan returns them stacked, and the host emits them after the dispatch.
+- Trajectory records (every `traj_stride` steps) and epoch ends (validation, checkpoints) need the model at a given step, so a dispatch stops short there. It is padded to the one compiled shape, and the padding steps have their live flag off and pass the state through.
+- Batches keep their draw order: an epoch draws all its training batches before its validation crops, whatever the dispatch size.
+- `emit_progress` and the watchdog see progress once per dispatch, well under a second apart.
 
-K = 8 gets most of the gain; K = 32 a little more. `train_model` (the unanchored loop) has the same shape and could share the helper.
+A test runs the loop with one step per dispatch and with sixteen, and checks that the weights, metrics, and trajectory match. On the GPU, the end weights of a 30-epoch run match the per-step loop bit for bit.
+
+Two timing probes on ex-2.2.14's primary arm, 30 epochs, measured the whole loop (sampling, metrics, records) in steady state, past the compile:
+
+| probe | loop | ms/step |
+| --- | --- | --- |
+| 6, three containers | per-step, one dispatch each | 11.2, 25.6, 27.0 |
+| 6, the same containers | scanned, 16 per dispatch | 7.5–8.6 |
+| 8, three other containers | scanned, 16 per dispatch | 4.9, 5.2, 5.6 |
+
+So a healthy container goes from about 10–11 ms/step to 5–8, and a slow one from 25 to 8. Compiling costs about 10 s once, at the start of each task.
+
+The padding form was the one real choice. On the CPU, only the `cond` form matched the per-step loop bit for bit; a `jnp.where` select, a plain scan, and a `fori_loop` with a traced trip count all drift by 1e-7 to 2e-5 over a short run, which I take to be XLA fusing the loop body differently. On the GPU all of them match. The `fori_loop` form skips the padding steps rather than running them, so I expected it to be faster, but probe 8 put it at or behind `cond`: 4.9–6.0 ms/step at 16 steps per dispatch and 5.4–6.2 at 32. Longer dispatches don't help either (probe 7 tried 50).
+
+## What's left
+
+- Inside a dispatch, a step costs 5–7 ms, against 3.1–3.4 ms for the bare scan in probe 4. I haven't found where the difference goes. Probe 4 called the step with the anti weight at zero and no fallback term, which may account for some of it.
+- `train_model`, the unanchored loop, has the same shape and could share `_scanned`.

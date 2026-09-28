@@ -143,7 +143,7 @@ def _anchored_step(
 
 
 SCAN_STEPS = 16
-"""Training steps per dispatch in `train_anchored`. The step is host-bound on an L4 (Python dispatch and CUDA calls dominate a d64 step), so running several per call cuts its cost about 3× with identical weights; the rationale and numbers are in `todo/eng/training-step-is-host-bound.md`."""
+"""Training steps per dispatch in `train_anchored`. The step is host-bound on an L4 (Python dispatch and CUDA calls dominate a d64 step), so running several per call cuts its cost (about half, more on a slow host) with identical weights; the rationale and numbers are in `todo/eng/training-step-is-host-bound.md`."""
 
 
 def _scanned(step, n_steps: int):
