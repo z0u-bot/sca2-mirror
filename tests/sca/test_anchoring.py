@@ -733,6 +733,48 @@ def test_clean_rows_leave_each_step_off_the_axis(corpus):
     assert abs(wte[COLORS[0], ANCHOR_AXIS]) > 1e-4
 
 
+@pytest.mark.parametrize("stride", [5, 7])
+def test_steps_per_dispatch_leave_training_alone(data_dir, tmp_path, monkeypatch, stride):
+    """`train_anchored` runs several steps per dispatch, cut at records and epoch ends and padded to one shape.
+
+    One step per dispatch is the plain loop; sixteen crosses every kind of boundary. The model, the metrics and the trajectory match bit for bit.
+    """
+    from sca.compute import training
+
+    label_p = np.zeros(64)
+    label_p[COLORS[0]] = 0.5
+    tokens, weights = probe_set()
+    config = training_config().model_copy(
+        update={"scheduler": SchedulerConfig(epochs=4, warmup_epochs=1, min_lr_factor=0.01)}
+    )
+    runs = []
+    for n in (1, 16):
+        monkeypatch.setattr(training, "SCAN_STEPS", n)
+        runs.append(
+            train_anchored(
+                config,
+                data_dir,
+                anchor=AnchorSpec(peak=1.0, warmup_epochs=1, anneal_start=3, anneal_end=4, tau=0.5),
+                anti=AntiSpec(
+                    lam=0.1, peak_ratio=2.5, hold_ratio=0.03, anneal_end=2, anchor_anneal_start=3, anchor_anneal_end=4
+                ),
+                label_p=label_p,
+                probe_tokens=tokens,
+                probe_weights=weights,
+                checkpoint_dir=tmp_path / str(n),
+                traj_stride=stride,
+            )
+        )
+    (m1, metrics1, traj1), (m16, metrics16, traj16) = runs
+    leaves = [jax.tree.leaves(eqx.filter(m, eqx.is_inexact_array)) for m in (m1, m16)]
+    for a, b in zip(*leaves, strict=True):
+        np.testing.assert_array_equal(np.asarray(a), np.asarray(b))
+    assert metrics1 == metrics16
+    assert traj1.keys() == traj16.keys()
+    for k in traj1:
+        np.testing.assert_array_equal(traj1[k], traj16[k], err_msg=k)
+
+
 def test_train_anchored_threads_slices_and_clean_rows(data_dir, tmp_path):
     """The loop accepts both options, and a blocks-only run with clean rows ends with the rows clean."""
     from sca.anchoring import ANCHOR_AXIS
