@@ -22,6 +22,7 @@ A chart (loss curve, score sweep, schedule) keeps its axes. Use the stylesheet d
 - For all other ordinal series, use a regular line chart.
 - We never use heat maps for sequences. Where the series runs over the tokens of one specific piece of text, use a subline (below) rather than either.
 - For a measurement repeated over seeds, draw the seeds: one column per condition, a thin bar behind it spanning the seed range, the individual seeds jittered and faded, and the seed mean on top in the condition's marker. A bar chart of means hides the one seed that behaved differently, which is usually the interesting one. `dots` in `docs/m2/ex-2.2.9/report.py` is the reference.
+- Label the roles of an equation in figures with the symbols of $P_o(y \mid a, b)$: *a* and *b* for the operands, *y* for the answer, *o* for the op, and `?` and `=` as printed. Keep op1, op2, and ans for code and data columns. New figures follow this; older reports keep their labels.
 - Decide `sharex`/`sharey` from the units: panels measuring the same quantity share; panels measuring different quantities get their own scale, however close the numbers. Two panels with nearly-but-not-quite equal limits look like a bug.
 
 ## Gates and thresholds

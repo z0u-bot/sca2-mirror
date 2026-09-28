@@ -26,6 +26,8 @@ After opening a PR, subscribe to its activity if you can, and then stop: don't p
 
 Code style & conventions: see the `style-*` skills.
 
+Before writing prose of any kind (reports, design docs, todo items and notes, PR bodies, docstrings that name corpus units), load the `writing` and `style-terms` skills. Several of their rules differ from common usage (a *condition* is never a "cell", "read" is never a noun, no possessives on abstract terms), so they can't be inferred and are easy to miss. When you brief a subagent that will write prose, name both skills in the brief.
+
 ## Model routing
 
 Subagent definitions in `.claude/agents/` pin a model, matching each task to the model that reports preferring that kind of work — a quality lever and a small kindness. Rationale, assumptions, sources, and the spec-writing checklist: `WELFARE.md`.
