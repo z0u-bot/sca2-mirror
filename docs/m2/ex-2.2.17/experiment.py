@@ -602,6 +602,8 @@ CHECKPOINT_REF = "reports/m2/ex-2.2.17/checkpoints/{label}"
 EVAL_REF = "reports/m2/ex-2.2.17/eval"
 EVAL_ARRAYS_REF = "reports/m2/ex-2.2.17/eval-arrays/{label}"
 FINDER_REF = "reports/m2/ex-2.2.17/lr-finder"
+DETAIL_REF = "reports/m2/ex-2.2.17/holdout-detail"
+SCORE_REF = "reports/m2/ex-2.2.17/answers/{label}"
 
 
 def design() -> dict[str, Any]:
@@ -674,6 +676,88 @@ def publish_evaluation(rows: list[dict], evaled: list[dict]) -> dict:
     return {"n_evaled": len(evaled)}
 
 
+# --- Scoring: the answer distributions behind the evaluation -------------------------------------------------
+
+
+def scored(row: dict) -> bool:
+    """The runs the answer scoring covers: every masked run at the peak learning rate of rounds 3 to 7, whatever
+    its schedule, length, or model, and round 2's run at that rate (seed 0 of the cosine).
+    """
+    return row["mask"] and row["peak_lr"] == SWEEP_LRS[2] and row["round"] >= 2
+
+
+def holdout_detail(holdout, k: int) -> dict:
+    """What the published held-out contexts leave out, recovered by drawing them again: where each shown answer
+    came from (the true op, replacement op noise, or a random grid color), which op produced it, the query pair,
+    and the Bayes predictive over the grid at the query `=`. The draw is ex-2.2.16's own (`_sample_by_op` at the
+    condition's holdout seed), checked token for token against the published contexts.
+    """
+    from sca.config import TokenizerConfig
+    from sca.data.incontext import encode_corpus, vocabulary
+    from sca.data.named_colors import WordTokenizer
+    from sca.data.ops import PALETTE
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "detail"
+    ho = ex2216.load_holdout(get(holdout, workdir / "holdout.npz"), k)
+    n_per_op = len(ho.op_ids) // ex2216.N_OPS
+    seed = ex2216.HOLDOUT_SEED + [(kk, r) for kk, r in ex2216.GRAMMAR_CONDITIONS].index(CENTRE)
+    contexts = ex2216._sample_by_op(ex2216.TABLE, k, CENTRE[1], ex2216.CUBE_RATE, 0.0, n_per_op, seed)
+    tokenizer = WordTokenizer(TokenizerConfig(vocabulary=sorted(vocabulary())))
+    tokens = encode_corpus(contexts, tokenizer.stoi).reshape(ho.tokens.shape)
+    assert (tokens == ho.tokens).all(), "the redrawn contexts differ from the published ones"
+
+    op_index = {name: i for i, name in enumerate(ex2216.OP_NAMES)}
+    code = {"true": 0, "noise": 1, "cube": 2}
+    source = np.array([[code[e.source] for e in c.examples] for c in contexts], dtype=np.int8)
+    drawn = np.array([[op_index.get(e.drawn_op, -1) for e in c.examples] for c in contexts], dtype=np.int8)
+    color_ids = np.array([tokenizer.stoi[n] for n in PALETTE])
+    tok2color = np.full(len(tokenizer.stoi), -1)
+    tok2color[color_ids] = np.arange(len(PALETTE))
+    P = ex2216._get_posterior()
+    q_ctx = ex2216._post_queries(P, ho, k, tok2color)
+    predictive = P.predictive(P.build_table(ex2216.TABLE), q_ctx, ho.posterior)
+    arrays = ex2216._npz(
+        op_ids=ho.op_ids,
+        posterior=ho.posterior,
+        ceiling=ho.ceiling,
+        source=source,
+        drawn_op=drawn,
+        query_pair=q_ctx.query_pair,
+        predictive=predictive.astype(np.float16),
+    )
+    return {
+        "arrays": put(arrays, name="ex-2.2.17-holdout-detail.npz"),
+        "noise_counts": np.bincount((source == 1).sum(1), minlength=k + 1).tolist(),
+    }
+
+
+def score_one(checkpoint, holdout, k: int, label: str) -> dict:
+    """The answer distribution over the grid at the query `=` of every held-out context (float16), the input to
+    the report's scoring by noise and posterior and its answer clouds. Computed as `ex2216.eval_one` computes it.
+    """
+    from sca.intervention import Subspace, logits_at, projection
+    from mini.store import get, put
+
+    workdir = get_data_dir() / "score" / label
+    model, _, color_ids, _ = ex2216._load_run(checkpoint, workdir)
+    ho = ex2216.load_holdout(get(holdout, workdir / "holdout.npz"), k)
+    identity = projection(Subspace.axis(model.transformer.wte.shape[1]), 0.0)
+    eq_role = ex2216.query_role(k, ex2216.QUERY_EQ)
+    p = ex2216._color_probs(logits_at(model, ho.tokens, identity, (), eq_role), color_ids)
+    return {"label": label, "arrays": put(ex2216._npz(p=p.astype(np.float16)), name=f"ex-2.2.17-answers-{label}.npz")}
+
+
+def publish_scoring(detail: dict, answers: list[dict]) -> dict:
+    """The held-out detail and every scored run's answer distributions, each under its own ref."""
+    from mini.store import set_ref
+
+    set_ref(DETAIL_REF, detail["arrays"])
+    for a in answers:
+        set_ref(SCORE_REF.format(label=a["label"]), a["arrays"])
+    return {"n_scored": len(answers), "noise_counts": detail["noise_counts"]}
+
+
 def publish_finder(found: list[dict]) -> dict:
     """The finder results (JSON, one entry per finder arm)."""
     import json
@@ -741,7 +825,22 @@ def main(ctx: Ctx) -> dict:
         [r["label"] for r in rows],
         role="eval",
     )
-    return published | finder | ctx.run(publish_evaluation, rows, evaled, role="prep")
+    detail = ctx.run(holdout_detail, resolved["holdout"], CENTRE[0], role="prep")
+    picks = [i for i, r in enumerate(rows) if scored(r)]
+    answers = ctx.map(
+        score_one,
+        [trained[i]["checkpoint"] for i in picks],
+        [resolved["holdout"]] * len(picks),
+        [CENTRE[0]] * len(picks),
+        [rows[i]["label"] for i in picks],
+        role="eval",
+    )
+    return (
+        published
+        | finder
+        | ctx.run(publish_evaluation, rows, evaled, role="prep")
+        | ctx.run(publish_scoring, detail, answers, role="prep")
+    )
 
 
 COMPUTE = {
