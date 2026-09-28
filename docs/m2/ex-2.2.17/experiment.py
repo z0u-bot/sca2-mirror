@@ -27,7 +27,8 @@ same three seeds, to see what each drop is worth and whether the curves still cl
 
 All three schedules ended near 0.45 at eight times, the seeds differing more than the schedules. Round 5 trains
 each schedule for sixteen times the length, at one seed first, to see whether more steps move that level.
-They did not (a gain of 0.002 to 0.006), so round 6 trains one seed of the wider d128-L4 model at eight times.
+They did not (a gain of 0.002 to 0.006), so round 6 trains one seed of the wider d128-L4 model at eight times, and round 7 one seed of a deeper
+d64-L6 model, since hsvmix (the op with the longest chain of steps) has stayed furthest below its ceiling.
 
     bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 3h --keep-stale-done
 
@@ -171,7 +172,7 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4, 5, 6)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4, 5, 6, 7)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
@@ -291,8 +292,30 @@ ROUND_6: tuple[Arm, ...] = (
 """Rounds 2 to 5 all ended near 0.45 whatever the schedule or length, each op group short of its own ceiling by a
 similar amount. One seed of the wider model (seed 0, pairing with `sweep-0.00316-s0`) tests capacity first."""
 
+# --- Round 7: a deeper model ----------------------------------------------------------------------------------
+
+DEEP_MODEL = "d64-L6"
+"""Two more blocks at the baseline width, so round 7 changes depth alone."""
+
+ROUND_7: tuple[Arm, ...] = (
+    Arm(
+        f"d64L6-sweep-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "the masked cosine at eight times, on a deeper d64-L6 model: does depth lift hsvmix?",
+        1,
+        True,
+        WARMUP_EPOCHS,
+        7,
+        model=DEEP_MODEL,
+    ),
+)
+"""hsvmix has stayed near 0.19 against a ceiling of 0.28 in every run so far, and it chains the most steps
+(convert both operands to HSV, mix with a wrapping hue, map back to a word). One seed at seed 0 pairs with
+`sweep-0.00316-s0` and `d128-sweep-0.00316-s0`, so width and depth each differ from the baseline in one way."""
+
 ARMS: tuple[Arm, ...] = tuple(
-    a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 + ROUND_5 + ROUND_6 if a.round in ACTIVE_ROUNDS
+    a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 + ROUND_5 + ROUND_6 + ROUND_7 if a.round in ACTIVE_ROUNDS
 )
 
 # --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
