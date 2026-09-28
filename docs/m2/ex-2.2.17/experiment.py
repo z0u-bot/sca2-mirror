@@ -21,6 +21,10 @@ that level on purpose: a warmup-stable-decay schedule, written as a dopesheet, w
 0.0025, holds there until 85% of the run, and then anneals to the same floor as the cosine. It trains at
 three seeds, beside two more seeds of the cosine at the same peak, paired by model seed.
 
+Round 3 ended level with the cosine, its curves flat through the hold and rising steeply in the final anneal.
+Round 4 steps the rate down a staircase (0.0021, 0.001, 0.0001, then 1e-5 for the last 11% of the run) at the
+same three seeds, to see what each drop is worth and whether the curves still climb at the lowest rate.
+
     bin/mini run docs/m2/ex-2.2.17/experiment.py --app modal --max-containers 9 --budget 2h --keep-stale-done
 
 `--keep-stale-done` since round 3: its schedule touched `SchedulerConfig` and the scheduler, which the code
@@ -161,7 +165,7 @@ ROUND_2: tuple[Arm, ...] = (
     ),
 )
 
-ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3)
+ACTIVE_ROUNDS: tuple[int, ...] = (1, 2, 3, 4)
 """The rounds whose arms train. Round 2 joins once the learning-rate finder has run, since the finder can move
 the sweep range."""
 
@@ -207,7 +211,38 @@ ROUND_3: tuple[Arm, ...] = (
     ),
 )
 
-ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 if a.round in ACTIVE_ROUNDS)
+# --- Round 4: a staircase down to 1e-5 ---------------------------------------------------------------------
+
+STAIRS = (0.0021, 0.001, 0.0001, 0.00001)
+"""The rates the round-4 schedule holds in turn. The first sits a little below round 3's hold, still inside the
+band where the HSV ops rose; the rest step down a decade or so each, ending at a third of the cosine floor."""
+
+STAIRS_SHEET = "STEP,PHASE,ACTION,lr\n0,Warmup,,0.01\n125,Ease,,1\n" + "".join(
+    f"{start},{phase},,{lr / SWEEP_LRS[2]:.5f}\n{end},,,{lr / SWEEP_LRS[2]:.5f}\n"
+    for (start, end, phase), lr in zip(
+        ((1100, 4500, "Hold"), (5200, 6500, "Step"), (7200, 8200, "Step"), (8900, 10000, "Step")), STAIRS, strict=True
+    )
+)
+"""The round-4 schedule, keyed like `WSD_SHEET`: the same warmup, an ease to the first rate by 11% of the run,
+held until 45% (past the latest HSV rise in rounds 2 and 3, at 40%); then anneals of 7% of the run to each lower
+rate, held until 65%, 82%, and the end. The last hold (11% of the run, about 11,600 steps) shows whether the
+curves still climb at 1e-5."""
+
+ROUND_4: tuple[Arm, ...] = (
+    Arm(
+        f"stairs-{SWEEP_LRS[2]:g}",
+        LONG_MULT,
+        SWEEP_LRS[2],
+        "a staircase of holds at 0.0021, 0.001, 0.0001, and 1e-5: what each drop in rate is worth",
+        3,
+        True,
+        WARMUP_EPOCHS,
+        4,
+        lr_sheet=STAIRS_SHEET,
+    ),
+)
+
+ARMS: tuple[Arm, ...] = tuple(a for a in ROUND_1 + ROUND_2 + ROUND_3 + ROUND_4 if a.round in ACTIVE_ROUNDS)
 
 # --- The learning-rate finder, ahead of round 2 --------------------------------------------------------------
 
@@ -515,6 +550,8 @@ def design() -> dict[str, Any]:
         "active_rounds": list(ACTIVE_ROUNDS),
         "hold_lr": HOLD_LR,
         "wsd_sheet": WSD_SHEET,
+        "stairs": list(STAIRS),
+        "stairs_sheet": STAIRS_SHEET,
         "finder": {"range": list(FINDER_RANGE), "zooms": FINDER_ZOOMS, "steps": FINDER_STEPS},
         "block": ex2216.BLOCK,
         "model": ex2216.MODEL,
