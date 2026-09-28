@@ -125,7 +125,13 @@ def _anchored_step(
     """
     if fallback is None:
         step = make_anchored_train_step(
-            optimizer, tau=anchor.tau, n_lines=n_lines, slices=slices, clean_rows=clean_rows, axes=anchor.axes
+            optimizer,
+            tau=anchor.tau,
+            n_lines=n_lines,
+            slices=slices,
+            clean_rows=clean_rows,
+            axes=anchor.axes,
+            hinge=anchor.hinge,
         )
         return lambda *args: (*step(*args), 0.0, 0.0, 0.0)
     if slices is not None or clean_rows is not None or tuple(anchor.axes) != ANCHOR_AXES:
@@ -179,6 +185,9 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     traj_stride: int = 50,
     n_val_batches: int = 4,
     on_record: Callable[[int, LanguageModel], None] | None = None,
+    newline_id: int | None = None,
+    min_line_tokens: int = LINE_TOKENS,
+    loss_mask: np.ndarray | None = None,
 ) -> tuple[LanguageModel, list[TrainingMetrics], dict[str, np.ndarray]]:
     """Train with a concept anchor, recording the alignment trajectory as it goes.
 
@@ -234,6 +243,13 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
             and the model as it stands, so a caller can keep a checkpoint at
             every trajectory point (a training-dynamics read needs the model
             through the plateau, where the end checkpoint says nothing).
+        newline_id: passed through to `sample_anchored_batches`: `None` for the
+            fixed-period reproduction path, or the newline token id for a
+            variable-length-line grammar (the in-context grammar).
+        min_line_tokens: passed through to `sample_anchored_batches`, and to
+            size `n_lines`; unused when *newline_id* is `None`.
+        loss_mask: passed through to `sample_anchored_batches` (a
+            verification-line loss mask); `None` for no masking.
     """
     if crop is not None and (anchor.tau is None or fallback is not None):
         raise ValueError("a crop policy needs a pooled anchor (tau set) and no fallback spec")
@@ -253,7 +269,7 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     schedule = configure_schedule(config.scheduler, config.optimizer.learning_rate, epoch_length)
     optimizer = configure_optimizer(model, config.optimizer, schedule)
     opt_state = optimizer.init(eqx.filter(model, eqx.is_inexact_array))
-    n_lines = config.model.block_size // LINE_TOKENS + 2  # a crop straddles at most this many lines
+    n_lines = config.model.block_size // min_line_tokens + 2  # a crop straddles at most this many lines
     train_step = _anchored_step(
         optimizer, anchor, n_lines, fallback, fallback_weight, anti_anchor_weight, anchor_slices, clean_rows
     )
@@ -316,7 +332,18 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     for epoch in range(config.scheduler.epochs):
         train_losses, anchor_losses, anti_losses = [], [], []
         for x, y, mask, line_id, *crop_args in sample_anchored_batches(
-            train_data, config.data, config.model, epoch_length, rng, label_p, anchor.span, lines=True, crop=crop
+            train_data,
+            config.data,
+            config.model,
+            epoch_length,
+            rng,
+            label_p,
+            anchor.span,
+            lines=True,
+            crop=crop,
+            newline_id=newline_id,
+            min_line_tokens=min_line_tokens,
+            loss_mask=loss_mask,
         ):
             at = epoch + len(train_losses) / epoch_length
             weight = float(anchor(at))
