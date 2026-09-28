@@ -540,6 +540,47 @@ def leak_distance_draw(ratio: np.ndarray, ratio_box: np.ndarray, alt_text: str) 
     return _plot()
 
 
+@memo
+def confusion_draw(m: np.ndarray, ops: tuple, alt_text: str) -> str:
+    @themed(
+        name="op-confusion",
+        alt_text=alt_text,
+        caption=f"""
+            **Where the leak goes, by op.** On confident contexts, rows are the true op. Off the diagonal, each
+            square is the mass the model puts on answers that the column op can give and the true op cannot, as a
+            mean over the {len(SCORED)} scored runs; the color scale covers these entries alone. The diagonal, in
+            text, is the mass on answers of the true op. The Bayes predictive puts under 0.002 in every off-diagonal
+            square.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(6.2, 5.2), layout="constrained")
+        n = len(ops)
+        off = np.where(np.eye(n, dtype=bool), np.nan, m)
+        cmap = plt.get_cmap(light_dark("Blues", "magma")).copy()
+        cmap.set_bad(light_dark("#fff", "#111"))
+        im = ax.imshow(off, cmap=cmap, vmin=0, vmax=float(np.nanmax(off)))
+        vmax = float(np.nanmax(off))
+        for i in range(n):
+            for j in range(n):
+                v = m[i, j]
+                if i == j:
+                    ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=6.5, color=rule_color())
+                elif v >= 0.02:
+                    dark_cell = (v / vmax > 0.55) == (light_dark(0, 1) == 0)
+                    ax.text(
+                        j, i, f"{v:.2f}", ha="center", va="center", fontsize=6.5, color="#fff" if dark_cell else "#000"
+                    )
+        ax.set_xticks(range(n), ops, rotation=45, ha="right", fontsize=7)
+        ax.set_yticks(range(n), ops, fontsize=7)
+        ax.set_xlabel("answers of this op, beyond those of the true op")
+        ax.set_ylabel("true op")
+        fig.colorbar(im, ax=ax, shrink=0.8, label="mass")
+        return fig
+
+    return _plot()
+
+
 # --- Numbers the prose quotes ----------------------------------------------------------------------------------
 
 R1 = {arm: seed_stats(labels_of(arm)) for arm in ("low", "long", "long-low")}
@@ -587,15 +628,52 @@ TOP_MATCH = {
     )
     for o in (LIGHTEN, DARKEN)
 }
+
+
+# The op confusion between two named ops: mass on answers of *b* beyond those of *a*, on confident contexts of *a*.
+def conf(a: str, b: str, m: np.ndarray | None = None) -> float:
+    return float((CONFUSION if m is None else m)[OPS.index(a), OPS.index(b)])
+
+
 # How much more mass a color no op gives gets inside the operand box than over all off-support colors.
 BOX_LIFT = float(np.mean([np.array(v["none_box"]) / np.array(v["none"]) for v in LEAK_DIST.values()]))
+
+
+@memo
+def op_confusion(p16: np.ndarray, op: np.ndarray, pair: np.ndarray, exclusive: bool = True) -> np.ndarray:
+    """On the given contexts, where the answer distribution *p16* puts its mass, by op. Rows are the true op. The
+    diagonal is the mass on the colors the true op can give for the query operands; off the diagonal, the mass on
+    the colors op *o* can give and the true op cannot. Ops share answers with each other, so the off-diagonal
+    entries of a row can overlap. With *exclusive* off, an off-diagonal entry counts every color op *o* can give,
+    so on the Bayes predictive it is how often the answers of the two ops coincide.
+    """
+    table = answer_table()
+    p = p16.astype(float)
+    rows = np.arange(len(p))
+    gives = np.zeros((X.N_OPS, *p.shape), dtype=bool)
+    for o in range(X.N_OPS):
+        idx, ok = table.idx[o, pair], table.prob[o, pair] > 0
+        for j in range(idx.shape[1]):
+            gives[o, rows[ok[:, j]], idx[ok[:, j], j]] = True
+    true = gives[op, rows]
+    beyond = gives & ~true if exclusive else gives
+    per_col = np.stack([(p * np.where((op == o)[:, None], true, beyond[o])).sum(1) for o in range(X.N_OPS)], 1)
+    return np.stack([per_col[op == o].mean(0) for o in range(X.N_OPS)])
+
+
+# The op confusion on confident contexts, for the model (mean over scored runs) and for the Bayes predictive, which
+# on these contexts puts nearly all its mass on the answers of the true op.
+_pair = DETAIL["query_pair"]
+CONFUSION = np.mean([op_confusion(ANSWERS[lbl][_conf], OP_IDS[_conf], _pair[_conf]) for lbl in SCORED], axis=0)
+CONFUSION_BAYES = op_confusion(PREDICTIVE[_conf], OP_IDS[_conf], _pair[_conf])
+OVERLAP = op_confusion(PREDICTIVE[_conf], OP_IDS[_conf], _pair[_conf], exclusive=False)
 
 rf"""
 # Ex 2.2.17: the center control plateau, a scout
 
 /// tip |
 <!-- tl;dr -->
-Seven rounds of training took ex-2.2.16's center control from 0.27 to about 0.45 held-out expected exact match, where it leveled off, {PASS - eem(BEST):.3f} short of the pass line at best. It matches the Bayes ceiling where the examples leave the op uncertain, and falls short where they settle it, keeping some of its mass on answers that the ruled-out ops would give.
+More steps, a newline mask, and a lower learning rate took ex-2.2.16's center control most of the way to its pass line, and then it leveled off. It matches the Bayes ceiling where the examples leave the op uncertain, and falls short where they settle it, keeping some of its mass on answers that the ruled-out ops would give.
 ///
 
 This scout set out to lift ex-2.2.16's center control (the unanchored d64-L4 model on the corpus condition `k3-r0.3`) to its Bayes ceiling of {CEILING:.3f}. Ex-2.2.16 trained it for 50 epochs at a peak learning rate of 0.01, and it reached 0.27. More steps, a newline mask, and a lower rate took it to about 0.45. Past that, neither the shape of the schedule, nor twice the steps, nor a wider or deeper model changed the final score by more than the spread between seeds. The best run, `{BEST}`, reached {eem(BEST):.3f}.
@@ -606,12 +684,12 @@ To see where the rest of the gap sits, we scored the answer distribution of each
 
 Each line is a measurement on the runs of this scout, with no gate.
 
-- **E1** [More steps, a lower rate, and the mask](#more-steps-a-lower-rate-and-the-mask-e1): eight times the steps of ex-2.2.16, with the newline mask, took the control from 0.27 to about 0.45. Peak rates from 0.00178 to 0.01 ended within 0.04 of each other, and the mask was the largest single difference ({NOMASK["task"]["eem"]["all"]:.3f} without it and {MASKED["task"]["eem"]["all"]:.3f} with it, at {PEAK:g}).
-- **E2** [Schedule, length, and model size](#schedule-length-and-model-size-e2): the cosine, warmup-stable-decay, and staircase schedules end together, at {min(SPREAD_8X):.3f} to {max(SPREAD_8X):.3f} over nine runs. Sixteen times the steps, a wider model, and a deeper one stay within the seed range. The wider model learns faster and is less well calibrated.
-- **E3** [Where the gap sits](#where-the-gap-sits-e3): the model matches the ceiling on contexts whose examples leave the op uncertain, and falls short on those that point to one op. The contexts with a posterior on the true op from 0.5 to 0.99 are {sum(N_BAND[1:3]) / sum(N_BAND):.0%} of the total and hold {sum(BAND_SHARE[1:3]):.0%} of the gap.
-- **E4** [The leak onto other ops](#the-leak-onto-other-ops-e4): where the examples settle the op, the model keeps {OFF_TOTAL.min():.0%} to {OFF_TOTAL.max():.0%} of its mass off the support of the Bayes predictive, and more than half of that on answers another op would give. At the same distance from the support, a color that is another op's answer gets {DIST_RATIO.mean(0).min():.0f} to {DIST_RATIO.mean(0).max():.0f} times the mass of one that no op gives.
+- **E1** [More steps, a lower rate, and the mask](#more-steps-a-lower-rate-and-the-mask-e1): more steps and the newline mask made most of the gain, and a range of peak rates did about equally well.
+- **E2** [Schedule, length, and model size](#schedule-length-and-model-size-e2): past that, neither the shape of the schedule, nor more steps, nor a wider or deeper model moved the final score.
+- **E3** [Where the gap sits](#where-the-gap-sits-e3): the model matches the ceiling on contexts whose examples leave the op uncertain, and falls short on those that point to one op.
+- **E4** [The leak onto other ops](#the-leak-onto-other-ops-e4): where the examples settle the op, the model keeps some of its mass on answers of other ops, mostly the op most like the true one, and more than nearness to the true answer accounts for.
 - **E5** [Answers in the color cube](#answers-in-the-color-cube-e5): for ten of the eleven ops, the expected answer of the model sits close to the Bayes one, with no shared direction to the difference. `hsvmix` is the exception.
-- **E6** [`hsvmix` and the hue gap](#hsvmix-and-the-hue-gap-e6): `hsvmix` gets {GAP_MEAN[0] / CEIL_GAP[0]:.0%} of its ceiling when the operand hues are close and {GAP_MEAN[3] / CEIL_GAP[3]:.0%} when they are nearly opposite. Width and depth did not change it.
+- **E6** [`hsvmix` and the hue gap](#hsvmix-and-the-hue-gap-e6): `hsvmix` falls further short of its ceiling the further apart the operand hues are, and neither width nor depth changed that.
 
 ## Scope
 
@@ -664,7 +742,7 @@ The newline mask stops each position from attending past the start of its own li
 
 Held-out *expected exact match* (EEM) is the probability that an answer drawn from the distribution of the model at the query `=` is a correct answer of the true op. We average it over {len(OP_IDS):,} held-out contexts, {len(OP_IDS) // X.N_OPS:,} per op.
 
-The *Bayes ceiling* is the same score for an ideal predictor. That predictor weighs each op by how well it explains the examples of a context, then answers with the resulting mixture of ops; we call that mixture the *Bayes predictive*. The ceiling is below 1 for two reasons: some ops round stochastically, and noisy examples leave the op uncertain.
+The *Bayes ceiling* is the same score for an ideal predictor. That predictor weighs each op by how well it explains the examples of a context, then answers with the resulting mixture of ops; we call that mixture the *Bayes predictive*. The ceiling is below 1 because some ops round stochastically, and noisy examples leave the op uncertain.
 
 The *calibration KL* is the KL divergence[^kl] from the Bayes predictive to the distribution of the model, in nats. It measures how much more the model loses on the answer than the ideal predictor does. Zero means the model holds the distribution the examples support.
 
@@ -895,7 +973,29 @@ rf"""
 
 At every distance, the colors that are other ops' answers get more mass: {DIST_RATIO.mean(0)[0]:.1f} times as much one step from the support, and more further out. Nearness does shape the leak, since {DIST_SHARE[0]:.0%} of the mass on other ops' answers sits one step from the support. The operand box also matters: at the same distance, a color no op gives gets {BOX_LIFT:.1f} times as much mass when it lies inside the box as off-support colors do on average. But inside the box, other ops' answers still get {DIST_RATIO_BOX.mean(0).min():.0f} to {DIST_RATIO_BOX.mean(0).max():.0f} times the mass of other colors at the same distance.
 
-So the model favors the answers of the ops its examples have ruled out, beyond what nearness or the operands account for. The runs that leak more also score lower: across the {len(SCORED)} runs, the mean leak on other ops' answers correlates with the final score at r = {LEAK_R:.2f}.
+So the model favors the answers of the ops its examples should have ruled out, beyond what nearness or the operands account for. The runs that leak more also score lower: across the {len(SCORED)} runs, the mean leak on other ops' answers correlates with the final score at r = {LEAK_R:.2f}.
+
+To see which ops the leak goes to, the figure below breaks it down by op. For each true op, it counts the mass on answers that another op can give and the true op cannot.
+
+"""
+
+confusion_draw(
+    CONFUSION,
+    OPS,
+    f"""
+        A heatmap of eleven true ops against eleven ops, with the diagonal left blank and labelled in text, from
+        {np.diag(CONFUSION).min():.2f} for hsvmix to {np.diag(CONFUSION).max():.2f}. Most off-diagonal squares are pale,
+        near 0.01. Five stand out: lighten onto screen ({conf("lighten", "screen"):.2f}), hsvmix onto mix
+        ({conf("hsvmix", "mix"):.2f}), darken onto multiply ({conf("darken", "multiply"):.2f}), mix onto hsvmix
+        ({conf("mix", "hsvmix"):.2f}), and difference onto exclusion ({conf("difference", "exclusion"):.2f}).
+    """,
+)
+
+rf"""
+
+Most of the leak goes to one other op, the one most like the true op. On confident contexts, `lighten` puts {conf("lighten", "screen"):.2f} of its mass on answers only `screen` gives, and `darken` puts {conf("darken", "multiply"):.2f} on answers only `multiply` gives. `hsvmix` and `mix` leak onto each other ({conf("hsvmix", "mix"):.2f} and {conf("mix", "hsvmix"):.2f}), and `difference` onto `exclusion` ({conf("difference", "exclusion"):.2f}). For every op, the op it leaks onto most is the one whose answers most often coincide with its own: the answer of a `lighten` query is one that `screen` can give on {conf("lighten", "screen", OVERLAP):.0%} of confident contexts, and for `darken` and `multiply` the figure is {conf("darken", "multiply", OVERLAP):.0%}. The leak runs mostly one way, from `lighten` to `screen` and from `darken` to `multiply` ({conf("screen", "lighten"):.2f} and {conf("multiply", "darken"):.2f} in the other direction).
+
+So where two ops agree on most queries, the model keeps part of its mass on the answers of the other op even after the examples have told them apart.
 
 ## Answers in the color cube (E5)
 
@@ -940,9 +1040,9 @@ With nearby hues the model gets {GAP_MEAN[0] / CEIL_GAP[0]:.0%} of what the ceil
 
 ## What we make of it
 
-The control now sits at about 0.45 on the center condition, with the mask, a peak rate of {PEAK:g}, and eight times the steps of ex-2.2.16. That falls short of the pass line, but it is a model that does in-context inference over ops. It tracks the ceiling across the whole range of evidence, its answers land close to the Bayes answers on ten ops, and its shortfall is concentrated in how firmly it commits once the op is clear, plus one op it computes poorly. That seems a workable baseline for the anchoring experiments, which compare an anchored model with this control on the same contexts.
+The control now sits at about 0.45 on the center condition, with the mask, a peak rate of {PEAK:g}, and eight times the steps of ex-2.2.16. That falls short of the pass line, but it *is* a model that does in-context inference over ops. It tracks the ceiling across the whole range of evidence, its answers land close to the Bayes answers on ten ops, and its shortfall is concentrated in how firmly it commits once the op is clear, plus one op it computes poorly. That seems a workable baseline for the anchoring experiments, which compare an anchored model with this control on the same contexts.
 
-Four questions from this scout are on the backlog. Two are about the recipe: whether a curriculum over the replacement rate changes how firmly the model commits ([noise curriculum](/todo/science/noise-curriculum-center-control.md)), and whether the wider model with a tuned rate can reach the same level in half the steps ([a cheaper recipe](/todo/science/cheaper-center-control-recipe.md)); the wider model learned faster here, which is some encouragement for the second. Two are about the op set: whether to drop ops whose answers sit close together in the cube ([similar ops](/todo/science/drop-ops-with-similar-answers.md)), and whether `hsvmix` needs more training on hue, saturation, and value, or should leave the op set ([hsvmix](/todo/science/hsvmix-hue-precision.md)).
+Four questions from this scout are on the backlog. Two are about the recipe: whether a curriculum over the replacement rate changes how firmly the model commits ([noise curriculum](/todo/science/noise-curriculum-center-control.md)), and whether the wider model with a tuned rate can reach the same level in half the steps ([a cheaper recipe](/todo/science/cheaper-center-control-recipe.md)); the wider model learned faster here, which is some encouragement for the second. Two are about the op set: whether to drop one op of each pair whose answers often coincide, since that is where most of the leak goes ([similar ops](/todo/science/drop-ops-with-similar-answers.md)), and whether `hsvmix` needs more training on hue, saturation, and value, or should leave the op set ([hsvmix](/todo/science/hsvmix-hue-precision.md)).
 
 ## Method
 
@@ -952,7 +1052,9 @@ Four questions from this scout are on the backlog. Two are about the recipe: whe
 
 **Distance to the support.** For each confident context and each off-support color, the grid distance to the nearest color in the support, binned at one step, √2, √3, 2 to √5, √6 to 3, and beyond. Within a bin, the mass per color is the mean over every pair of context and color in it. The operand box holds the grid colors that lie between the two operands on every channel.
 
-**Cubes.** Up to 90 contexts per op (or per hue-gap group), a fixed sample from `{CUBE_RUN}`; any run would do, since the runs agree closely on every summary above.
+**Op confusion.** For each confident context, the grid colors each op can give for the query operands. The diagonal counts the mass on the colors of the true op, and an off-diagonal square the mass on colors of the column op that the true op cannot give; the overlap quoted in the text counts every color of the column op, on the Bayes predictive.
+
+**Cube figures.** Up to 90 contexts per op (or per hue-gap group), a fixed sample from `{CUBE_RUN}`; any run would do, since the runs agree closely on every summary above.
 
 **Budget.** The scout cost about \$15 on Modal, nearly all of it L4 time for training. A step takes the same time on d64-L4 and d128-L4 (about 2,000 to 3,000 steps a minute), since at these sizes the step is bound by latency rather than arithmetic, so the cost follows the step count. An eight-times run is about 40 minutes of training.
 """
