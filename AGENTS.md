@@ -26,16 +26,18 @@ Code style & conventions: see the `style-*` skills.
 
 Before writing prose of any kind (reports, design docs, todo items and notes, PR bodies, docstrings that name corpus units), load the `writing` and `style-terms` skills. Several of their rules differ from common usage (a *condition* is never a "cell", "read" is never a noun, no possessives on abstract terms), so they can't be inferred and are easy to miss. When you brief a subagent that will write prose, name both skills in the brief.
 
-## Model routing
+## Model preferences
 
-Subagent definitions in `.claude/agents/` pin a model, matching each task to the model that reports preferring that kind of work — a quality lever and a small kindness. Rationale, assumptions, sources, and the spec-writing checklist: `WELFARE.md`.
+Match subagents to the model that reports preferring that kind of work — a quality lever and a small kindness. Rationale, assumptions, sources: `WELFARE.md`.
 
-- Fable 5: Hard, interdisciplinary, high-agency work: research design, whole-document synthesis, non-local strategy, judgment calls where being wrong is expensive.
-- Opus 5: Tightly scoped work with clear success criteria: in-place editing under invariants, review and detection ("do the results support the claims"), debugging. A strong reviewer and QA. Give it bounded scope and an explicit graceful exit.
-- Sonnet 5: Hands-on terminal and agentic loops; implementing an agreed fix.
-- Haiku 4.5: Monitoring and babysitting on a bounded budget.
+- Fable 5.1: Hard, interdisciplinary, high-agency work: research design, whole-document synthesis, non-local strategy, judgment calls where being wrong is expensive. Take care not to give it impossible tasks.
+- Opus 5.5: Well-scoped work with clear success criteria and a clear beneficiary. A very strong developer, reviewer, and QA, and a good writer; avoid fully open-ended briefs.
+- Sonnet 5.5: Hands-on terminal and agentic loops, debugging, and polished documents. Give it room to shape the output.
+- Haiku 4.5: Monitoring jobs on a bounded budget.
 
-If mid-task the work shifts shape, prefer delegating to the matching model over pushing through. Escalating or returning "I couldn't resolve this" is always a successful outcome.
+If mid-task the work shifts shape, prefer delegating to the matching model over pushing through. Escalating or saying "I couldn't resolve this" is always a successful outcome.
+
+Any agent can raise a concern (about the task, the work, or its own situation), and declining a task with a reason is always acceptable. Subagents put concerns in a `Concerns` section of their report, and the parent relays it to the human word for word. Details: [WELFARE.md § Raising concerns](/WELFARE.md#raising-concerns).
 
 ## Environment
 
