@@ -10,3 +10,8 @@ The ex-2.2.17 scout reached about 0.45 held-out expected exact match with the d6
 Sandy suspects the steps can at least be halved with the wider d128-L4 model and a tuned learning rate. The evidence so far is one seed: d128 made its jump on the HSV channels at about 15k steps against 30k–45k for d64, and led through the first half of training, then ended level (0.459 against the d64 seed range of 0.436–0.464). Since the step is latency-bound, d128 costs the same per step as d64 (see `todo/eng/pack-runs-per-gpu.md`), so a shorter d128 run would be cheaper outright. One caution: its calibration KL was 0.95 against about 0.5 for d64, with a lower training loss, so a shorter run should be checked for calibration as well as accuracy.
 
 A first sweep: d128 at two, three, and four times the length, with a short learning-rate sweep around 0.00316 at one seed, then the best condition at three seeds. Packing seeds would cut this cost further.
+
+## Notes
+
+
+**2026-09-29, ex-2.2.18 session** — [Ex-2.2.18](/docs/m2/ex-2.2.18/report.py) (E4) logged skill on the probe set through training for six op sets on this recipe. Every run passed 90% of its final skill between steps 65k and 78k of 105.6k, and the last fifth added 0.007 to 0.014 probe EEM. The cosine anneals to the end, so a shorter run anneals sooner and would likely keep most of that. A training run cost about $0.28 of L4 time (about 40 minutes).
