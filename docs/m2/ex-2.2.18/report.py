@@ -263,7 +263,7 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together raised the Bayes ceiling of the in-context grammar from {score(FULL, "ceiling"):.2f} to {score(FOUR, "ceiling"):.2f}, and the model came closer to it than any run so far, at {score(FOUR):.3f}. Dropping one op at a time mostly moved the ceiling and the model together, with one seed each.
+Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Dropping one op at a time mostly moved the ceiling and the model together. Each op set has one seed.
 ///
 
 Ex-2.2.17 found that its center control, where the examples settle the op, keeps part of its mass on the answers of the op most like the true one: `lighten` onto `screen`, `darken` onto `multiply`, `mix` and `hsvmix` onto each other, and `difference` onto `exclusion`. This scout drops one op of each of those pairs, one at a time and all four together, and trains the ex-2.2.17 recipe on each smaller op set, at one seed per op set.
@@ -274,7 +274,7 @@ Dropping ops changes the task, so every op set has its own Bayes ceiling and flo
 
 Each line is a measurement on the runs of this scout, with no gate.
 
-- **E1** [Scores against each ceiling](#scores-against-each-ceiling-e1): every drop raised the ceiling, and the gap to it stayed within about 0.025 of the full set except without `multiply`. Without all four ops, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far.
+- **E1** [Scores against each ceiling](#scores-against-each-ceiling-e1): every drop raised the ceiling, and the gap to it stayed near that of the full set except without `multiply`. Without all four ops, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far.
 - **E2** [The HSV-channel ops](#the-hsv-channel-ops-e2): the runs without `multiply` and without `exclusion` fell short on the three HSV-channel ops, and the runs without `hsvmix` learned those ops earlier than the others did.
 - **E3** [The leak onto a dropped op](#the-leak-onto-a-dropped-op-e3): on contexts of a partner op, the mass the model put on the answers of the dropped op mostly went away with it.
 - **E4** [Training time](#training-time-e4): every run reached 95% of its final skill by step {max(steps_to(s, 0.95) for s in SETS):,} of {STEPS:,.0f}, and the last fifth of training added at most {max(late_gain(s) for s in SETS):.3f}.
@@ -369,7 +369,7 @@ rf"""
 
 Two columns stand out. Without `multiply`, the model got {gap("no-multiply", "sat-hsv"):.2f} and {gap("no-multiply", "value-hsv"):.2f} short of the ceiling on `sat-hsv` and `value-hsv`, where the full-set run was {gap(FULL, "sat-hsv"):.2f} and {gap(FULL, "value-hsv"):.2f} short; without `exclusion`, the same two ops fell short by about twice as much as in the full set. The three HSV-channel ops are blend modes that take one of hue, saturation, or value from one operand and the other two from the other. Neither `multiply` nor `exclusion` gives answers like theirs, so similarity doesn't explain this.
 
-The learning curves suggest timing. Ex-2.2.17 saw these ops rise steeply partway through training, and in this scout the rise came at different times in different runs. At step {TRAJ[FULL]["step"][EARLY]:,.0f}, the mean probe EEM on the three ops was {hsv_at(FULL, EARLY):.2f} in the full-set run, {hsv_at("no-hsvmix", EARLY):.2f} and {hsv_at(FOUR, EARLY):.2f} in the two runs without `hsvmix`, and {hsv_at("no-multiply", EARLY):.2f} without `multiply`. The run without `exclusion` caught up late, and the run without `multiply` had not caught up when the schedule ended. With one seed per op set, we can't tell whether dropping `multiply` makes those ops harder to learn or this run was a slow one. The runs without `hsvmix` starting early is a clearer pattern, since two runs share it.
+The learning curves suggest timing. Ex-2.2.17 saw these ops rise steeply partway through training, and in this scout the rise came at different times in different runs. At step {TRAJ[FULL]["step"][EARLY]:,.0f}, the mean probe EEM on the three ops was {hsv_at(FULL, EARLY):.2f} in the full-set run, {hsv_at("no-hsvmix", EARLY):.2f} and {hsv_at(FOUR, EARLY):.2f} in the two runs without `hsvmix`, and {hsv_at("no-multiply", EARLY):.2f} without `multiply`. The run without `exclusion` caught up late, and the run without `multiply` had not caught up when the schedule ended. With one seed per op set, we can't tell whether dropping `multiply` makes those ops harder to learn or this run was a slow one. Dropping an op also changes the corpus, since the other ops share its contexts, so each gets a little more training. The early start without `hsvmix` is a little firmer, since two runs share it, though the second of them also drops three other ops.
 
 Away from the HSV-channel ops, the no-four column is lower than the full set on nearly every op. The partners of the dropped ops gained most: `lighten` went from {gap(FULL, "lighten"):.2f} to {gap(FOUR, "lighten"):.2f}, `darken` from {gap(FULL, "darken"):.2f} to {gap(FOUR, "darken"):.2f}, and `difference` from {gap(FULL, "difference"):.2f} to {gap(FOUR, "difference"):.2f}.
 
@@ -399,7 +399,7 @@ In the full-set run, confident `lighten` contexts put {LEAK[FULL]["screen"]["lea
 
 ## Training time (E4)
 
-Later rounds will look for a cheaper recipe, so we logged how skill on the probe set grew through training. The figure below shows each run.
+To see whether a shorter schedule could suffice, we logged how skill on the probe set grew through training. The figure below shows each run.
 
 """
 
@@ -445,7 +445,7 @@ Every run reached 90% of its final skill between step {min(steps_to(s, 0.9) for 
 
 ## What we make of it
 
-The op set without all four ops is easier in two ways: its ceiling is higher, and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. Much of the higher ceiling comes from dropping ops that round stochastically, and part of the smaller gap probably comes from the leak onto a similar op going away. Both seem like good properties for the grammar the anchoring experiments train on, with seven ops that are easier to tell apart. It would also mean a new ceiling for every D2.2 comparison so far.
+The op set without all four ops is easier in two ways: its ceiling is higher, and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. Much of the higher ceiling comes from dropping ops that round stochastically, and the leak onto a similar op, which went away with the dropped ops, may account for part of the smaller gap. Both seem like good properties for the grammar the anchoring experiments train on, with seven ops that are easier to tell apart. It would also mean a new ceiling for every D2.2 comparison so far.
 
 The single drops say less. Dropping one op moved the ceiling and the model by similar amounts, except for `multiply` and `exclusion`, whose runs fell short on the HSV-channel ops; with one seed, that may be timing. The more consistent sign is that both runs without `hsvmix` learned the HSV-channel ops early, which fits ex-2.2.17 finding `hsvmix` the hardest op to compute.
 
