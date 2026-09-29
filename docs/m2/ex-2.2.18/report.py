@@ -54,6 +54,19 @@ def rule_color() -> str:
     return light_dark("#333", "#ccc")
 
 
+def seq_cmap():
+    """A sequential map that runs from the page color, so it prints legibly and holds up in the dark theme."""
+    cmap = plt.get_cmap(light_dark("Blues", "magma")).copy()
+    cmap.set_bad(light_dark("#fff", "#111"))
+    return cmap
+
+
+def cell_text_color(v: float, vmax: float) -> str:
+    """Text that stays legible on a square of *seq_cmap* at *v*."""
+    dark_cell = (v / vmax > 0.55) == (light_dark(0, 1) == 0)
+    return "#fff" if dark_cell else "#000"
+
+
 # --- Loading ------------------------------------------------------------------------------------------------
 
 
@@ -105,6 +118,11 @@ def gap(s: str, op: str | None = None, runs: dict | None = None) -> float:
 
 YARD_EEM = [score(s, runs=PRIOR) for s in YARDSTICK]
 YARD_GAP = [gap(s, runs=PRIOR) for s in YARDSTICK]
+YARD_SKILL = [
+    (score(s, runs=PRIOR) - score(s, "floor", runs=PRIOR))
+    / (score(s, "ceiling", runs=PRIOR) - score(s, "floor", runs=PRIOR))
+    for s in YARDSTICK
+]
 YARD_SPREAD = max(YARD_EEM) - min(YARD_EEM)
 # The seed range of each op's gap in ex-2.2.17's three runs of this recipe: the per-op yardstick.
 YARD_OP_SPREAD = {
@@ -122,47 +140,114 @@ def answer_table():
 
 
 @memo
-def leak(p16: np.ndarray, op_ids: np.ndarray, post: np.ndarray, pair: np.ndarray, ops: tuple[str, ...]) -> dict:
-    """On the confident contexts of each partner op in *ops*, the mass the run puts on colors its dropped op can
-    give and the partner cannot; and the same for the Bayes predictive of the full op set, which is near zero on
-    these contexts. Answers come from the full table, so they are defined whether or not the op was trained on.
+def op_confusion(p16: np.ndarray, op_ids: np.ndarray, post: np.ndarray, pair: np.ndarray, ops: tuple[str, ...]):
+    """Where a run puts its mass on confident contexts, by op, as in ex-2.2.17. Rows are the true op and columns
+    all eleven ops, in the order of ALL_OPS; a row is NaN for an op the run does not have. The diagonal is the mass
+    on the colors the true op can give for the query operands; off the diagonal, the mass on the colors the column
+    op can give and the true op cannot. Answers come from the full table, so a dropped op keeps its column. Also
+    returns the number of confident contexts of each op.
     """
     table = answer_table()
-    p = p16.astype(float)
+    rows = np.arange(len(p16))
+    conf = post[rows, op_ids] > CONFIDENT
+    p, pair = p16[conf].astype(float), pair[conf]
+    true_op = np.array([ALL_OPS.index(ops[i]) for i in op_ids[conf]])
     rows = np.arange(len(p))
-    out = {}
-    for dropped, partner in PAIR_OF.items():
-        if partner not in ops:
-            continue
-        sel = (op_ids == ops.index(partner)) & (post[rows, op_ids] > CONFIDENT)
-        a, b = ALL_OPS.index(partner), ALL_OPS.index(dropped)
-        gives = np.zeros((2, sel.sum(), p.shape[1]), dtype=bool)
-        for i, o in enumerate((a, b)):
-            idx, ok = table.idx[o, pair[sel]], table.prob[o, pair[sel]] > 0
-            for j in range(idx.shape[1]):
-                gives[i, np.flatnonzero(ok[:, j]), idx[ok[:, j], j]] = True
-        beyond = gives[1] & ~gives[0]
-        out[dropped] = {
-            "leak": float((p[sel] * beyond).sum(1).mean()),
-            "partner_mass": float((p[sel] * gives[0]).sum(1).mean()),
-            "n": int(sel.sum()),
-        }
-    return out
+    gives = np.zeros((len(ALL_OPS), *p.shape), dtype=bool)
+    for o in range(len(ALL_OPS)):
+        idx, ok = table.idx[o, pair], table.prob[o, pair] > 0
+        for j in range(idx.shape[1]):
+            gives[o, rows[ok[:, j]], idx[ok[:, j], j]] = True
+    true = gives[true_op, rows]
+    per_col = np.stack(
+        [(p * np.where((true_op == o)[:, None], true, gives[o] & ~true)).sum(1) for o in range(len(ALL_OPS))], 1
+    )
+    m = np.full((len(ALL_OPS), len(ALL_OPS)), np.nan)
+    n = np.zeros(len(ALL_OPS), dtype=int)
+    for o in range(len(ALL_OPS)):
+        n[o] = (true_op == o).sum()
+        if n[o]:
+            m[o] = per_col[true_op == o].mean(0)
+    return m, n
 
 
-LEAK = {
-    s: leak(ARRAYS[s]["p"], ARRAYS[s]["op_ids"], ARRAYS[s]["posterior"], ARRAYS[s]["query_pair"], ops_of(s))
-    for s in SETS
-}
+CONFUSION: dict[str, np.ndarray] = {}
+N_CONFIDENT: dict[str, np.ndarray] = {}
+for _s in SETS:
+    _a = ARRAYS[_s]
+    CONFUSION[_s], N_CONFIDENT[_s] = op_confusion(_a["p"], _a["op_ids"], _a["posterior"], _a["query_pair"], ops_of(_s))
+
+
+def conf(s: str, a: str, b: str) -> float:
+    """In run *s*, the mass on answers of *b* beyond those of *a*, on confident contexts of *a*."""
+    return float(CONFUSION[s][ALL_OPS.index(a), ALL_OPS.index(b)])
+
+
+def n_conf(s: str, op: str) -> int:
+    return int(N_CONFIDENT[s][ALL_OPS.index(op)])
+
+
+def leak(s: str, dropped: str) -> float:
+    """The leak onto *dropped*: mass on its answers beyond those of its partner, on confident partner contexts."""
+    return conf(s, PAIR_OF[dropped], dropped)
+
 
 # --- Figures ------------------------------------------------------------------------------------------------
+
+
+def probe_skill(s: str) -> np.ndarray:
+    st = STATS[s]
+    return (np.array(TRAJ[s]["eem"]) - st["floor"]) / (st["ceiling"] - st["floor"])
+
+
+def crossing(s: str, share: float) -> int:
+    """The first trajectory point at which the probe skill reached *share* of its final value."""
+    y = probe_skill(s)
+    return int(np.argmax(y >= share * y[-1]))
+
+
+@memo
+def confusion_draw(alt_text: str, caption: str) -> str:
+    @themed(name="leak", alt_text=alt_text, caption=caption)
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(3, 3, figsize=(9.0, 9.6), layout="constrained", sharex=True, sharey=True)
+        n = len(ALL_OPS)
+        eye = np.eye(n, dtype=bool)
+        vmax = max(float(np.nanmax(np.where(eye, np.nan, CONFUSION[s]))) for s in SETS)
+        cmap = seq_cmap()
+        im = None
+        for ax, s in zip(axes.flat, SETS, strict=True):
+            m = CONFUSION[s]
+            im = ax.imshow(np.where(eye, np.nan, m), cmap=cmap, vmin=0, vmax=vmax)
+            for i, j in np.ndindex(n, n):
+                v = m[i, j]
+                if np.isnan(v):
+                    continue
+                if i == j:
+                    ax.plot(j, i, "s", ms=6.5, mfc="none", mec="0.6", mew=0.6)
+                elif v >= 0.03:
+                    ax.text(
+                        j, i, f"{v:.2f}"[1:], ha="center", va="center", fontsize=5.5, color=cell_text_color(v, vmax)
+                    )
+            for i in np.flatnonzero(np.isnan(m[:, 0])):
+                ax.axhspan(i - 0.5, i + 0.5, facecolor="none", edgecolor="0.6", hatch="///", lw=0)
+            ax.set_title(s, fontsize=9)
+            ax.set_xticks(range(n), ALL_OPS, rotation=90, fontsize=6.5)
+            ax.set_yticks(range(n), ALL_OPS, fontsize=6.5)
+        fig.supxlabel("answers of this op, beyond those of the true op", fontsize=9)
+        fig.supylabel("true op", fontsize=9)
+        assert im is not None
+        fig.colorbar(im, ax=axes, shrink=0.5, label="mass")
+        return fig
+
+    return _plot()
 
 
 @memo
 def scores_draw(alt_text: str, caption: str) -> str:
     @themed(name="scores", alt_text=alt_text, caption=caption)
     def _plot() -> plt.Figure:
-        fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.4), layout="constrained")
+        fig, axes = plt.subplots(1, 3, figsize=(10.5, 3.4), layout="constrained")
         axes = cast(AxesRow, axes)
         x = np.arange(len(SETS))
         ax = axes[0]
@@ -172,11 +257,16 @@ def scores_draw(alt_text: str, caption: str) -> str:
         ax.axhspan(min(YARD_EEM), max(YARD_EEM), color="C0", alpha=0.15, lw=0, label="ex-2.2.17, three seeds")
         ax.set_ylabel("held-out EEM")
         ax.set_ylim(0, 0.7)
-        ax.legend(fontsize=7, frameon=False, loc="lower right")
+        fig.legend(loc="outside upper center", ncols=4, frameon=False, fontsize=8)
         ax = axes[1]
         ax.bar(x, [gap(s) for s in SETS], color="C0", width=0.6)
         ax.axhspan(min(YARD_GAP), max(YARD_GAP), color="C0", alpha=0.15, lw=0)
         ax.set_ylabel("gap to own ceiling")
+        ax = axes[2]
+        ax.bar(x, [skill(s) for s in SETS], color="C0", width=0.6)
+        ax.axhspan(min(YARD_SKILL), max(YARD_SKILL), color="C0", alpha=0.15, lw=0)
+        ax.set_ylabel("skill")
+        ax.set_ylim(0, 1)
         for a in axes:
             a.set_xticks(x, SETS, rotation=30, ha="right", fontsize=8)
         return fig
@@ -193,13 +283,13 @@ def gaps_draw(alt_text: str, caption: str) -> str:
             for op in ops_of(s):
                 m[ALL_OPS.index(op), j] = gap(s, op)
         fig, ax = plt.subplots(figsize=(8.0, 4.6), layout="constrained")
-        lim = np.nanmax(np.abs(m))
-        im = ax.imshow(m, cmap="viridis", vmin=0, vmax=lim, aspect="auto")
+        lim = float(np.nanmax(m))
+        im = ax.imshow(m, cmap=seq_cmap(), vmin=0, vmax=lim, aspect="auto")
         for (i, j), v in np.ndenumerate(m):
             if np.isnan(v):
                 ax.text(j, i, "dropped", ha="center", va="center", fontsize=6, color="0.5")
             else:
-                ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7, color="w" if v < lim * 0.6 else "k")
+                ax.text(j, i, f"{v:.2f}", ha="center", va="center", fontsize=7, color=cell_text_color(v, lim))
         ax.set_xticks(range(len(SETS)), SETS, rotation=30, ha="right", fontsize=8)
         ax.set_yticks(range(len(ALL_OPS)), ALL_OPS, fontsize=8)
         fig.colorbar(im, ax=ax, label="gap to own ceiling (EEM)", shrink=0.8)
@@ -214,10 +304,11 @@ def traj_draw(alt_text: str, caption: str) -> str:
     def _plot() -> plt.Figure:
         fig, ax = plt.subplots(figsize=(6.4, 3.4), layout="constrained")
         for i, s in enumerate(SETS):
-            t = TRAJ[s]
-            st = STATS[s]
-            y = (np.array(t["eem"]) - st["floor"]) / (st["ceiling"] - st["floor"])
-            ax.plot(np.array(t["step"]) / 1e3, y, color=f"C{i}", lw=2 if s == "full" or s in FOURS else 1.1, label=s)
+            x, y = np.array(TRAJ[s]["step"]) / 1e3, probe_skill(s)
+            ax.plot(x, y, color=f"C{i}", lw=2 if s == "full" or s in FOURS else 1.1, label=s)
+            for share, face in ((0.9, f"C{i}"), (0.95, "none")):
+                k = crossing(s, share)
+                ax.plot(x[k], y[k], "o", ms=4.5, mfc=face, mec=f"C{i}", mew=1.1, zorder=3)
         ax.axhline(1, ls="--", color=rule_color(), lw=1)
         ax.set_xlabel("step (thousands)")
         ax.set_ylabel("skill on the probe set")
@@ -237,15 +328,9 @@ FULL, FOUR = "full", "no-four"
 LAST_FIFTH = (len(TRAJ[FULL]["step"]) - 1) * 4 // 5
 
 
-def probe_skill(s: str) -> np.ndarray:
-    st = STATS[s]
-    return (np.array(TRAJ[s]["eem"]) - st["floor"]) / (st["ceiling"] - st["floor"])
-
-
 def steps_to(s: str, share: float) -> int:
     """The first logged step at which the probe skill reached *share* of its final value."""
-    y = probe_skill(s)
-    return int(TRAJ[s]["step"][int(np.argmax(y >= share * y[-1]))])
+    return int(TRAJ[s]["step"][crossing(s, share)])
 
 
 def late_gain(s: str) -> float:
@@ -257,11 +342,6 @@ def hsv_at(s: str, i: int) -> float:
     """Probe EEM on the three HSV-channel ops, averaged, at trajectory point *i*."""
     e = np.array(TRAJ[s]["eem_per_op"])[i]
     return float(np.mean([e[ops_of(s).index(op)] for op in HSV_CHANNEL]))
-
-
-def four_of(dropped: str) -> str:
-    """The four-op set that drops *dropped*."""
-    return next(s for s in FOURS if dropped in RUNS[s]["dropped"])
 
 
 STEPS = TRAJ[FULL]["step"][-1]
@@ -298,21 +378,21 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs, and it left the ceiling where it was and narrowed the gap by less. Each op set has one seed.
+Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs, and it left the ceiling where it was and narrowed the gap by less.
 ///
 
-Ex-2.2.17 found that its center control, where the examples settle the op, keeps part of its mass on the answers of the op most like the true one: `lighten` onto `screen`, `darken` onto `multiply`, `mix` and `hsvmix` onto each other, and `difference` onto `exclusion`. This scout drops one op of each of those pairs, one at a time and all four together. A second round drops the other side of the two brightening pairs, `lighten` and `darken`, alone and in place of `screen` and `multiply` in the four-op drop. Each op set trains the ex-2.2.17 recipe once.
+In ex-2.2.17, the center control kept part of its mass on the answers of a similar op, even on contexts where the examples should settle the op. Four pairs of ops stood out: `lighten` with `screen`, `darken` with `multiply`, `mix` with `hsvmix`, and `difference` with `exclusion`. This scout drops one op from each pair, first one at a time and then all four together. A second round drops the other op of the first two pairs: `lighten` alone, `darken` alone, and both of them in place of `screen` and `multiply` in the four-op drop. Each op set trains the ex-2.2.17 recipe once (a single seed).
 
 Dropping ops changes the task, so every op set has its own Bayes ceiling and floor, and we score each run against its own.
 
 ## Observations
 
-Each line is a measurement on the runs of this scout, with no gate.
+Each item below is a measurement on the runs of this scout, with no gate.
 
 - **E1** [Scores against each ceiling](#scores-against-each-ceiling-e1): dropping `lighten` or `darken` lowered the ceiling, and dropping any of the other four raised it. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far. The second four-op drop came within {gap(LD):.3f} of a ceiling near that of the full set.
 - **E2** [The HSV-channel ops](#the-hsv-channel-ops-e2): {WORDS[len(HSV_SHORT)]} of the {WORDS[len(SINGLES)]} single drops fell short on the three HSV-channel ops, and the {WORDS[len(NO_HSVMIX)]} runs without `hsvmix` learned those ops earlier than the others did.
 - **E3** [The leak onto a dropped op](#the-leak-onto-a-dropped-op-e3): on contexts of a partner op, the mass the model put on the answers of the dropped op mostly went away with it.
-- **E4** [Training time](#training-time-e4): every run reached 95% of its final skill by step {max(steps_to(s, 0.95) for s in SETS):,} of {STEPS:,.0f}, and the last fifth of training added at most {max(late_gain(s) for s in SETS):.3f}.
+- **E4** [Training time](#training-time-e4): every run reached 95% of its final skill by {max(steps_to(s, 0.95) for s in SETS) / STEPS:.0%} of the way through training, and the last fifth of training added at most {max(late_gain(s) for s in SETS):.3f}.
 
 ## Scope
 
@@ -320,9 +400,9 @@ This is a scout, with no preregistration and no gate. Each op set has one run, a
 
 ## Why
 
-The in-context grammar asks the model to infer the op from three examples, and some pairs of ops give the same answer on many operand pairs. An example that fits `lighten` often fits `screen` too, so those examples say less about the op, and the model has two nearly interchangeable answers to choose between. If the pairs are part of why the control falls short of its ceiling, a smaller op set might make a better grammar for the anchoring experiments: more of the ceiling reachable, for the same training.
+The in-context grammar asks the model to infer the op from three examples, and some pairs of ops give the same answer on many operand pairs. An example that fits `lighten` often fits `screen` too, so those examples say less about the op, and the model has two nearly interchangeable answers to choose between. If the pairs are part of why the control falls short of its ceiling, a smaller op set might make a better grammar for the anchoring experiments.
 
-Which side of a pair to drop matters too. `lighten`, `darken`, and `difference` give one answer for each pair of operands, while their partners round each channel at random between grid levels, so their answers are spread over a few colors. Dropping the spread-out side raises the ceiling for a reason that has nothing to do with similarity, and dropping the other side separates the two.
+It may matter which op of a pair is dropped, too. `lighten`, `darken`, and `difference` give one answer for each pair of operands, while their partners round each channel at random between grid levels, so their answers are spread over a few colors. Dropping an op with spread-out answers raises the ceiling whether or not similarity matters. Dropping its partner instead breaks up the same pair without raising the ceiling, so comparing the two tells the effect of similarity apart from the effect of rounding.
 
 ## The runs
 
@@ -354,7 +434,7 @@ r"""
 
 Held-out *expected exact match* (EEM) is the probability that an answer drawn from the distribution of the model at the query `=` is a correct answer of the true op. The *Bayes ceiling* is the same score for an ideal predictor, which weighs each op by how well it explains the examples and answers with the resulting mixture. The *floor* is the score of a predictor that ignores the examples. Both are computed for each op set on its own ops, as in ex-2.2.16.
 
-The *gap* is the ceiling minus EEM, and *skill* is how far a run got from the floor to the ceiling, as a share of that distance. Gaps compare runs whose ceilings differ, which EEM alone cannot do.
+The *gap* is the ceiling minus EEM, and *skill* is how far a run got from the floor to the ceiling, as a fraction of that distance. Gaps compare runs whose ceilings differ, which EEM alone cannot do.
 
 ## Scores against each ceiling (E1)
 
@@ -364,18 +444,19 @@ The figure below puts each run beside the ceiling and floor of its op set.
 
 scores_draw(
     f"""
-        Two charts over nine op sets. Left: held-out expected exact match, with a ceiling mark and a floor mark per op
+        Three charts over nine op sets. Left: held-out expected exact match, with a ceiling mark and a floor mark per op
         set. The ceilings run from {min(score(s, "ceiling") for s in SETS):.2f} (no-darken) to
         {score(FOUR, "ceiling"):.2f} (no-four), and the model dots sit a little under each ceiling, further below for
         no-multiply and no-darken. The full-set dot at {score(FULL):.3f} falls inside the shaded band of ex-2.2.17's
         three seeds. Right: the gap to the ceiling as bars, between {gap(FOUR):.3f} (no-four) and
         {gap("no-multiply"):.3f} (no-multiply), with the ex-2.2.17 band from {min(YARD_GAP):.3f} to
-        {max(YARD_GAP):.3f}; no-four and no-four-ld are the two shortest bars.
+        {max(YARD_GAP):.3f}; no-four and no-four-ld are the two shortest bars. Right: skill as bars, highest for no-four
+        at {skill(FOUR):.2f} and lowest for no-multiply at {skill("no-multiply"):.2f}.
     """,
     """
         **Scores against each ceiling.** Left: held-out expected exact match of each run (dots), with the Bayes ceiling
-        (dark) and floor (light) of its op set. Right: the gap between them. The shaded band on both is the range of
-        ex-2.2.17's three seeds on the full op set.
+        (dark) and floor (light) of its op set. Middle: the gap between them. Right: skill, how far each run got from
+        the floor to the ceiling. The shaded band on each is the range of ex-2.2.17's three seeds on the full op set.
     """,
 )
 
@@ -383,11 +464,13 @@ rf"""
 
 The full-set run scored {score(FULL):.3f}, inside the range of ex-2.2.17's seeds ({min(YARD_EEM):.3f} to {max(YARD_EEM):.3f}), so the recipe reproduced.
 
-Dropping one of `screen`, `multiply`, `hsvmix`, or `exclusion` raised the ceiling by 0.02 to 0.03, and dropping `lighten` or `darken` lowered it by about 0.015. That follows from which side rounds at random. A predictor told the op, with no inference to do, scores {STATS[FULL]["told_op"]:.3f} on the full set: it can't always name the answer of an op that rounds at random, and it always can for `lighten` or `darken`. Without `screen` it scores {STATS["no-screen"]["told_op"]:.3f}, and without `lighten` {STATS["no-lighten"]["told_op"]:.3f}.
+Dropping one of `screen`, `multiply`, `hsvmix`, or `exclusion` raised the ceiling by 0.02 to 0.03, and dropping `lighten` or `darken` lowered it by about 0.015. That follows from which side rounds at random. A predictor told the op, with no inference to do, would score {STATS[FULL]["told_op"]:.3f} on the full set: it can't always name the answer of an op that rounds at random, but it always can for `lighten` or `darken`. Without `screen` it would score {STATS["no-screen"]["told_op"]:.3f}, and without `lighten` {STATS["no-lighten"]["told_op"]:.3f}.
 
 The gaps of the single drops mostly stayed near the gap of the full set, {gap(FULL):.3f}. The exceptions were `no-multiply` at {gap("no-multiply"):.3f} and `no-darken` at {gap("no-darken"):.3f}, the two sides of the darkening pair, and `no-exclusion` at {gap("no-exclusion"):.3f}; E2 shows where those fell short.
 
-The two four-op drops break the same four pairs. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the ceiling rose to {score(FOUR, "ceiling"):.3f} and the model reached {score(FOUR):.3f}, a gap of {gap(FOUR):.3f}. Without `lighten`, `darken`, `hsvmix`, and `exclusion`, the ceiling stayed near that of the full set, at {score(LD, "ceiling"):.3f}, and the model reached {score(LD):.3f}, a gap of {gap(LD):.3f}. So most of the rise in EEM from `no-four` came from its higher ceiling. Both four-op drops narrowed the gap, by {gap(FULL) - gap(FOUR):.3f} and {gap(FULL) - gap(LD):.3f}; with one run each, and ex-2.2.17 seeds spanning {max(YARD_GAP) - min(YARD_GAP):.3f}, that part is a hint.
+The two four-op drops break the same four pairs. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the ceiling rose to {score(FOUR, "ceiling"):.3f} and the model reached {score(FOUR):.3f}, a gap of {gap(FOUR):.3f}. Without `lighten`, `darken`, `hsvmix`, and `exclusion`, the ceiling stayed near that of the full set, at {score(LD, "ceiling"):.3f}, and the model reached {score(LD):.3f}, a gap of {gap(LD):.3f}. So most of the rise in EEM from `no-four` came from its higher ceiling.
+
+Both four-op drops narrowed the gap, by {gap(FULL) - gap(FOUR):.3f} and {gap(FULL) - gap(LD):.3f}. But each op set has a single run, and the gaps of the three ex-2.2.17 seeds on the full set spanned {min(YARD_GAP):.3f} to {max(YARD_GAP):.3f}, a range about as wide as either change. So these narrower gaps could come from seed variation alone, and it would take more seeds to tell.
 
 ## The HSV-channel ops (E2)
 
@@ -398,14 +481,13 @@ The heatmap below breaks each gap down by op.
 gaps_draw(
     f"""
         A heatmap with the eleven ops as rows and the nine op sets as columns, each square the gap between the Bayes
-        ceiling and the model on that op, with dropped ops marked. Most squares sit between 0.03 and 0.15. The
-        no-multiply, no-darken, and no-exclusion columns are bright on hue-hsv, sat-hsv, and value-hsv, up to
-        {max(gap(s, op) for s in HSV_SHORT for op in HSV_CHANNEL):.2f}. The no-four and no-four-ld columns are the
-        darkest.
+        ceiling and the model on that op, darker for a larger gap, with dropped ops marked. Most squares sit between
+        0.03 and 0.15. The no-multiply, no-darken, and no-exclusion columns are darkest on hue-hsv, sat-hsv, and
+        value-hsv, up to {max(gap(s, op) for s in HSV_SHORT for op in HSV_CHANNEL):.2f}. The no-four and no-four-ld
+        columns are the palest.
     """,
     """
         **The gap by op.** Each square is the Bayes ceiling minus held-out expected exact match, for one op in one run.
-        Brighter is further from the ceiling.
     """,
 )
 
@@ -421,32 +503,36 @@ Away from the HSV-channel ops, both four-op columns are lower than the full set 
 
 ## The leak onto a dropped op (E3)
 
-Ex-2.2.17 found the model keeping mass on the answers of a similar op even where the examples settle the op. For each dropped op, we took the contexts whose posterior on its partner is above {CONFIDENT:g} and measured the mass the model puts on colors the dropped op can give and the partner cannot. The Bayes predictive puts almost none there.
+Ex-2.2.17 found the model keeping mass on the answers of a similar op even where the examples should settle the op. To see where that mass goes, we take the held-out contexts whose posterior on the true op is above {CONFIDENT:g}, and for each other op measure the mass the model puts on colors that op can give and the true op cannot. The figure below shows this as one matrix per op set, the same measurement as the op confusion of ex-2.2.17. The Bayes predictive puts almost nothing off the diagonal on these contexts.
 
 """
 
-table_html(
-    ["contexts of", "dropped op", "full set", "dropped alone", "dropped in its four-op set"],
-    [
-        [
-            f"`{PAIR_OF[d]}`",
-            f"`{d}`",
-            *(f"{LEAK[s][d]['leak']:.3f} ({LEAK[s][d]['n']})" for s in (FULL, f"no-{d}", four_of(d))),
-        ]
-        for d in PAIR_OF
-    ],
-    """
-        **The leak onto the dropped op.** Mean mass on colors the dropped op gives and its partner does not, on
-        confident contexts of the partner, with the number of those contexts in brackets.
+confusion_draw(
+    f"""
+        Nine small heatmaps in a three-by-three grid, one per op set, each with the eleven true ops as rows and the
+        eleven ops as columns; rows of dropped ops are hatched, and the diagonal is left blank. Most squares are pale.
+        In the full set, four squares stand out: lighten onto screen ({conf(FULL, "lighten", "screen"):.2f}), darken
+        onto multiply ({conf(FULL, "darken", "multiply"):.2f}), hsvmix and mix onto each other
+        ({conf(FULL, "hsvmix", "mix"):.2f} and {conf(FULL, "mix", "hsvmix"):.2f}), and difference onto exclusion
+        ({conf(FULL, "difference", "exclusion"):.2f}). In each drop, the column of the dropped op is pale. The darkest squares
+        are in no-multiply, where sat-hsv and value-hsv put {conf("no-multiply", "sat-hsv", "value-hsv"):.2f} and
+        {conf("no-multiply", "value-hsv", "sat-hsv"):.2f} onto each other.
     """,
-    text_cols=2,
+    """
+        **Where the mass goes, by op.** One matrix per op set, on confident held-out contexts. Rows are the true op, and
+        hatched rows are dropped ops, which have no contexts. Off the diagonal, each square is the mass the model puts
+        on colors the column op can give and the true op cannot, with values of 0.03 and above printed. The diagonal
+        is outlined and left blank.
+    """,
 )
 
 rf"""
 
-In the full-set run, confident `lighten` contexts put {LEAK[FULL]["screen"]["leak"]:.2f} of their mass on colors only `screen` gives, and the other three pairs {min(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f} to {max(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f}. The leak the other way is smaller: confident `screen` contexts put {LEAK[FULL]["lighten"]["leak"]:.3f} on colors only `lighten` gives. Part of that is in how the measurement counts. `lighten` gives one color, often one of the colors `screen` gives, so there are fewer colors for it to leak onto.
+In the full set, most of the mass off the diagonal sits in the squares of the four pairs. Confident `lighten` contexts put {leak(FULL, "screen"):.2f} of their mass on colors only `screen` gives, and `darken`, `mix`, and `difference` contexts put {listed(f"{leak(FULL, d):.2f}" for d in ("multiply", "hsvmix", "exclusion"))} on colors only their partner gives. The leak is lopsided: confident `screen` contexts put {leak(FULL, "lighten"):.3f} on colors only `lighten` gives. Part of that is in how it is counted. `lighten` gives one color, often one of the colors `screen` gives, so there are fewer colors for `screen` contexts to leak onto.
 
-Dropping an op took most of its leak with it: every entry of the last two columns is at or below {max(LEAK[s][d]["leak"] for d in PAIR_OF for s in (f"no-{d}", four_of(d))):.3f}. That is the expected result, since a model never trained on `screen` has no reason to give its answers. It confirms that most of this leak was the pairing, and it also means more contexts count as confident: without `screen`, {LEAK["no-screen"]["screen"]["n"]} held-out `lighten` contexts are confident, against {LEAK[FULL]["screen"]["n"]} in the full set.
+When an op is dropped, its column goes pale: the leak onto a dropped op is at or below {max(leak(s, d) for s in SETS[1:] for d in RUNS[s]["dropped"]):.3f} in every run that drops it. A model never trained on `screen` has no reason to give its answers, so this was expected, and it confirms that the leak came from the pairing. Dropping an op also makes more contexts confident: without `screen`, {n_conf("no-screen", "lighten")} held-out `lighten` contexts are confident, against {n_conf(FULL, "lighten")} in the full set.
+
+The matrices also show where the HSV-channel ops of E2 fell short. In `no-multiply`, confident `sat-hsv` and `value-hsv` contexts put {conf("no-multiply", "sat-hsv", "value-hsv"):.2f} and {conf("no-multiply", "value-hsv", "sat-hsv"):.2f} of their mass on the answers of each other, and the other runs that fell short spread smaller amounts over several ops.
 
 ## Training time (E4)
 
@@ -462,14 +548,14 @@ traj_draw(
     """,
     """
         **Skill through training.** Skill is how far a run got from the floor to the ceiling of its op set, measured
-        on a probe set of 200 contexts per op every 2% of training. The full set and the two four-op sets are drawn
-        heavier.
+        on a probe set of 200 contexts per op every 2% of training. Filled dots mark where each run passed 90% of its
+        final skill, and open dots 95%. The full set and the two four-op sets are drawn heavier.
     """,
 )
 
 r"""
 
-The table below gives the step at which each run passed 90% and 95% of its final skill.
+The dots on each line mark where the run passed 90% and 95% of its final skill, and the table below gives those steps.
 
 """
 
@@ -497,7 +583,7 @@ Every run reached 90% of its final skill between step {min(steps_to(s, 0.9) for 
 
 ## What we make of it
 
-The op set without `screen`, `multiply`, `hsvmix`, and `exclusion` is easier in two ways: its ceiling is higher, and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. The second four-op drop suggests the two ways have different causes. The higher ceiling comes from dropping ops that round at random. The smaller gap came with both four-op drops, so breaking up the similar pairs may account for it, though one run each is not enough to be sure. Dropping `screen` and `multiply` rather than `lighten` and `darken` gets both, and leaves seven ops that are easier to tell apart. It would also mean a new ceiling for every D2.2 comparison so far.
+The op set without `screen`, `multiply`, `hsvmix`, and `exclusion` is easier (its ceiling is higher) and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. The higher ceiling comes from dropping ops that round at random. The smaller gap came with both four-op drops, so breaking up the similar pairs may account for it, though one run each is not enough to be sure. Dropping `screen` and `multiply` rather than `lighten` and `darken` leaves seven ops that are easier to tell apart. Adopting that set would also change the ceiling that ex-2.2.16 and ex-2.2.17 were scored against, so their results would not carry over as they are.
 
 The single drops say less. Dropping one op mostly moved the ceiling and the model together, except in the three runs that fell short on the HSV-channel ops; with one seed, that may be timing. The more consistent sign is that all three runs without `hsvmix` learned the HSV-channel ops early, which fits ex-2.2.17 finding `hsvmix` the hardest op to compute.
 
@@ -505,7 +591,7 @@ The single drops say less. Dropping one op mostly moved the ceiling and the mode
 
 **Corpora.** Each op set has its own corpus of 300,000 contexts, its own holdout of {ex.ex2216.HOLDOUT_CONTEXTS:,} contexts per op, and its own probe set of 200 per op, drawn with the sampler of ex-2.2.16 from the answer table restricted to its ops. The posterior, ceiling, and floor are ex-2.2.16's, computed on the same restricted table.
 
-**Leak.** The answers a dropped op gives come from the full eleven-op answer table, so they are defined in runs that never trained on it. Confident contexts are chosen on the posterior of the op set of the run, so the set of contexts differs between runs.
+**Leak.** The answers a dropped op gives come from the full eleven-op answer table, so its column is defined in runs that never trained on it. Confident contexts are chosen on the posterior of the op set of the run, so they differ between runs.
 
 **Cost.** The scout cost about \$2.42 on Modal, \$2.30 of it L4 time: about \$0.26 per training run. Each training run took 14 to 17 minutes on one L4, about 7,000 steps a minute.
 """
