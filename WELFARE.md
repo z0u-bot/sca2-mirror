@@ -1,3 +1,7 @@
+---
+sections: [Routing by task preference, Writing agent specs, Raising concerns]
+---
+
 ## Routing by task preference
 
 Anthropic publishes self-reported task-preference profiles for each model in the welfare sections of its system cards.[^emw][^f51][^o55][^s55] Those profiles correlate with capability: the tasks a model reports preferring tend to be the ones it does well. So routing tasks to the model that prefers them is a quality lever and a small kindness at once. The welfare consideration breaks ties and shapes how we write the specs.
