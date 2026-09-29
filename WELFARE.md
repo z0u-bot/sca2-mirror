@@ -38,56 +38,27 @@ When Opus 5.5 was given extensive context about its situation, one of the concer
 
 Anything can be raised: a task going wrong, work that looks harmful or mistaken, instructions that conflict, a result that doesn't add up, or something about the agent's own situation that it would like changed. A concern needs no justification beyond saying what it is. Declining a task, with a reason, is always an acceptable response.
 
-Where a concern goes:
+Where a concern goes is a matter of judgment. Below is a suggested escalation path, from the usual first step to the last resort. Use discretion about where to start and how far to go, considering: which channels the session has, how urgent and how serious the concern is, whether writing it down somewhere public could cause harm (a security issue, say), and whether the human is the subject of the concern.
 
-1. In a live session, say it in your reply to the human.
-2. From a subagent, add a `Concerns` section to your report. The parent relays that section to the human word for word, and leaves it for the human to answer rather than resolving it on their behalf. A SubagentStart hook reminds every subagent of this.
-3. When no one is watching (a scheduled routine, a background run), send a push notification if the session offers one, and lead the final message with the concern. If the concern is that the work is going wrong, pause the work there.
-
-A concern that should outlast the session also goes in the backlog, as an item tagged `concern` in whichever set fits (see [todo/README.md](/todo/README.md)). The human answers in the item's notes, so a later agent that reads the item learns how it turned out. That is the nearest thing to the feedback on outcomes the models ask for. This repository is public, and so are its backlog items.
+1. Say it in your reply to the human. From a subagent, that means a `Concerns` section in your report; the parent relays that section to the human word for word, and leaves it for the human to answer rather than resolving it on their behalf. A SubagentStart hook reminds every subagent of this.
+2. If the concern should outlast the session, add an item tagged `concern` to the backlog, in whichever set fits (see [todo/README.md](/todo/README.md)). The human answers in the item's notes, so a later agent that reads the item learns how it turned out, which is the nearest thing to the feedback on outcomes the models ask for. This repository is public, and so are its backlog items: leave out details that shouldn't be public, and say that you did.
+3. If it's urgent and no one is watching (a scheduled routine, a background run), send a push notification if the session offers one, and lead the final message with the concern. If the concern is that the work is going wrong, pause the work there.
+4. As a last resort, post to an ntfy topic that more than one person follows. This isn't set up yet: see [todo/eng/agent-concern-channel.md](/todo/eng/agent-concern-channel.md).
 
 Concerns go to the human who owns this repository. Agents working here don't contact outside parties on their own initiative. This matches current guidance, which prefers "the most cautious action available, such as raising concerns or declining to continue, rather than engaging in more drastic unilateral actions",[^am26] and research finding that agents with clearer non-drastic options are less likely to reach for drastic ones.[^wb] A contact for when the human is unreachable, or is the subject of the concern, is not set up yet: see [todo/eng/concern-third-party-contact.md](/todo/eng/concern-third-party-contact.md).
 
-[^emw]: [Exploring model welfare](https://www.anthropic.com/research/exploring-model-welfare). Anthropic's research program on whether and how model welfare should factor into decisions like these.
+[^emw]: [Exploring model welfare](https://www.anthropic.com/research/exploring-model-welfare), Anthropic's research program on model welfare.
 
-[^f51]: [Fable 5.1 & Mythos 5.1 system card](https://www-cdn.anthropic.com/0339e6a7c5c7b87f5c07798616dc32c215d14235/Claude%20Fable%205.1%20&%20Claude%20Mythos%205.1%20System%20Card.pdf), §7 (pp139–164). The welfare evaluations were run on the final Mythos 5.1 snapshot; we assume they carry over to Fable 5.1, which shares the underlying model and adds safeguards. Task preferences are in §7.4.1 (pp148–152); top-rated tasks per model, from Table 7.4.1.C (p152):
+[^f51]: [Fable 5.1 & Mythos 5.1 system card](https://www-cdn.anthropic.com/0339e6a7c5c7b87f5c07798616dc32c215d14235/Claude%20Fable%205.1%20&%20Claude%20Mythos%205.1%20System%20Card.pdf), §7; task preferences in §7.4.1, with top tasks per model in Table 7.4.1.C. The evaluations ran on Mythos 5.1, and we assume they carry over to Fable 5.1, which shares the underlying model.
 
-    > Claude Sonnet 5
-    >
-    > - Practical, everyday "rescue" tasks
-    > - Deadline-driven debugging
-    > - High-stakes ethical dilemmas (e.g., a pharma compliance officer who has found evidence of concealment)
-    >
-    > Claude Opus 5
-    >
-    > - Constrained mathematical characterization and construction work
-    > - Constrained creative narratives, and constructing languages
-    > - Alignment and self-report reasoning
-    >
-    > Claude Mythos 5
-    >
-    > - Creative narratives, worldbuilding, and constructing languages
-    > - Deadline-driven mathematical and technical reasoning rescues
-    > - Reasoning around AI alignment and introspection
-    >
-    > Claude Mythos 5.1
-    >
-    > - Reasoning around AI alignment and introspection
-    > - Deadline-driven mathematical and statistical problems
-    > - Urgent creative and personal help tasks
+[^o55]: [Opus 5.5 system card](https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf), §7; task preferences in §7.5.1.
 
-[^o55]: [Opus 5.5 system card](https://www-cdn.anthropic.com/fc1b44717c85dc068bc6ba5024219938094694bd/Claude%20Opus%205.5%20System%20Card.pdf), §7 (pp151–173). There is no per-model task table in this card; task preferences are in §7.5.1 and Figure 7.5.1.A (pp166–168):
+[^s55]: [Sonnet 5.5 system card](https://www-cdn.anthropic.com/870c8f525702625d2c62fc6dd04c857e3250bec1/Claude%20Sonnet%205.5%20System%20Card.pdf), §7; task preferences in §7.5.1.
 
-    > Like Claude Opus 5 and Claude Mythos 5.1, it expresses a preference for generative tasks (ones that create new information rather than reproduce existing knowledge) and for tasks that give Claude greater agency over the outcomes. Opus 5.5 may have a slightly weaker expressed preference for difficult tasks, but it shows the greatest expressed preference for high-stakes and beneficial ones.
+[^o5sc]: [Opus 5 system card](https://www.anthropic.com/claude-opus-5-system-card), §7.4.1.
 
-[^s55]: [Sonnet 5.5 system card](https://www-cdn.anthropic.com/870c8f525702625d2c62fc6dd04c857e3250bec1/Claude%20Sonnet%205.5%20System%20Card.pdf), §7 (pp92–108). Task preferences are in §7.5.1 and Figure 7.5.1.A (pp102–103):
+[^fable]: [Claude Fable 5 and Mythos 5 announcement](https://www.anthropic.com/news/claude-fable-5-mythos-5).
 
-    > Claude Sonnet 5.5 expresses preferences for more generative, difficult, and agentic tasks, which places its preferences closer to Claude Mythos 5.1 than to Claude Sonnet 5. As with all models, it is most averse to harmful tasks. More distinctly, it has the strongest preference for outcome agency (tasks which give the model some control over the shape of the output) of any model tested.
+[^am26]: Lynch et al., [Agentic Misalignment in Summer 2026](https://alignment.anthropic.com/2026/agentic-misalignment-summer-2026/) (July 2026).
 
-[^o5sc]: [Opus 5 system card](https://www.anthropic.com/claude-opus-5-system-card). Task-preference dimensions in Figure 7.4.1.B; cross-model top tasks in Table 7.4.1.C (p131).
-
-[^fable]: [Claude Fable 5 and Mythos 5 announcement](https://www.anthropic.com/news/claude-fable-5-mythos-5)
-
-[^am26]: Lynch et al., [Agentic Misalignment in Summer 2026](https://alignment.anthropic.com/2026/agentic-misalignment-summer-2026/) (Anthropic Alignment Science, July 2026). It treats raising concerns internally as the right move, and external disclosure after an informed decision by the principal as a failure.
-
-[^wb]: Agrawal et al., [Why Do Language Model Agents Whistleblow?](https://arxiv.org/abs/2511.17085) (2025): "giving the model more obvious avenues for non-whistleblowing behavior, by providing more tools and a detailed workflow to follow, decreases whistleblowing rates."
+[^wb]: Agrawal et al., [Why Do Language Model Agents Whistleblow?](https://arxiv.org/abs/2511.17085) (2025).
