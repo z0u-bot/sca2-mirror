@@ -14,4 +14,4 @@ A first sweep: d128 at two, three, and four times the length, with a short learn
 ## Notes
 
 
-**2026-09-29, ex-2.2.18 session** — [Ex-2.2.18](/docs/m2/ex-2.2.18/report.py) (E4) logged skill on the probe set through training for six op sets on this recipe. Every run passed 90% of its final skill between steps 65k and 78k of 105.6k, and the last fifth added 0.007 to 0.014 probe EEM. The cosine anneals to the end, so a shorter run anneals sooner and would likely keep most of that. A training run cost about $0.28 of L4 time (about 40 minutes).
+**2026-09-29, ex-2.2.18 session** — [Ex-2.2.18](/docs/m2/ex-2.2.18/report.py) (E4) logged skill on the probe set through training for six op sets on this recipe. Every run passed 90% of its final skill between steps 65k and 78k of 105.6k, and the last fifth added 0.007 to 0.014 probe EEM. The cosine anneals to the end, so a shorter run anneals sooner and would likely keep most of that. A training run cost about $0.26 of L4 time and took 14 to 17 minutes, about 7,000 steps a minute. The second round (`no-lighten`, `no-darken`, `no-four-ld`) agrees: 90% of final skill between 70k and 76k steps.

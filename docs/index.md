@@ -319,7 +319,7 @@ These experiments were preparation for the main work: exercising the infrastruct
     <!-- mini:figures ./m2/ex-2.2.17/report.py -->
 - [2.2.18. Dropping ops with similar answers](./m2/ex-2.2.18/report.py) (done)
 
-    A scout on the op set of the in-context grammar, at one seed per op set, with ex-2.2.17's recipe. It drops one op of each pair whose answers often coincide (`screen`, `multiply`, `hsvmix`, `exclusion`), one at a time and all four together, and scores each run against the Bayes ceiling of its own op set. Dropping all four raised the ceiling from 0.51 to 0.61, and the model came within 0.044 of it, closer than any run so far. Single drops mostly moved the ceiling and the model together. Also logs how skill grows through training, for later rounds on a cheaper recipe.
+    A scout on the op set of the in-context grammar, at one seed per op set, with ex-2.2.17's recipe. It drops one op of each pair whose answers often coincide (`screen`, `multiply`, `hsvmix`, `exclusion`), one at a time and all four together, and scores each run against the Bayes ceiling of its own op set. Dropping all four raised the ceiling from 0.51 to 0.61, and the model came within 0.044 of it, closer than any run so far. A second round dropped `lighten`, `darken`, `hsvmix`, and `exclusion` instead: the ceiling stayed near 0.52 and the gap narrowed to 0.055, so most of the higher ceiling comes from dropping ops that round at random. Single drops mostly moved the ceiling and the model together. Also logs how skill grows through training, for later rounds on a cheaper recipe.
 
     <span class="tags">`scouting` `in-context` `training`</span>
 

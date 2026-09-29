@@ -267,15 +267,41 @@ def four_of(dropped: str) -> str:
 STEPS = TRAJ[FULL]["step"][-1]
 EARLY = 10
 
+LD = "no-four-ld"
+
+
+def hsv_gap(s: str) -> float:
+    """The mean gap over the three HSV-channel ops."""
+    return float(np.mean([gap(s, op) for op in HSV_CHANNEL]))
+
+
+# A run falls short on the HSV-channel ops when their mean gap is more than 0.1, against 0.06 in the full-set run.
+HSV_SHORT = tuple(s for s in SETS if hsv_gap(s) > 0.1)
+NO_HSVMIX = tuple(s for s in SETS if "hsvmix" not in ops_of(s))
+WITH_HSVMIX = tuple(s for s in SETS if "hsvmix" in ops_of(s))
+
+
+WORDS = ("zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine")
+
+
+def listed(items) -> str:
+    items = list(items)
+    return items[0] if len(items) == 1 else ", ".join(items[:-1]) + f", and {items[-1]}"
+
+
+def names(sets: Sequence[str]) -> str:
+    return listed(f"`{s}`" for s in sets)
+
+
 rf"""
 # Ex 2.2.18: dropping ops with similar answers, a scout
 
 /// tip |
 <!-- tl;dr -->
-Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Dropping one op at a time mostly moved the ceiling and the model together. Each op set has one seed.
+Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs, and it left the ceiling where it was and narrowed the gap by less. Each op set has one seed.
 ///
 
-Ex-2.2.17 found that its center control, where the examples settle the op, keeps part of its mass on the answers of the op most like the true one: `lighten` onto `screen`, `darken` onto `multiply`, `mix` and `hsvmix` onto each other, and `difference` onto `exclusion`. This scout drops one op of each of those pairs, one at a time and all four together, and trains the ex-2.2.17 recipe on each smaller op set, at one seed per op set.
+Ex-2.2.17 found that its center control, where the examples settle the op, keeps part of its mass on the answers of the op most like the true one: `lighten` onto `screen`, `darken` onto `multiply`, `mix` and `hsvmix` onto each other, and `difference` onto `exclusion`. This scout drops one op of each of those pairs, one at a time and all four together. A second round drops the other side of the two brightening pairs, `lighten` and `darken`, alone and in place of `screen` and `multiply` in the four-op drop. Each op set trains the ex-2.2.17 recipe once.
 
 Dropping ops changes the task, so every op set has its own Bayes ceiling and floor, and we score each run against its own.
 
@@ -283,8 +309,8 @@ Dropping ops changes the task, so every op set has its own Bayes ceiling and flo
 
 Each line is a measurement on the runs of this scout, with no gate.
 
-- **E1** [Scores against each ceiling](#scores-against-each-ceiling-e1): every drop raised the ceiling, and the gap to it stayed near that of the full set except without `multiply`. Without all four ops, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far.
-- **E2** [The HSV-channel ops](#the-hsv-channel-ops-e2): the runs without `multiply` and without `exclusion` fell short on the three HSV-channel ops, and the runs without `hsvmix` learned those ops earlier than the others did.
+- **E1** [Scores against each ceiling](#scores-against-each-ceiling-e1): dropping `lighten` or `darken` lowered the ceiling, and dropping any of the other four raised it. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far. The second four-op drop came within {gap(LD):.3f} of a ceiling near that of the full set.
+- **E2** [The HSV-channel ops](#the-hsv-channel-ops-e2): {WORDS[len(HSV_SHORT)]} of the {WORDS[len(SINGLES)]} single drops fell short on the three HSV-channel ops, and the {WORDS[len(NO_HSVMIX)]} runs without `hsvmix` learned those ops earlier than the others did.
 - **E3** [The leak onto a dropped op](#the-leak-onto-a-dropped-op-e3): on contexts of a partner op, the mass the model put on the answers of the dropped op mostly went away with it.
 - **E4** [Training time](#training-time-e4): every run reached 95% of its final skill by step {max(steps_to(s, 0.95) for s in SETS):,} of {STEPS:,.0f}, and the last fifth of training added at most {max(late_gain(s) for s in SETS):.3f}.
 
@@ -295,6 +321,8 @@ This is a scout, with no preregistration and no gate. Each op set has one run, a
 ## Why
 
 The in-context grammar asks the model to infer the op from three examples, and some pairs of ops give the same answer on many operand pairs. An example that fits `lighten` often fits `screen` too, so those examples say less about the op, and the model has two nearly interchangeable answers to choose between. If the pairs are part of why the control falls short of its ceiling, a smaller op set might make a better grammar for the anchoring experiments: more of the ceiling reachable, for the same training.
+
+Which side of a pair to drop matters too. `lighten`, `darken`, and `difference` give one answer for each pair of operands, while their partners round each channel at random between grid levels, so their answers are spread over a few colors. Dropping the spread-out side raises the ceiling for a reason that has nothing to do with similarity, and dropping the other side separates the two.
 
 ## The runs
 
@@ -313,7 +341,10 @@ table_html(
         ]
         for s in SETS
     ],
-    "**The op sets.** Each dropped op has a partner, the op ex-2.2.17 found its answers most often coincide with.",
+    """
+        **The op sets.** Each dropped op has a partner, the op ex-2.2.17 found its answers most often coincide with.
+        The `no-lighten`, `no-darken`, and `no-four-ld` sets were a second round.
+    """,
     text_cols=3,
 )
 
@@ -333,12 +364,13 @@ The figure below puts each run beside the ceiling and floor of its op set.
 
 scores_draw(
     f"""
-        Two charts over six op sets. Left: held-out expected exact match, with a ceiling mark and a floor mark per op
-        set. The ceilings run from {score(FULL, "ceiling"):.2f} for the full set to {score(FOUR, "ceiling"):.2f} for
-        no-four, and the model dots sit a little under each ceiling, except no-multiply, which sits further below.
-        The full-set dot at {score(FULL):.3f} falls inside the shaded band of ex-2.2.17's three seeds. Right: the gap
-        to the ceiling as bars, between {gap(FOUR):.3f} (no-four) and {gap("no-multiply"):.3f} (no-multiply), with the
-        ex-2.2.17 band from {min(YARD_GAP):.3f} to {max(YARD_GAP):.3f}.
+        Two charts over nine op sets. Left: held-out expected exact match, with a ceiling mark and a floor mark per op
+        set. The ceilings run from {min(score(s, "ceiling") for s in SETS):.2f} (no-darken) to
+        {score(FOUR, "ceiling"):.2f} (no-four), and the model dots sit a little under each ceiling, further below for
+        no-multiply and no-darken. The full-set dot at {score(FULL):.3f} falls inside the shaded band of ex-2.2.17's
+        three seeds. Right: the gap to the ceiling as bars, between {gap(FOUR):.3f} (no-four) and
+        {gap("no-multiply"):.3f} (no-multiply), with the ex-2.2.17 band from {min(YARD_GAP):.3f} to
+        {max(YARD_GAP):.3f}; no-four and no-four-ld are the two shortest bars.
     """,
     """
         **Scores against each ceiling.** Left: held-out expected exact match of each run (dots), with the Bayes ceiling
@@ -349,9 +381,13 @@ scores_draw(
 
 rf"""
 
-The full-set run scored {score(FULL):.3f}, inside the range of ex-2.2.17's seeds ({min(YARD_EEM):.3f} to {max(YARD_EEM):.3f}), so the recipe reproduced. Each single drop raised the ceiling by 0.02 to 0.03, and in three of the four the model rose with it, leaving gaps between {min(gap(s) for s in ("no-screen", "no-hsvmix")):.3f} and {gap("no-exclusion"):.3f}. The run without `multiply` scored lower than the full set, {gap("no-multiply"):.3f} below its ceiling; E2 shows where.
+The full-set run scored {score(FULL):.3f}, inside the range of ex-2.2.17's seeds ({min(YARD_EEM):.3f} to {max(YARD_EEM):.3f}), so the recipe reproduced.
 
-Dropping all four raised the ceiling to {score(FOUR, "ceiling"):.3f}, and the model reached {score(FOUR):.3f}, a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. Most of the rise in the ceiling is because the four dropped ops round stochastically, so even a predictor told the op cannot always name their answer, as it can for their partners `lighten`, `darken`, and `difference`: that predictor scores {STATS[FULL]["told_op"]:.3f} on the full set and {STATS[FOUR]["told_op"]:.3f} without the four. The rest comes from examples that point more clearly to one op.
+Dropping one of `screen`, `multiply`, `hsvmix`, or `exclusion` raised the ceiling by 0.02 to 0.03, and dropping `lighten` or `darken` lowered it by about 0.015. That follows from which side rounds at random. A predictor told the op, with no inference to do, scores {STATS[FULL]["told_op"]:.3f} on the full set: it can't always name the answer of an op that rounds at random, and it always can for `lighten` or `darken`. Without `screen` it scores {STATS["no-screen"]["told_op"]:.3f}, and without `lighten` {STATS["no-lighten"]["told_op"]:.3f}.
+
+The gaps of the single drops mostly stayed near the gap of the full set, {gap(FULL):.3f}. The exceptions were `no-multiply` at {gap("no-multiply"):.3f} and `no-darken` at {gap("no-darken"):.3f}, the two sides of the darkening pair, and `no-exclusion` at {gap("no-exclusion"):.3f}; E2 shows where those fell short.
+
+The two four-op drops break the same four pairs. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the ceiling rose to {score(FOUR, "ceiling"):.3f} and the model reached {score(FOUR):.3f}, a gap of {gap(FOUR):.3f}. Without `lighten`, `darken`, `hsvmix`, and `exclusion`, the ceiling stayed near that of the full set, at {score(LD, "ceiling"):.3f}, and the model reached {score(LD):.3f}, a gap of {gap(LD):.3f}. So most of the rise in EEM from `no-four` came from its higher ceiling. Both four-op drops narrowed the gap, by {gap(FULL) - gap(FOUR):.3f} and {gap(FULL) - gap(LD):.3f}; with one run each, and ex-2.2.17 seeds spanning {max(YARD_GAP) - min(YARD_GAP):.3f}, that part is a hint.
 
 ## The HSV-channel ops (E2)
 
@@ -361,12 +397,11 @@ The heatmap below breaks each gap down by op.
 
 gaps_draw(
     f"""
-        A heatmap with the eleven ops as rows and the six op sets as columns, each square the gap between the Bayes
+        A heatmap with the eleven ops as rows and the nine op sets as columns, each square the gap between the Bayes
         ceiling and the model on that op, with dropped ops marked. Most squares sit between 0.03 and 0.15. The
-        no-multiply column is bright on hue-hsv, sat-hsv, and value-hsv ({gap("no-multiply", "hue-hsv"):.2f},
-        {gap("no-multiply", "sat-hsv"):.2f}, {gap("no-multiply", "value-hsv"):.2f}), and the no-exclusion column on
-        sat-hsv and value-hsv ({gap("no-exclusion", "sat-hsv"):.2f}, {gap("no-exclusion", "value-hsv"):.2f}). The
-        no-four column is the darkest, with every op at or below {max(gap(FOUR, o) for o in ops_of(FOUR)):.2f}.
+        no-multiply, no-darken, and no-exclusion columns are bright on hue-hsv, sat-hsv, and value-hsv, up to
+        {max(gap(s, op) for s in HSV_SHORT for op in HSV_CHANNEL):.2f}. The no-four and no-four-ld columns are the
+        darkest.
     """,
     """
         **The gap by op.** Each square is the Bayes ceiling minus held-out expected exact match, for one op in one run.
@@ -376,15 +411,17 @@ gaps_draw(
 
 rf"""
 
-Two columns stand out. Without `multiply`, the model got {gap("no-multiply", "sat-hsv"):.2f} and {gap("no-multiply", "value-hsv"):.2f} short of the ceiling on `sat-hsv` and `value-hsv`, where the full-set run was {gap(FULL, "sat-hsv"):.2f} and {gap(FULL, "value-hsv"):.2f} short; without `exclusion`, the same two ops fell short by about twice as much as in the full set. The three HSV-channel ops are blend modes that take one of hue, saturation, or value from one operand and the other two from the other. Neither `multiply` nor `exclusion` gives answers like theirs, so similarity doesn't explain this.
+Three single drops fell short on the three HSV-channel ops: {names(HSV_SHORT)}, with a mean gap on those ops of {listed(f"{hsv_gap(s):.2f}" for s in HSV_SHORT)}, against {hsv_gap(FULL):.2f} in the full-set run. The HSV-channel ops are blend modes that take one of hue, saturation, or value from one operand and the other two from the other. None of the dropped ops gives answers like theirs, so similarity doesn't explain this.
 
-The learning curves suggest timing. Ex-2.2.17 saw these ops rise steeply partway through training, and in this scout the rise came at different times in different runs. At step {TRAJ[FULL]["step"][EARLY]:,.0f}, the mean probe EEM on the three ops was {hsv_at(FULL, EARLY):.2f} in the full-set run, {hsv_at("no-hsvmix", EARLY):.2f} and {hsv_at(FOUR, EARLY):.2f} in the two runs without `hsvmix`, and {hsv_at("no-multiply", EARLY):.2f} without `multiply`. The run without `exclusion` caught up late, and the run without `multiply` had not caught up when the schedule ended. With one seed per op set, we can't tell whether dropping `multiply` makes those ops harder to learn or this run was a slow one. Dropping an op also changes the corpus, since the other ops share its contexts, so each gets a little more training. The early start without `hsvmix` is a little firmer, since two runs share it, though the second of them also drops three other ops.
+The learning curves suggest timing. Ex-2.2.17 saw these ops rise steeply partway through training, and in this scout the rise came at different times in different runs. At step {TRAJ[FULL]["step"][EARLY]:,.0f}, the mean probe EEM on the three ops was {listed(f"{hsv_at(s, EARLY):.2f}" for s in NO_HSVMIX)} in the {WORDS[len(NO_HSVMIX)]} runs without `hsvmix`, and between {min(hsv_at(s, EARLY) for s in WITH_HSVMIX):.2f} and {max(hsv_at(s, EARLY) for s in WITH_HSVMIX):.2f} in the others. The runs that fell short had not caught up when the schedule ended.
 
-Away from the HSV-channel ops, the no-four column is lower than the full set on nearly every op. The partners of the dropped ops gained most: `lighten` went from {gap(FULL, "lighten"):.2f} to {gap(FOUR, "lighten"):.2f}, `darken` from {gap(FULL, "darken"):.2f} to {gap(FOUR, "darken"):.2f}, and `difference` from {gap(FULL, "difference"):.2f} to {gap(FOUR, "difference"):.2f}.
+With one seed per op set, we can't tell whether dropping `multiply`, `darken`, or `exclusion` makes those ops harder to learn, or these runs were slow ones. Dropping an op also changes the corpus, since the other ops share its contexts, so each gets a little more training. The early start without `hsvmix` is firmer: three runs share it, though two of them also drop three other ops.
+
+Away from the HSV-channel ops, both four-op columns are lower than the full set on nearly every op. `difference` went from {gap(FULL, "difference"):.2f} to {gap(FOUR, "difference"):.2f} and {gap(LD, "difference"):.2f}, and `mix` from {gap(FULL, "mix"):.2f} to {gap(FOUR, "mix"):.2f} and {gap(LD, "mix"):.2f}. In `no-four`, `lighten` and `darken` went from {gap(FULL, "lighten"):.2f} and {gap(FULL, "darken"):.2f} to {gap(FOUR, "lighten"):.2f} and {gap(FOUR, "darken"):.2f}.
 
 ## The leak onto a dropped op (E3)
 
-Ex-2.2.17 found the model keeping mass on the answers of a similar op even where the examples settle the op. For each partner op, we took the contexts whose posterior on it is above {CONFIDENT:g} and measured the mass the model puts on colors the dropped op can give and the partner cannot. The Bayes predictive puts almost none there.
+Ex-2.2.17 found the model keeping mass on the answers of a similar op even where the examples settle the op. For each dropped op, we took the contexts whose posterior on its partner is above {CONFIDENT:g} and measured the mass the model puts on colors the dropped op can give and the partner cannot. The Bayes predictive puts almost none there.
 
 """
 
@@ -400,15 +437,16 @@ table_html(
     ],
     """
         **The leak onto the dropped op.** Mean mass on colors the dropped op gives and its partner does not, on
-        confident contexts of the partner, with the number of those contexts in brackets. The full-set column is
-        one run, measured once per pair.
+        confident contexts of the partner, with the number of those contexts in brackets.
     """,
     text_cols=2,
 )
 
 rf"""
 
-In the full-set run, confident `lighten` contexts put {LEAK[FULL]["screen"]["leak"]:.2f} of their mass on colors only `screen` gives, and the other three pairs {min(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f} to {max(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f}. Dropping an op took most of its leak with it: `screen` fell to {LEAK["no-screen"]["screen"]["leak"]:.3f} in the run without it, and all four were at or below {max(LEAK[FOUR][d]["leak"] for d in ex.PARTNER):.3f} in the run without any of them. That is the expected result, since a model never trained on `screen` has no reason to give its answers. It confirms that most of this leak was the pairing, and it also means more contexts count as confident: without `screen`, {LEAK["no-screen"]["screen"]["n"]} held-out `lighten` contexts are confident, against {LEAK[FULL]["screen"]["n"]} in the full set.
+In the full-set run, confident `lighten` contexts put {LEAK[FULL]["screen"]["leak"]:.2f} of their mass on colors only `screen` gives, and the other three pairs {min(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f} to {max(LEAK[FULL][d]["leak"] for d in ("multiply", "hsvmix", "exclusion")):.2f}. The leak the other way is smaller: confident `screen` contexts put {LEAK[FULL]["lighten"]["leak"]:.3f} on colors only `lighten` gives. Part of that is in how the measurement counts. `lighten` gives one color, often one of the colors `screen` gives, so there are fewer colors for it to leak onto.
+
+Dropping an op took most of its leak with it: every entry of the last two columns is at or below {max(LEAK[s][d]["leak"] for d in PAIR_OF for s in (f"no-{d}", four_of(d))):.3f}. That is the expected result, since a model never trained on `screen` has no reason to give its answers. It confirms that most of this leak was the pairing, and it also means more contexts count as confident: without `screen`, {LEAK["no-screen"]["screen"]["n"]} held-out `lighten` contexts are confident, against {LEAK[FULL]["screen"]["n"]} in the full set.
 
 ## Training time (E4)
 
@@ -424,7 +462,8 @@ traj_draw(
     """,
     """
         **Skill through training.** Skill is how far a run got from the floor to the ceiling of its op set, measured
-        on a probe set of 200 contexts per op every 2% of training.
+        on a probe set of 200 contexts per op every 2% of training. The full set and the two four-op sets are drawn
+        heavier.
     """,
 )
 
@@ -458,9 +497,9 @@ Every run reached 90% of its final skill between step {min(steps_to(s, 0.9) for 
 
 ## What we make of it
 
-The op set without all four ops is easier in two ways: its ceiling is higher, and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. Much of the higher ceiling comes from dropping ops that round stochastically, and the leak onto a similar op, which went away with the dropped ops, may account for part of the smaller gap. Both seem like good properties for the grammar the anchoring experiments train on, with seven ops that are easier to tell apart. It would also mean a new ceiling for every D2.2 comparison so far.
+The op set without `screen`, `multiply`, `hsvmix`, and `exclusion` is easier in two ways: its ceiling is higher, and the model gets closer to it, at a skill of {skill(FOUR):.2f} against {skill(FULL):.2f} for the full set. The second four-op drop suggests the two ways have different causes. The higher ceiling comes from dropping ops that round at random. The smaller gap came with both four-op drops, so breaking up the similar pairs may account for it, though one run each is not enough to be sure. Dropping `screen` and `multiply` rather than `lighten` and `darken` gets both, and leaves seven ops that are easier to tell apart. It would also mean a new ceiling for every D2.2 comparison so far.
 
-The single drops say less. Dropping one op moved the ceiling and the model by similar amounts, except for `multiply` and `exclusion`, whose runs fell short on the HSV-channel ops; with one seed, that may be timing. The more consistent sign is that both runs without `hsvmix` learned the HSV-channel ops early, which fits ex-2.2.17 finding `hsvmix` the hardest op to compute.
+The single drops say less. Dropping one op mostly moved the ceiling and the model together, except in the three runs that fell short on the HSV-channel ops; with one seed, that may be timing. The more consistent sign is that all three runs without `hsvmix` learned the HSV-channel ops early, which fits ex-2.2.17 finding `hsvmix` the hardest op to compute.
 
 ## Method
 
@@ -468,5 +507,5 @@ The single drops say less. Dropping one op moved the ceiling and the model by si
 
 **Leak.** The answers a dropped op gives come from the full eleven-op answer table, so they are defined in runs that never trained on it. Confident contexts are chosen on the posterior of the op set of the run, so the set of contexts differs between runs.
 
-**Cost.** The scout cost about \$1.79 on Modal, \$1.70 of it L4 time: about \$0.28 per training run of about 40 minutes.
+**Cost.** The scout cost about \$2.42 on Modal, \$2.30 of it L4 time: about \$0.26 per training run. Each training run took 14 to 17 minutes on one L4, about 7,000 steps a minute.
 """
