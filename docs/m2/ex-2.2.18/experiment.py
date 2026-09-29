@@ -88,10 +88,20 @@ class OpSet:
 PARTNER: dict[str, str] = {"screen": "lighten", "multiply": "darken", "hsvmix": "mix", "exclusion": "difference"}
 """Each dropped op and the op ex-2.2.17 (E4) found the model confuses it with most."""
 
+COUNTERPART: dict[str, str] = {"lighten": "screen", "darken": "multiply"}
+"""The other side of the two brightening pairs of `PARTNER`: each op and the op it leaks onto."""
+
 OP_SETS: tuple[OpSet, ...] = (
     OpSet("full", (), "ex-2.2.16's eleven ops, rebuilt the same way as the ablations"),
     *(OpSet(f"no-{op}", (op,), f"drop `{op}`, which `{p}` leaks onto") for op, p in PARTNER.items()),
     OpSet("no-four", tuple(PARTNER), "drop all four at once"),
+    # A second round: drop the other op of the two brightening pairs, alone and in place of `screen` and `multiply` in
+    # the four-op drop. `lighten` and `darken` round deterministically, so this four-op drop breaks the same pairs
+    # while keeping the ops that round stochastically. Appended, so the seeds of the sets above stay as they were.
+    *(OpSet(f"no-{op}", (op,), f"drop `{op}`, which leaks onto `{p}`") for op, p in COUNTERPART.items()),
+    OpSet(
+        "no-four-ld", (*COUNTERPART, "hsvmix", "exclusion"), "drop `lighten` and `darken` in place of their partners"
+    ),
 )
 
 assert all(ex2216.ANCHORED_OP in s.ops for s in OP_SETS), "the labels keep the anchored op in every set"
@@ -423,6 +433,7 @@ def design() -> dict[str, Any]:
         "corpus_condition": ex2216.cond_key(*CENTRE),
         "op_sets": [asdict(s) | {"ops": list(s.ops)} for s in OP_SETS],
         "partner": PARTNER,
+        "counterpart": COUNTERPART,
         "epochs": EPOCHS,
         "peak_lr": PEAK_LR,
         "warmup_epochs": WARMUP_EPOCHS,

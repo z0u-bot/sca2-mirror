@@ -18,8 +18,12 @@ from mini.vis import AxesRow, figure_html, light_dark, themed
 
 X = ex.ex2216
 ALL_OPS: tuple[str, ...] = tuple(X.OP_NAMES)
-SETS: tuple[str, ...] = tuple(s.name for s in ex.OP_SETS)
-SINGLES: tuple[str, ...] = tuple(f"no-{op}" for op in ex.PARTNER)
+# Each dropped op and the op whose answers it most often shares, from either side of a pair.
+PAIR_OF: dict[str, str] = ex.PARTNER | ex.COUNTERPART
+SINGLES: tuple[str, ...] = tuple(f"no-{op}" for op in PAIR_OF)
+FOURS: tuple[str, ...] = ("no-four", "no-four-ld")
+SETS: tuple[str, ...] = ("full", *SINGLES, *FOURS)
+assert set(SETS) == {s.name for s in ex.OP_SETS}
 YARDSTICK = tuple(f"sweep-{ex.PEAK_LR:g}-s{s}" for s in range(3))
 # A context is confident when the posterior on its true op is above this, as in ex-2.2.17.
 CONFIDENT = 0.99
@@ -127,7 +131,7 @@ def leak(p16: np.ndarray, op_ids: np.ndarray, post: np.ndarray, pair: np.ndarray
     p = p16.astype(float)
     rows = np.arange(len(p))
     out = {}
-    for dropped, partner in ex.PARTNER.items():
+    for dropped, partner in PAIR_OF.items():
         if partner not in ops:
             continue
         sel = (op_ids == ops.index(partner)) & (post[rows, op_ids] > CONFIDENT)
@@ -158,7 +162,7 @@ LEAK = {
 def scores_draw(alt_text: str, caption: str) -> str:
     @themed(name="scores", alt_text=alt_text, caption=caption)
     def _plot() -> plt.Figure:
-        fig, axes = plt.subplots(1, 2, figsize=(8.4, 3.2), layout="constrained")
+        fig, axes = plt.subplots(1, 2, figsize=(9.0, 3.4), layout="constrained")
         axes = cast(AxesRow, axes)
         x = np.arange(len(SETS))
         ax = axes[0]
@@ -188,7 +192,7 @@ def gaps_draw(alt_text: str, caption: str) -> str:
         for j, s in enumerate(SETS):
             for op in ops_of(s):
                 m[ALL_OPS.index(op), j] = gap(s, op)
-        fig, ax = plt.subplots(figsize=(6.4, 4.6), layout="constrained")
+        fig, ax = plt.subplots(figsize=(8.0, 4.6), layout="constrained")
         lim = np.nanmax(np.abs(m))
         im = ax.imshow(m, cmap="viridis", vmin=0, vmax=lim, aspect="auto")
         for (i, j), v in np.ndenumerate(m):
@@ -213,7 +217,7 @@ def traj_draw(alt_text: str, caption: str) -> str:
             t = TRAJ[s]
             st = STATS[s]
             y = (np.array(t["eem"]) - st["floor"]) / (st["ceiling"] - st["floor"])
-            ax.plot(np.array(t["step"]) / 1e3, y, color=f"C{i}", lw=1.3 if s != "full" else 2, label=s)
+            ax.plot(np.array(t["step"]) / 1e3, y, color=f"C{i}", lw=2 if s == "full" or s in FOURS else 1.1, label=s)
         ax.axhline(1, ls="--", color=rule_color(), lw=1)
         ax.set_xlabel("step (thousands)")
         ax.set_ylabel("skill on the probe set")
@@ -253,6 +257,11 @@ def hsv_at(s: str, i: int) -> float:
     """Probe EEM on the three HSV-channel ops, averaged, at trajectory point *i*."""
     e = np.array(TRAJ[s]["eem_per_op"])[i]
     return float(np.mean([e[ops_of(s).index(op)] for op in HSV_CHANNEL]))
+
+
+def four_of(dropped: str) -> str:
+    """The four-op set that drops *dropped*."""
+    return next(s for s in FOURS if dropped in RUNS[s]["dropped"])
 
 
 STEPS = TRAJ[FULL]["step"][-1]
@@ -299,7 +308,7 @@ table_html(
         [
             f"`{s}`",
             ", ".join(f"`{o}`" for o in RUNS[s]["dropped"]) or "none",
-            ", ".join(f"`{ex.PARTNER[o]}`" for o in RUNS[s]["dropped"]) or "",
+            ", ".join(f"`{PAIR_OF[o]}`" for o in RUNS[s]["dropped"]) or "",
             str(len(ops_of(s))),
         ]
         for s in SETS
@@ -380,15 +389,19 @@ Ex-2.2.17 found the model keeping mass on the answers of a similar op even where
 """
 
 table_html(
-    ["partner", "dropped op", *(f"`{s}`" for s in (FULL, *SINGLES, FOUR))],
+    ["contexts of", "dropped op", "full set", "dropped alone", "dropped in its four-op set"],
     [
-        [f"`{ex.PARTNER[d]}`", f"`{d}`", *(f"{LEAK[s][d]['leak']:.3f}" for s in (FULL, *SINGLES, FOUR))]
-        for d in ex.PARTNER
+        [
+            f"`{PAIR_OF[d]}`",
+            f"`{d}`",
+            *(f"{LEAK[s][d]['leak']:.3f} ({LEAK[s][d]['n']})" for s in (FULL, f"no-{d}", four_of(d))),
+        ]
+        for d in PAIR_OF
     ],
-    f"""
+    """
         **The leak onto the dropped op.** Mean mass on colors the dropped op gives and its partner does not, on
-        confident contexts of the partner, in each run. The number of contexts per entry runs from
-        {min(LEAK[s][d]["n"] for s in SETS for d in LEAK[s])} to {max(LEAK[s][d]["n"] for s in SETS for d in LEAK[s])}.
+        confident contexts of the partner, with the number of those contexts in brackets. The full-set column is
+        one run, measured once per pair.
     """,
     text_cols=2,
 )
