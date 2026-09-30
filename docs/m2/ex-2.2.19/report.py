@@ -105,9 +105,9 @@ Ex-2.2.18 trained the center control on several smaller op sets, one run each. D
 
 We will probably adopt `no-four` for the anchoring experiments that follow, and each of those costs more the longer its runs: about \${ex.cost_per_run(ex.REFERENCE_EPOCHS):.2f} for 400 epochs.
 
-The skill curves of ex-2.2.18 leveled off well before the end: the last fifth of training added at most about {ex.SHORTFALL_TOL} of held-out expected exact match, which suggests a shorter run could do nearly as well. But the learning-rate schedule is a cosine, so a shorter run anneals sooner,[^anneal] and its curve is not the start of a longer one.
+The skill curves of ex-2.2.18 leveled off well before the end: the last fifth of training added at most about {ex.SHORTFALL_TOL} of held-out expected exact match, which suggests a shorter run could do nearly as well. But the learning-rate schedule is a cosine, so a shorter run anneals sooner,[^anneal] and its curve is not just a truncated longer one.
 
-[^anneal]: The learning rate decays along a cosine curve that reaches its low point at the end of the run, so a shorter run lowers its rate earlier, rather than stopping partway down the curve of a longer run. Only training one shows what a shorter run reaches.
+[^anneal]: The learning rate decays along a cosine curve that reaches its low point at the end of the run, so a shorter run lowers its rate earlier, rather than stopping partway down the curve of a longer run.
 
 A scout trains `no-four` at shorter lengths from the initialization of the ex-2.2.18 run, and a rule fixed in advance picks a length. Three fresh seeds then train at that length and at 400 epochs, and the preregistered comparison uses those seeds alone: the scout seed helped pick the length, so it would flatter the pick.
 
@@ -132,8 +132,8 @@ table_html(
         ],
         [
             "2: confirmation",
-            f"the pick L, 2L if shorter than {ex.REFERENCE_EPOCHS}, and {ex.REFERENCE_EPOCHS}",
-            f"the better scout rate at L and 2L; {ex.PEAK_LR:g} at {ex.REFERENCE_EPOCHS}",
+            f"the pick T, 2T if shorter than {ex.REFERENCE_EPOCHS}, and {ex.REFERENCE_EPOCHS}",
+            f"the better scout rate at T and 2T; {ex.PEAK_LR:g} at {ex.REFERENCE_EPOCHS}",
             f"{ex.SEED_OFFSET + min(ex.CONFIRM_SEEDS)}–{ex.SEED_OFFSET + max(ex.CONFIRM_SEEDS)}",
             f"up to {len(ex.CONFIRM_SEEDS) * (1 + ex.MAX_CONFIRM_LENGTHS)}",
         ],
@@ -151,41 +151,41 @@ Model seeds {ex.SEED_OFFSET + 1} and {ex.SEED_OFFSET + 2} are the initialization
 
 Held-out *expected exact match* (EEM) is the probability that an answer drawn from the model at the query `=` is a correct answer of the true op. The *Bayes ceiling* is the same score for an ideal predictor, one that weighs each op by how well it explains the examples. The *gap* is the ceiling minus EEM. All three are computed on the op set of the run, as in ex-2.2.18.
 
-Within `no-four` the ceiling is the same at every length, so a difference in gap between two lengths is a difference in EEM. A run *falls short* of another by how much lower its EEM is. We compare runs that share a model seed, and average those paired differences over seeds.
+Given a fixed corpus, the ceiling is the same at every length, so a difference in gap between two lengths is a difference in EEM. A run *falls short* of another by how much lower its EEM is. We compare runs that share a model seed, and average those paired differences over seeds.
 
 ## The scout (S1)
 
 The scout is a procedure, with no hypothesis; the rule below picks the length that stage 2 confirms.
 
-**The rule.** At each scout length, take the run at the peak rate with the higher EEM. Of those runs, pick the shortest, L, that falls short of the ex-2.2.18 run by at most {ex.SHORTFALL_TOL}, with no op falling short by more than its own tolerance (below). If no scout length passes, stage 2 trains only the 400-epoch runs, and H1 is unresolved.
+**The rule.** At each scout length, take the run at the peak rate with the higher EEM. Of those runs, pick the shortest, T, that falls short of the ex-2.2.18 run by at most {ex.SHORTFALL_TOL}, with no op falling short by more than its own tolerance (below). If no scout length passes, stage 2 trains only the 400-epoch runs, and H1 is unresolved.
 
-Stage 2 confirms L, and also 2L when 2L is shorter than {ex.REFERENCE_EPOCHS} epochs, so that a lucky pass at L still leaves a length to adopt. Each trains at the rate taken at its length.
+Stage 2 confirms T, and also 2T when 2T is shorter than {ex.REFERENCE_EPOCHS} epochs, so that a lucky pass at T still leaves a length to adopt. Each trains at the rate taken at its length.
 
 The overall tolerance is the largest last-fifth gain of any ex-2.2.18 run. The tolerance for each op is its seed range in the three ex-2.2.17 runs, or {ex.PARTIAL_TOL}, whichever is larger, since some ops varied little across three seeds and a single scout run is noisier than that.
 
-**What we expect.** At 50 epochs the run falls short by more than the tolerance: ex-2.2.17 needed several times that length for the HSV-channel ops. We don't have a strong expectation between 100 and 200 epochs. We expect the higher rate to help more the shorter the run, and at 200 epochs to make little difference.
+**What we expect.** At 50 epochs the run falls short by more than the tolerance: ex-2.2.17 needed several times that length for the HSV-channel ops. We don't have a strong expectation between 100 and 200 epochs. We expect the higher rate to help more the shorter the run, and at 200 epochs to make little difference. The HSV-channel ops may be the exception: in ex-2.2.17 they were learned while the rate passed down through about {ex.ex2217.HOLD_LR:g}, during the cosine, so a higher peak only delays that stretch, and a short run has the least time to spare.
 
 /// admonition | TODO
-A line chart of held-out EEM against epochs (log scale) for the seed-{ex.SEED_OFFSET} runs, one line per peak rate meeting at the 400-epoch run, with the ceiling as a dashed line and the tolerance as a band under the 400-epoch point; beside it, a table of the shortfall overall and per op at each length, with the pick marked.
+A line chart of held-out EEM against epochs (log scale), with skill on a second axis, for the seed-{ex.SEED_OFFSET} runs, one line per peak rate meeting at the 400-epoch run, with the ceiling as a dashed line and the tolerance as a band under the 400-epoch point; beside it, a table of the shortfall overall and per op at each length, with the pick marked.
 ///
 
 ## A shorter run keeps most of the skill (H1)
 
-**What we expect.** On the fresh seeds, the run at L falls short of the run at {ex.REFERENCE_EPOCHS} epochs by at most {ex.SHORTFALL_TOL} on average, and no op falls short by more than its tolerance on average. That is a pass, and we adopt L.
+**What we expect.** On the fresh seeds, the run at T falls short of the run at {ex.REFERENCE_EPOCHS} epochs by at most {ex.SHORTFALL_TOL} on average, and no op falls short by more than its tolerance on average. That is a pass, and we adopt T.
 
 A shortfall between {ex.SHORTFALL_TOL} and {ex.PARTIAL_TOL} (the seed range of ex-2.2.17) is a partial pass. A shortfall beyond {ex.PARTIAL_TOL}, or an op beyond its tolerance, is a miss for H1, and would mean the scout result was flattered by its seed.
 
-After a partial pass or a miss we adopt 2L if it passes. Otherwise, after a partial pass, we adopt L and note the cost.
+After a partial pass or a miss, we adopt 2T if it was trained (2T shorter than {ex.REFERENCE_EPOCHS} epochs) and passes. Otherwise, after a partial pass, we adopt T and note the cost.
 
 /// admonition | TODO
-The paired shortfall at each confirmed length, one dot per seed and a bar for the mean, with the tolerance and the partial band shaded; and a table of the mean shortfall per op against each tolerance.
+The shortfall at each confirmed length, paired by model seed, one dot per seed and a bar for the mean, with the tolerance and the partial band shaded; and a table of the mean shortfall per op against each tolerance.
 ///
 
 ## The seven-op set stays closer to its ceiling (H2)
 
 **What we expect.** At {ex.REFERENCE_EPOCHS} epochs, `no-four` has a smaller gap than `full` at each of the three model seeds where both exist ({ex.SEED_OFFSET}, {ex.SEED_OFFSET + 1}, and {ex.SEED_OFFSET + 2}). This is a check on ex-2.2.18, with no gate, since we are likely to adopt `no-four` for its higher ceiling either way. If the gaps overlap, the narrower gap of ex-2.2.18 was seed variation.
 
-The `full` runs at seeds {ex.SEED_OFFSET + 1} and {ex.SEED_OFFSET + 2} trained on the ex-2.2.16 corpus, and the one at seed {ex.SEED_OFFSET} on a corpus ex-2.2.18 rebuilt the same way, so the pairs share a starting point and differ in corpus draw as well as op set.
+The `full` runs are reused: those at seeds {ex.SEED_OFFSET + 1} and {ex.SEED_OFFSET + 2} are from ex-2.2.17 and trained on the ex-2.2.16 corpus, and the one at seed {ex.SEED_OFFSET} is from ex-2.2.18, on a corpus rebuilt the same way, so the pairs share a starting point and differ in corpus draw as well as op set.
 
 /// admonition | TODO
 The gap of `no-four` and of `full` at {ex.REFERENCE_EPOCHS} epochs, one pair of dots per model seed joined by a line, with the `no-four` run at seed {ex.SEED_OFFSET + 3} unpaired.
@@ -195,9 +195,10 @@ The gap of `no-four` and of `full` at {ex.REFERENCE_EPOCHS} epochs, one pair of 
 
 These are planned but have no prediction.
 
-- The skill curves of every run, to see whether the HSV-channel ops are learned later, or not at all, in the shorter runs.
-- The calibration KL of each run (the KL divergence from the Bayes answer distribution to that of the model) beside its EEM, since ex-2.2.17 found a model can score well and be poorly calibrated.
-- The spread of EEM over the four `no-four` seeds at {ex.REFERENCE_EPOCHS} epochs, against the spread of the three `full` seeds.
+- **E1** The skill curves of every run, to see whether the HSV-channel ops are learned later, or not at all, in the shorter runs.
+- **E2** The calibration KL of each run (the KL divergence from the Bayes answer distribution to that of the model) beside its EEM, since ex-2.2.17 found a model can score well and be poorly calibrated.
+- **E3** The spread of EEM over the four `no-four` seeds at {ex.REFERENCE_EPOCHS} epochs, against the spread of the three `full` seeds.
+- **E4** The op confusion matrix of each run at the chosen length and at {ex.REFERENCE_EPOCHS} epochs: the mass the model puts on the answers of each op, on contexts of each true op, as in ex-2.2.17. A shorter run might keep more of its mass on a similar op.
 
 ## What it means for what follows
 
@@ -205,7 +206,7 @@ TODO after the results.
 
 ## Method
 
-**Recipe.** The unanchored d64-L4 model with an untied readout and the newline mask, trained with a cosine schedule after a linear warmup, as in ex-2.2.18. The corpus condition is `k3-r0.3` on the `no-four` op set, with the corpus, held-out set, and probe set that ex-2.2.18 built, so that the runs differ from the ex-2.2.18 run in length and model seed alone.
+**Recipe.** The unanchored d64-L4 model with an untied readout and the newline mask, trained with a cosine schedule after a linear warmup, as in ex-2.2.18. The corpus condition is `k3-r0.3` (three examples per context, with a replacement rate of 0.3) on the `no-four` op set (the eleven ops of ex-2.2.16 less `screen`, `multiply`, `hsvmix`, and `exclusion`), with the corpus, held-out set, and probe set that ex-2.2.18 built, so that the runs differ from the ex-2.2.18 run in length and model seed alone.
 
 **Warmup and learning rate.** The warmup is {ex.WARMUP_EPOCHS:g} epochs rather than a fixed share of the run, as in ex-2.2.17 from its second round, and the peak learning rate is {ex.PEAK_LR:g}. A shorter run spends less of its schedule near the peak, so it may do better at a higher peak rate. The scout tries {ex.SCOUT_LRS[1]:g} beside it at each shorter length: the next rate up on the ex-2.2.17 grid, which at 400 epochs scored level with {ex.PEAK_LR:g} at one seed, where 0.01 scored lower. The 400-epoch runs stay at {ex.PEAK_LR:g}, so H1 compares a shorter recipe, rate included, with the recipe we have.
 
