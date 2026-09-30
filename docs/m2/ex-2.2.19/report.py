@@ -93,7 +93,11 @@ We look for the shortest training run on the seven-op set (`no-four`) that keeps
 
 - [The scout (S1)](#the-scout-s1) —
 - [A shorter run keeps most of the skill (H1)](#a-shorter-run-keeps-most-of-the-skill-h1) —
+- [Skill curves (E1)](#skill-curves-e1) —
+- [Calibration (E2)](#calibration-e2) —
+- [Op confusion (E3)](#op-confusion-e3) —
 - [The seven-op set stays closer to its ceiling (H2)](#the-seven-op-set-stays-closer-to-its-ceiling-h2) —
+- [Spread over seeds (E4)](#spread-over-seeds-e4) —
 
 /// admonition | How to read this draft
 This is a preregistration: the selection rule, the hypotheses, and their gates are written down before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
@@ -171,14 +175,38 @@ A line chart of held-out EEM against epochs (log scale), with skill on a second 
 
 ## A shorter run keeps most of the skill (H1)
 
-**What we expect.** On the fresh seeds, the run at T falls short of the run at {ex.REFERENCE_EPOCHS} epochs by at most {ex.SHORTFALL_TOL} on average, and no op falls short by more than its tolerance on average. That is a pass, and we adopt T.
+**What we expect.** On the fresh seeds, the run at T falls short of the run at {ex.REFERENCE_EPOCHS} epochs by at most {ex.SHORTFALL_TOL} on average, and no op falls short by more than its tolerance on average. That is a pass.
 
-A shortfall between {ex.SHORTFALL_TOL} and {ex.PARTIAL_TOL} (the seed range of ex-2.2.17) is a partial pass. A shortfall beyond {ex.PARTIAL_TOL}, or an op beyond its tolerance, is a miss for H1, and would mean the scout result was flattered by its seed.
+A shortfall between {ex.SHORTFALL_TOL} and {ex.PARTIAL_TOL} (the seed range of ex-2.2.17) is a partial pass. A shortfall beyond {ex.PARTIAL_TOL}, or an op beyond its tolerance, is a miss for H1, and would mean the scout result was flattered by its seed. 2T, when trained, gets a verdict by the same rule.
 
-After a partial pass or a miss, we adopt 2T if it was trained (2T shorter than {ex.REFERENCE_EPOCHS} epochs) and passes. Otherwise, after a partial pass, we adopt T and note the cost.
+**Which length we adopt.** The verdicts inform this choice without settling it, since a rule written now can't anticipate everything that might matter: a short run that matches on EEM could be poorly calibrated ([E2](#calibration-e2)), or spread more widely over seeds ([E4](#spread-over-seeds-e4)). We expect to adopt the shortest confirmed length that passes, and will say why if we choose otherwise.
 
 /// admonition | TODO
 The shortfall at each confirmed length, paired by model seed, one dot per seed and a bar for the mean, with the tolerance and the partial band shaded; and a table of the mean shortfall per op against each tolerance.
+///
+
+## Skill curves (E1)
+
+Exploratory, with no prediction. The skill curves of every run, to see whether the HSV-channel ops are learned later, or not at all, in the shorter runs.
+
+/// admonition | TODO
+Skill against the fraction of training completed, one line per length, split by op.
+///
+
+## Calibration (E2)
+
+Exploratory, with no prediction. The calibration KL of each run (the KL divergence from the Bayes answer distribution to that of the model) beside its EEM, since ex-2.2.17 found a model can score well and be poorly calibrated.
+
+/// admonition | TODO
+Calibration KL against EEM, one dot per run, colored by length.
+///
+
+## Op confusion (E3)
+
+Exploratory, with no prediction. The op confusion matrix of each run at the chosen length and at {ex.REFERENCE_EPOCHS} epochs: the mass the model puts on the answers of each op, on contexts of each true op, as in ex-2.2.17. A shorter run might keep more of its mass on a similar op.
+
+/// admonition | TODO
+The confusion matrices, at the chosen length and at {ex.REFERENCE_EPOCHS} epochs, averaged over the fresh seeds.
 ///
 
 ## The seven-op set stays closer to its ceiling (H2)
@@ -191,14 +219,13 @@ The `full` runs are reused: those at seeds {ex.SEED_OFFSET + 1} and {ex.SEED_OFF
 The gap of `no-four` and of `full` at {ex.REFERENCE_EPOCHS} epochs, one pair of dots per model seed joined by a line, with the `no-four` run at seed {ex.SEED_OFFSET + 3} unpaired.
 ///
 
-## Exploratory analyses
+## Spread over seeds (E4)
 
-These are planned but have no prediction.
+Exploratory, with no prediction. The spread of EEM over the four `no-four` seeds at {ex.REFERENCE_EPOCHS} epochs, against the spread of the three `full` seeds, and the spread at each confirmed length.
 
-- **E1** The skill curves of every run, to see whether the HSV-channel ops are learned later, or not at all, in the shorter runs.
-- **E2** The calibration KL of each run (the KL divergence from the Bayes answer distribution to that of the model) beside its EEM, since ex-2.2.17 found a model can score well and be poorly calibrated.
-- **E3** The spread of EEM over the four `no-four` seeds at {ex.REFERENCE_EPOCHS} epochs, against the spread of the three `full` seeds.
-- **E4** The op confusion matrix of each run at the chosen length and at {ex.REFERENCE_EPOCHS} epochs: the mass the model puts on the answers of each op, on contexts of each true op, as in ex-2.2.17. A shorter run might keep more of its mass on a similar op.
+/// admonition | TODO
+EEM per seed at each length and op set, with the range marked.
+///
 
 ## What it means for what follows
 
