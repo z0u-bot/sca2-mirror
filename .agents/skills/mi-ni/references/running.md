@@ -24,7 +24,7 @@ A capped session can't babysit a long run, so work in wakes, where each verb is 
 
 Re-running is cheap: completed steps are memo hits, so a `run` only advances the un-run pieces.
 
-To wait for a stage to settle in an agent session that wants one wake-up rather than a sleep loop, use `bin/mini watch <exp> --timeout 10m --json`. It polls read-only, reaps vanished workers, and exits the moment there's something to act on. The exit code names the branch, so no output parsing is needed to decide: `0` means the current tasks all settled DONE, so `run` again to advance the DAG (the tick prints `✓ complete` when nothing is left); `1` means settled with FAILED or CANCELLED, so `logs` and `retry`; `124` means `--timeout` elapsed with work still in flight, so re-watch or report progress.
+To wait for a stage to settle in an agent session that wants one wake-up rather than a sleep loop, use `bin/mini watch <exp> --timeout 9m --json`. It polls read-only, reaps vanished workers, and exits the moment there's something to act on. The exit code names the branch, so no output parsing is needed to decide: `0` means the current tasks all settled DONE, so `run` again to advance the DAG (the tick prints `✓ complete` when nothing is left); `1` means settled with FAILED or CANCELLED, so `logs` and `retry`; `124` means `--timeout` elapsed with work still in flight, so re-watch or report progress.
 
 `3` means attention: a task settled terminally *mid-stage* (a watchdog fired, a vanished worker was reaped) or a RUNNING task's liveness went stale (stale heartbeat, frozen step). Act now instead of waiting out the siblings. Pre-existing terminal tasks don't trigger this, only events that happen during the watch.
 
