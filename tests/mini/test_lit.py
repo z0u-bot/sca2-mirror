@@ -490,6 +490,23 @@ class TestRender:
         with pytest.raises(ValueError, match="unknown format"):
             write_outputs(r, [tmp_path / "a" / "r.txt"])
 
+    def test_a_pdf_gets_no_copy_of_the_figures(self, tmp_path, monkeypatch):
+        """The PDF is printed from the weave's own ``_assets/``, so a copy beside it would only pile up (every review print goes to one ``.mini/prints/``)."""
+        import mini.report_print
+        from mini.lit.render import write_outputs
+
+        calls = []
+        monkeypatch.setattr(
+            mini.report_print, "print_bundle", lambda bundle, out, **kw: calls.append((bundle, out)) or out
+        )
+        p = write(tmp_path, '"""\n# Hi\n"""\nv = 2\nrf"""v is {v}."""\n')
+        r = render(p, out_dir=tmp_path / "a", write=False)
+        (tmp_path / "a" / "_assets").mkdir()
+        (tmp_path / "a" / "_assets" / "fig.png").write_bytes(b"png")
+        write_outputs(r, [tmp_path / "prints" / "r.pdf"])
+        assert calls == [(tmp_path / "a" / "r.pdf", tmp_path / "prints" / "r.pdf")]
+        assert not (tmp_path / "prints" / "_assets").exists()
+
     def test_markdown_links_an_svg_figure_where_the_page_inlines_it(self, tmp_path):
         p = write(
             tmp_path,

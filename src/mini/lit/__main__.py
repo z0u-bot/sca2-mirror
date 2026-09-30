@@ -48,7 +48,12 @@ def main(argv: list[str] | None = None) -> int:
     w = res.woven
     for o in w.errors:
         print(f"error in cell at line {o.cell.line}:\n{o.error}", file=sys.stderr)
-    for path in write_outputs(res, args.out):
+    try:
+        written = write_outputs(res, args.out)
+    except RuntimeError as e:  # no PDF printed; the reason is already logged
+        print(e, file=sys.stderr)
+        return 1
+    for path in written:
         print(path)
     print(
         f"{w.cells_run} cell(s) run, woven in {w.seconds * 1e3:.0f} ms, page in {res.seconds * 1e3:.0f} ms, total {(time.perf_counter() - t0) * 1e3:.0f} ms",

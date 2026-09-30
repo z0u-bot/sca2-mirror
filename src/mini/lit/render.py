@@ -94,7 +94,7 @@ def render(
 def write_outputs(rendered: Rendered, outs: list[Path]) -> list[Path]:
     """Write *rendered* to each of *outs*, in the format its suffix names: ``.md``, ``.html``, or ``.pdf``.
 
-    The figures are wherever the weave put them (``_assets/`` under :attr:`Rendered.out_dir`), and every output links them relatively, so an output in another directory gets a copy of ``_assets/`` beside it. The PDF is printed by :func:`mini.report_print.print_bundle`, the print the site build makes, so it matches the one a reviewer reads.
+    The figures are wherever the weave put them (``_assets/`` under :attr:`Rendered.out_dir`), and the Markdown and HTML link them relatively, so one of those in another directory gets a copy of ``_assets/`` beside it. The PDF is printed by :func:`mini.report_print.print_bundle` from the weave's own ``_assets/``, the print the site build makes, so it matches the one a reviewer reads and needs no copy.
     """
     from mini.report_print import print_bundle
 
@@ -103,7 +103,7 @@ def write_outputs(rendered: Rendered, outs: list[Path]) -> list[Path]:
     for out in outs:
         out = out.resolve()
         out.parent.mkdir(parents=True, exist_ok=True)
-        if out.parent != rendered.out_dir and assets.is_dir():
+        if out.suffix in (".md", ".html") and out.parent != rendered.out_dir and assets.is_dir():
             shutil.copytree(assets, out.parent / "_assets", dirs_exist_ok=True)
         match out.suffix:
             case ".md":
@@ -112,6 +112,8 @@ def write_outputs(rendered: Rendered, outs: list[Path]) -> list[Path]:
                 _write(out, rendered.html)
             case ".pdf":
                 # Served from a throwaway root beside the weave, holding the page and its _assets/.
+                # The "bundle" is any path in the weave dir: with html= given, only its parent
+                # (where _assets/ is) matters, and the serve root lands beside it.
                 if print_bundle(rendered.out_dir / out.name, out, html=rendered.html) is None:
                     raise RuntimeError(f"{out}: no PDF printed (see the log above)")
             case _:

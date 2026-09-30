@@ -77,11 +77,11 @@ def review_page(report: Path, bundle: Path, review: Review, links: LinkResolver)
 
 
 def write_from_bundle(bundle: Path, page: str, outs: list[Path]) -> None:
-    """Write each of *outs* from the export *bundle*: the Markdown and the page as exported, the PDF printed from *page*; ``_assets/`` is copied beside any output outside the bundle."""
+    """Write each of *outs* from the export *bundle*: the Markdown and the page as exported, the PDF printed from *page*; ``_assets/`` is copied beside a Markdown or HTML output outside the bundle (a PDF is printed from the bundle's own copy, so it needs none)."""
     assets = bundle / "_assets"
     for out in outs:
         out.parent.mkdir(parents=True, exist_ok=True)
-        if out.parent != bundle and assets.is_dir():
+        if out.suffix in (".md", ".html") and out.parent != bundle and assets.is_dir():
             shutil.copytree(assets, out.parent / "_assets", dirs_exist_ok=True)
         match out.suffix:
             case ".md" if out != bundle / MD_LEAF:
@@ -131,7 +131,8 @@ def main() -> None:
         return
 
     since = resolve(args.since) if args.since else None  # before the export, so a bad ref fails fast
-    bundle = export_one(report)  # exits on a cell that raised
+    # Exits on a cell that raised. No thumbnails: only the site index reads them.
+    bundle = export_one(report, thumbs=False)
     if since:
         export_at(since, [report])
     page = review_page(report, bundle, Review.at(since), LinkResolver.discover())

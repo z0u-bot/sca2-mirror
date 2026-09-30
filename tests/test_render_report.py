@@ -41,3 +41,16 @@ def test_since_needs_a_pdf(render_report, monkeypatch, capsys):
     with pytest.raises(SystemExit):
         render_report.main()
     assert "--since marks a PDF" in capsys.readouterr().err
+
+
+def test_a_pdf_gets_no_copy_of_the_figures(render_report, tmp_path: Path, monkeypatch):
+    """The PDF is printed from the bundle's own ``_assets/``; only the Markdown and HTML, which link the figures relatively, get a copy beside them."""
+    bundle = tmp_path / "bundle"
+    (bundle / "_assets").mkdir(parents=True)
+    (bundle / "_assets" / "fig.png").write_bytes(b"png")
+    (bundle / "index.html").write_text("<main class=lit>hi</main>")
+    (bundle / render_report.MD_LEAF).write_text("hi")
+    monkeypatch.setattr(render_report, "print_bundle", lambda bundle, out, **kw: out)
+    render_report.write_from_bundle(bundle, "<html>", [tmp_path / "prints" / "r.pdf", tmp_path / "site" / "r.html"])
+    assert not (tmp_path / "prints" / "_assets").exists()
+    assert (tmp_path / "site" / "_assets" / "fig.png").read_bytes() == b"png"
