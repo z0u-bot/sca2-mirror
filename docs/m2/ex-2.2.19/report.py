@@ -100,7 +100,7 @@ We look for the shortest training run on the seven-op set (`no-four`) that keeps
 - [Spread over seeds (E4)](#spread-over-seeds-e4) —
 
 /// admonition | How to read this draft
-This is a preregistration: the selection rule, the hypotheses, and their gates are written down before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
+This is a preregistration: the selection rule, the hypotheses, and their gates were frozen at commit `0e0a17c0`, before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go. Results will replace the placeholders in place, and analyses conceived after seeing the data will be marked post hoc.
 ///
 
 ## Why
