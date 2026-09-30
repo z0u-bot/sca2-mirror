@@ -60,9 +60,6 @@ WARMUP_EPOCHS = ex2218.WARMUP_EPOCHS
 """A warmup of fixed length (5 epochs) at every length, as ex-2.2.17 fixed it from round 2 on. At 50 epochs this is
 a tenth of the run, ex-2.2.16's own rule; at 400 it is an eightieth."""
 
-EPOCH_UNIT = ex2216.EPOCHS
-"""Ex-2.2.16's length, 50 epochs: the unit ex-2.2.17 measured its lengths in."""
-
 REFERENCE_EPOCHS = ex2218.EPOCHS
 """400 epochs, the length of ex-2.2.17's recipe and of every ex-2.2.18 run."""
 

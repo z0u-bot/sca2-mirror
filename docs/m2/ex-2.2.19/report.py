@@ -330,8 +330,8 @@ assert all(
 assert row_off(PICK, HSV_CHANNEL) - row_off(REF_E, HSV_CHANNEL) > row_off(PICK, OTHER_OPS) - row_off(REF_E, OTHER_OPS)
 
 
+# Confusion values at or above this are printed; every off-diagonal value is below 0.03.
 PRINT_FLOOR = 0.01
-"""Confusion values at or above this are printed; every off-diagonal value is below 0.03."""
 
 
 def worst_square(e: int) -> tuple[str, str, float]:
