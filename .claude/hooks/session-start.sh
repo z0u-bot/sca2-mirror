@@ -82,7 +82,7 @@ fi
     echo "Experiments (report.py dirs; annotated status in docs/index.md):"
     git ls-files 'docs/**/report.py' | sed 's#/report.py##; s#^docs/#  #' | paste -sd' '
     echo "This is not an environment the human has direct access to, so if you are working on an experiment, send them relevant files to review (e.g. figures and reports)."
-    echo "The human reviews drafts on a reMarkable. After './go preview --no-serve <report>', send them the PDF the same way (the copy named for the report, e.g. ex-2.2.15.pdf, so it needs no renaming on the tablet). From the second round on, add '--since <commit>' (see /pdf-annotations) so the PDF shows what changed."
+    echo "The human reviews drafts on a reMarkable. After './go render <report> -o .mini/prints/<name>.pdf', send them the PDF the same way (name it for the report, e.g. ex-2.2.15.pdf, so it needs no renaming on the tablet). From the second round on, add '--since <commit>' (see /pdf-annotations) so the PDF shows what changed."
     echo "When opening a PR, subscribe to its activity if you can, and then stop: don't poll it or schedule check-ins to re-read its state. Subscriptions cover CI failures and review comments, and the human will say when something a subscription wouldn't notice (a merge, a base-branch change) needs attention."
     echo
     # The two CLIs, generated rather than pinned here so they can't drift. Both
