@@ -1,5 +1,5 @@
 ---
-status: open
+status: done
 tags: [D2.2, in-context, training, ex-2.2.18]
 opened: 2026-09-29
 ---
@@ -22,3 +22,5 @@ Related: `cheaper-center-control-recipe.md` (a wider model at fewer steps) and `
 3. Optional: `no-four-ld`, or the single-drop arms, at the chosen length.
 
 A later experiment could then take the chosen recipe to about 20 seeds for a firm measurement. Varying model size (narrower or shallower) belongs in its own experiment, at the length chosen here; see the note on `cheaper-center-control-recipe.md`.
+
+**2026-09-30, results** — [Ex-2.2.19](/docs/m2/ex-2.2.19/report.py) ran the staged plan. The scout picked 200 epochs; at 100 the HSV-channel ops were still far short. On seeds 601-603, 200 epochs fell short of 400 by 0.016 on average (a partial pass against 0.015), with `hue-hsv` just inside its tolerance and calibration unchanged. We adopt 200 epochs. `no-four` had the smaller gap than `full` at all three paired seeds. The ~20-seed measurement and the model-size sweep are still to come, at 200 epochs.

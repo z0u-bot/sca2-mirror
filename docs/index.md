@@ -324,9 +324,9 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`scouting` `in-context` `training`</span>
 
     <!-- mini:figures ./m2/ex-2.2.18/report.py -->
-- [2.2.19. Training length and seeds for the seven-op set](./m2/ex-2.2.19/report.py) (preregistration draft)
+- [2.2.19. Training length and seeds for the seven-op set](./m2/ex-2.2.19/report.py) (done)
 
-    How short a run on the seven-op set (`no-four`) can be and keep most of the skill of the 400-epoch recipe. A scout at one seed trains 50, 100, and 200 epochs, a rule fixed in advance picks a length, and three fresh seeds compare it with 400 epochs. The fresh seeds also check whether `no-four` stays closer to its ceiling than the full set does.
+    How short a run on the seven-op set (`no-four`) can be and keep most of the skill of the 400-epoch recipe. A scout at one seed trained 50, 100, and 200 epochs, and a rule fixed in advance picked 200: at 100 epochs the HSV-channel ops were still far short. On three fresh seeds, 200 epochs fell short of 400 by 0.016 on average, just over the gate of 0.015, with calibration unchanged; we adopt 200 epochs, which halves the cost of a run. The fresh seeds also show `no-four` closer to its ceiling than the full set at every paired seed.
 
     <span class="tags">`in-context` `training`</span>
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)

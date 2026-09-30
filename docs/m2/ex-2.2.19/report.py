@@ -330,12 +330,19 @@ assert all(
 assert row_off(PICK, HSV_CHANNEL) - row_off(REF_E, HSV_CHANNEL) > row_off(PICK, OTHER_OPS) - row_off(REF_E, OTHER_OPS)
 
 
+PRINT_FLOOR = 0.01
+"""Confusion values at or above this are printed; every off-diagonal value is below 0.03."""
+
+
 def worst_square(e: int) -> tuple[str, str, float]:
     m = np.where(OFF_DIAGONAL, CONFUSION[e], -1)
     i, j = np.unravel_index(np.argmax(m), m.shape)
     return OPS[i], OPS[j], float(m[i, j])
 
 
+# REVIEW: E4 and the adoption paragraph said the spread over seeds is "similar" at 200 and 400 epochs; the 200-epoch
+# range is 1.6x the 400-epoch one, and E4 itself says four seeds can hardly resolve it. Now "four seeds do not resolve a
+# difference in spread". Verify against spread(EEM_FOUR_200) / spread(EEM_FOUR_400).
 # --- Figures ------------------------------------------------------------------------------------------------
 
 
@@ -521,7 +528,7 @@ def confusion_draw(alt_text: str, caption: str) -> str:
             for i, j in np.ndindex(n, n):
                 if i == j:
                     ax.plot(j, i, "s", ms=13, mfc="none", mec="0.6", mew=0.6)
-                elif m[i, j] >= 0.03:
+                elif m[i, j] >= PRINT_FLOOR:
                     color = cell_text_color(m[i, j], vmax)
                     ax.text(j, i, f"{m[i, j]:.2f}"[1:], ha="center", va="center", fontsize=7, color=color)
             ax.set_title(f"{e} epochs", fontsize=9)
@@ -570,7 +577,7 @@ Half the length keeps most of the skill, though it falls a little short of the g
 ## Findings
 
 - [The scout (S1)](#the-scout-s1) — the rule picked {PICK} epochs: at the scout seed that run fell short of the {REF_E}-epoch run by {LENGTHS[PICK]["shortfall"]:.3f}, against {ex.SHORTFALL_TOL}, with no op over its tolerance. The 50- and 100-epoch runs fell short by {LENGTHS[50]["shortfall"]:.3f} and {LENGTHS[100]["shortfall"]:.3f}.
-- [A shorter run keeps most of the skill (H1)](#a-shorter-run-keeps-most-of-the-skill-h1) — partial pass. On the fresh seeds the {PICK}-epoch run falls short by {MEAN_SHORT:.4f} on average, just over the gate of {ex.SHORTFALL_TOL} and inside the partial band to {ex.PARTIAL_TOL}. No op is over its tolerance, and we adopt {PICK} epochs.
+- [A shorter run keeps most of the skill (H1)](#a-shorter-run-keeps-most-of-the-skill-h1) — partial pass. On the fresh seeds the {PICK}-epoch run falls short by {MEAN_SHORT:.4f} on average, just over the gate of {ex.SHORTFALL_TOL} and inside the partial band to {ex.PARTIAL_TOL}. No op is over its tolerance, though `{CLOSEST_OP}` is within {OP_TOL[CLOSEST_OP] - MEAN_OP[CLOSEST_OP]:.4f} of it. We adopt {PICK} epochs.
 - [The seven-op set stays closer to its ceiling (H2)](#the-seven-op-set-stays-closer-to-its-ceiling-h2) — pass. `no-four` has the smaller gap at all three paired seeds, {span([GAP_FOUR[s] for s in FULL_PARTNER], ".3f")} against {span(GAP_FULL.values(), ".3f")} for `full`.
 - [Skill curves (E1)](#skill-curves-e1) — the HSV-channel ops take off at about the same epoch in the {PICK}- and {REF_E}-epoch runs ({span([hsv_rise(lab(e, s))[0] for e in (PICK, REF_E) for s in (0, *SEEDS)], ".0f")}). So they come late in the shorter run, and not at all in runs that end before that epoch.
 - [Calibration (E2)](#calibration-e2) — calibration KL at {PICK} epochs ({span([kl(lab(PICK, s)) for s in (0, *SEEDS)], ".3f")}) matches {REF_E} epochs ({span([kl(lab(REF_E, s)) for s in (0, *SEEDS)], ".3f")}).
@@ -746,7 +753,7 @@ table_html(
 
 rf"""
 
-**The length we adopt.** We adopt {PICK} epochs, at the peak rate {ex.PEAK_LR:g}. H1 is a partial pass, so no length passes outright, and we said we would give a reason if we chose otherwise. The cost is about {MEAN_SHORT:.3f} of EEM, larger on the HSV-channel ops. Against that, the calibration KL at {PICK} epochs matches {REF_E} epochs ([E2](#calibration-e2)); the spread over seeds is similar ([E4](#spread-over-seeds-e4)); and every later run costs about \${ex.cost_per_run(PICK):.2f} instead of \${ex.cost_per_run(REF_E):.2f}.
+**The length we adopt.** We adopt {PICK} epochs, at the peak rate {ex.PEAK_LR:g}. The preregistered plan was to adopt the shortest confirmed length that passes, and to say why if we chose otherwise. H1 is a partial pass and 2T is the reference length, so no shorter length passes outright; we made this choice after seeing the results. The cost is about {MEAN_SHORT:.3f} of EEM, larger on the HSV-channel ops. Against that, the calibration KL at {PICK} epochs matches {REF_E} epochs ([E2](#calibration-e2)); four seeds do not resolve a difference in spread ([E4](#spread-over-seeds-e4)); and every later run costs about \${ex.cost_per_run(PICK):.2f} instead of \${ex.cost_per_run(REF_E):.2f}.
 
 /// admonition | Partial
 The {PICK}-epoch run falls short of the {REF_E}-epoch run by {MEAN_SHORT:.4f} on average against the gate of {ex.SHORTFALL_TOL}, inside the partial band to {ex.PARTIAL_TOL}, and no op is over its tolerance.
@@ -847,7 +854,7 @@ The op confusion matrix of each run at the chosen length and at {ex.REFERENCE_EP
 
 [^confident]: A context is confident when the Bayes posterior on its true op is above {CONFIDENT}, as in ex-2.2.17 and ex-2.2.18.
 
-**What we saw.** The shorter run puts more mass off the diagonal. Summed over a row, the mass on the answers of other ops averages {off_mass(PICK):.3f} at {PICK} epochs and {off_mass(REF_E):.3f} at {REF_E}, and it is higher in every row. The rise is largest in the three HSV-channel rows, {row_off(PICK, HSV_CHANNEL):.3f} against {row_off(REF_E, HSV_CHANNEL):.3f}, and in the other four rows it goes from {row_off(REF_E, OTHER_OPS):.3f} to {row_off(PICK, OTHER_OPS):.3f}. The largest square is the same at both lengths, `{worst_square(PICK)[0]}` onto `{worst_square(PICK)[1]}`, at {worst_square(PICK)[2]:.3f} and {worst_square(REF_E)[2]:.3f}. So the extra mass is spread thinly over many squares, and no similar op takes it.
+**What we saw.** The shorter run puts more mass off the diagonal. Summed over a row, the mass on the answers of other ops averages {off_mass(PICK):.3f} at {PICK} epochs and {off_mass(REF_E):.3f} at {REF_E}, and it is higher in every row. The rise is largest in the three HSV-channel rows, {row_off(PICK, HSV_CHANNEL):.3f} against {row_off(REF_E, HSV_CHANNEL):.3f}, and in the other four rows it goes from {row_off(REF_E, OTHER_OPS):.3f} to {row_off(PICK, OTHER_OPS):.3f}. The largest square is the same at both lengths, `{worst_square(PICK)[0]}` onto `{worst_square(PICK)[1]}`, at {worst_square(PICK)[2]:.3f} and {worst_square(REF_E)[2]:.3f}. So the extra mass sits mostly in the rows of the HSV-channel ops, and the shorter run leans hardest on the same op as the longer one. Every square stays small.
 
 """
 
@@ -861,7 +868,7 @@ confusion_draw(
     f"""
         **Where the mass goes, by op, at {PICK} and {REF_E} epochs.** Mean over the three fresh seeds, on confident
         held-out contexts. Rows are the true op. Each off-diagonal square is the mass the model puts on colors the
-        column op can give and the true op cannot, with values of 0.03 and above printed. The diagonal is outlined and left
+        column op can give and the true op cannot, with values of {PRINT_FLOOR} and above printed. The diagonal is outlined and left
         blank. Columns are the seven ops of the set.
     """,
 )
@@ -896,11 +903,11 @@ rf"""
 
 ## What it means for what follows
 
-The anchoring experiments that follow can train `no-four` for {PICK} epochs at the peak rate {ex.PEAK_LR:g}, at half the cost. The shortfall is small, but most of it is in the three HSV-channel ops, so an experiment that leans on them should compare with an unanchored control of the same length, and not with a {REF_E}-epoch number.
+The anchoring experiments that follow can train `no-four` for {PICK} epochs at the peak rate {ex.PEAK_LR:g}, at half the cost. The shortfall is small, but most of it is in the three HSV-channel ops, so for an experiment that leans on them, an unanchored control of the same length is a fairer comparison than a {REF_E}-epoch number.
 
-The HSV-channel ops set how short a run can be. They took off at about the same epoch at both long lengths, which suggests they need a count of epochs and not a share of the schedule. That is a reading of eight runs, and a test would need lengths between 100 and 200 epochs or a schedule that decays later.
+The HSV-channel ops set how short a run can be. In the post hoc part of E1 they took off at about the same epoch at both long lengths, which is consistent with needing a count of epochs rather than a share of the schedule. That rests on eight runs whose schedules differ throughout; lengths between 100 and 200 epochs, or a schedule that decays later, could separate the two.
 
-Calibration and spread over seeds do not separate {PICK} from {REF_E} epochs, so the shortfall is the only cost we found. The scout used one seed, the confirmation three, and all runs one op set and one corpus, so we cannot say how the shortfall moves with either.
+Calibration does not separate {PICK} from {REF_E} epochs, and four seeds cannot resolve a difference in spread, so the shortfall is the only cost we found. The scout used one seed, the confirmation three, and all runs one op set and one corpus, so we cannot say how the shortfall moves with either.
 
 The narrower gap of `no-four` held at every paired seed, which supports it as the base for the anchoring runs.
 
