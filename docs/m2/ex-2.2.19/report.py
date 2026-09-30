@@ -13,7 +13,7 @@ from mini.store import project_store
 from mini.vis import figure_html
 
 FOUR = ex.OP_SET.name
-YARDSTICK = tuple(f"sweep-{ex.PEAK_LR:g}-s{s}" for s in range(3))
+YARDSTICK = ex.YARDSTICK
 
 
 # --- Helpers -------------------------------------------------------------------------------------------------
@@ -70,11 +70,7 @@ def gap(run: dict, op: str | None = None) -> float:
 
 YARD_GAP = [gap(PRIOR[s]) for s in YARDSTICK]
 YARD_RANGE = max(YARD_GAP) - min(YARD_GAP)
-# The seed range of each op's gap in ex-2.2.17's three runs, floored at the partial band: the per-op tolerance.
-OP_TOL = {
-    op: max(max(gap(PRIOR[s], op) for s in YARDSTICK) - min(gap(PRIOR[s], op) for s in YARDSTICK), ex.PARTIAL_TOL)
-    for op in ex.OP_SET.ops
-}
+OP_TOL = ex.op_tolerances([PRIOR[s] for s in YARDSTICK], ex.OP_SET.ops)
 COST_1 = len(ex.SCOUT_LRS) * sum(ex.cost_per_run(e) for e in ex.SCOUT_EPOCHS)
 COST_2_MAX = len(ex.CONFIRM_SEEDS) * sum(
     ex.cost_per_run(e) for e in (ex.REFERENCE_EPOCHS, *ex.chosen_lengths(min(ex.SCOUT_EPOCHS)))
