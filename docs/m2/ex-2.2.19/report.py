@@ -75,7 +75,7 @@ OP_TOL = {
     op: max(max(gap(PRIOR[s], op) for s in YARDSTICK) - min(gap(PRIOR[s], op) for s in YARDSTICK), ex.PARTIAL_TOL)
     for op in ex.OP_SET.ops
 }
-COST_1 = sum(ex.cost_per_run(e) for e in ex.SCOUT_EPOCHS)
+COST_1 = len(ex.SCOUT_LRS) * sum(ex.cost_per_run(e) for e in ex.SCOUT_EPOCHS)
 COST_2_MAX = len(ex.CONFIRM_SEEDS) * sum(
     ex.cost_per_run(e) for e in (ex.REFERENCE_EPOCHS, *ex.chosen_lengths(min(ex.SCOUT_EPOCHS)))
 )
@@ -115,23 +115,25 @@ The fresh seeds also give the first replicates of `no-four` at 400 epochs, so we
 
 ## The runs
 
-Every run uses the recipe of ex-2.2.17 and ex-2.2.18, on the `no-four` corpus that ex-2.2.18 built, with one thing changed: the number of epochs. The warmup (the opening stretch in which the learning rate ramps up to its peak) stays at {ex.WARMUP_EPOCHS:g} epochs at every length, and the peak learning rate stays at {ex.PEAK_LR:g}.
+Every run uses the recipe of ex-2.2.17 and ex-2.2.18, on the `no-four` corpus that ex-2.2.18 built, with a different number of epochs. At each shorter length the scout also tries a higher peak learning rate, since a shorter run may want one. The warmup (the opening stretch in which the learning rate ramps up to its peak) stays at {ex.WARMUP_EPOCHS:g} epochs at every length.
 
 """
 
 table_html(
-    ["stage", "epochs", "model seeds", "runs"],
+    ["stage", "epochs", "peak learning rate", "model seeds", "runs"],
     [
-        ["ex-2.2.18 (reused)", f"{ex.REFERENCE_EPOCHS}", f"{ex.SEED_OFFSET + ex.SCOUT_SEED}", "1"],
+        ["ex-2.2.18 (reused)", f"{ex.REFERENCE_EPOCHS}", f"{ex.PEAK_LR:g}", f"{ex.SEED_OFFSET + ex.SCOUT_SEED}", "1"],
         [
             "1: scout",
             ", ".join(str(e) for e in ex.SCOUT_EPOCHS),
+            ", ".join(f"{lr:g}" for lr in ex.SCOUT_LRS),
             f"{ex.SEED_OFFSET + ex.SCOUT_SEED}",
-            str(len(ex.SCOUT_EPOCHS)),
+            str(len(ex.SCOUT_EPOCHS) * len(ex.SCOUT_LRS)),
         ],
         [
             "2: confirmation",
             f"the pick L, 2L if shorter than {ex.REFERENCE_EPOCHS}, and {ex.REFERENCE_EPOCHS}",
+            f"the better scout rate at L and 2L; {ex.PEAK_LR:g} at {ex.REFERENCE_EPOCHS}",
             f"{ex.SEED_OFFSET + min(ex.CONFIRM_SEEDS)}–{ex.SEED_OFFSET + max(ex.CONFIRM_SEEDS)}",
             f"up to {len(ex.CONFIRM_SEEDS) * (1 + ex.MAX_CONFIRM_LENGTHS)}",
         ],
@@ -140,7 +142,7 @@ table_html(
         **The runs.** All train `no-four`. The scout costs about \\${COST_1:.2f} and the confirmation at most about
         \\${COST_2_MAX:.2f}, scaled from the cost of an ex-2.2.18 run.
     """,
-    text_cols=3,
+    text_cols=4,
 )
 
 rf"""
@@ -155,16 +157,16 @@ Within `no-four` the ceiling is the same at every length, so a difference in gap
 
 The scout is a procedure, with no hypothesis; the rule below picks the length that stage 2 confirms.
 
-**The rule.** Of the scout lengths, pick the shortest, L, whose run at seed {ex.SEED_OFFSET} falls short of the ex-2.2.18 run by at most {ex.SHORTFALL_TOL}, with no op falling short by more than its own tolerance (below). If no scout length passes, stage 2 trains only the 400-epoch runs, and H1 is unresolved.
+**The rule.** At each scout length, take the run at the peak rate with the higher EEM. Of those runs, pick the shortest, L, that falls short of the ex-2.2.18 run by at most {ex.SHORTFALL_TOL}, with no op falling short by more than its own tolerance (below). If no scout length passes, stage 2 trains only the 400-epoch runs, and H1 is unresolved.
 
-Stage 2 confirms L, and also 2L when 2L is shorter than {ex.REFERENCE_EPOCHS} epochs, so that a lucky pass at L still leaves a length to adopt.
+Stage 2 confirms L, and also 2L when 2L is shorter than {ex.REFERENCE_EPOCHS} epochs, so that a lucky pass at L still leaves a length to adopt. Each trains at the rate taken at its length.
 
 The overall tolerance is the largest last-fifth gain of any ex-2.2.18 run. The tolerance for each op is its seed range in the three ex-2.2.17 runs, or {ex.PARTIAL_TOL}, whichever is larger, since some ops varied little across three seeds and a single scout run is noisier than that.
 
-**What we expect.** At 50 epochs the run falls short by more than the tolerance: ex-2.2.17 needed several times that length for the HSV-channel ops. We don't have a strong expectation between 100 and 200 epochs.
+**What we expect.** At 50 epochs the run falls short by more than the tolerance: ex-2.2.17 needed several times that length for the HSV-channel ops. We don't have a strong expectation between 100 and 200 epochs. We expect the higher rate to help more the shorter the run, and at 200 epochs to make little difference.
 
 /// admonition | TODO
-A line chart of held-out EEM against epochs (log scale) for the four seed-{ex.SEED_OFFSET} runs, with the ceiling as a dashed line and the tolerance as a band under the 400-epoch point; beside it, a table of the shortfall overall and per op at each length, with the pick marked.
+A line chart of held-out EEM against epochs (log scale) for the seed-{ex.SEED_OFFSET} runs, one line per peak rate meeting at the 400-epoch run, with the ceiling as a dashed line and the tolerance as a band under the 400-epoch point; beside it, a table of the shortfall overall and per op at each length, with the pick marked.
 ///
 
 ## A shorter run keeps most of the skill (H1)
@@ -205,7 +207,7 @@ TODO after the results.
 
 **Recipe.** The unanchored d64-L4 model with an untied readout and the newline mask, trained with a cosine schedule after a linear warmup, as in ex-2.2.18. The corpus condition is `k3-r0.3` on the `no-four` op set, with the corpus, held-out set, and probe set that ex-2.2.18 built, so that the runs differ from the ex-2.2.18 run in length and model seed alone.
 
-**Warmup and learning rate.** The warmup is {ex.WARMUP_EPOCHS:g} epochs rather than a fixed share of the run, as in ex-2.2.17 from its second round, and the peak learning rate is {ex.PEAK_LR:g}. A shorter run might do better at a different peak rate, but holding it fixed keeps length the only change. If a short run falls just outside the tolerance, a learning-rate arm could follow.
+**Warmup and learning rate.** The warmup is {ex.WARMUP_EPOCHS:g} epochs rather than a fixed share of the run, as in ex-2.2.17 from its second round, and the peak learning rate is {ex.PEAK_LR:g}. A shorter run spends less of its schedule near the peak, so it may do better at a higher peak rate. The scout tries {ex.SCOUT_LRS[1]:g} beside it at each shorter length: the next rate up on the ex-2.2.17 grid, which at 400 epochs scored level with {ex.PEAK_LR:g} at one seed, where 0.01 scored lower. The 400-epoch runs stay at {ex.PEAK_LR:g}, so H1 compares a shorter recipe, rate included, with the recipe we have.
 
 **Measurements.** EEM, ceiling, floor, and calibration KL are measured on the {ex.ex2216.HOLDOUT_CONTEXTS:,} held-out contexts per op, with the evaluation of ex-2.2.18. Skill curves are logged at about {ex.ex2217.N_TRAJ_POINTS} points per run on {ex.ex2217.N_TRAJ_EEM_PER_OP} held-out contexts per op.
 

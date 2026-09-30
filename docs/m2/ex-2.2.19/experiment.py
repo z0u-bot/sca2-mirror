@@ -68,6 +68,11 @@ SCOUT_EPOCHS: tuple[int, ...] = (50, 100, 200)
 """The lengths the scout trains, in epochs: one, two, and four times ex-2.2.16's length. The 400-epoch point is the
 ex-2.2.18 `no-four` run, which starts from the same weights."""
 
+SCOUT_LRS: tuple[float, ...] = (PEAK_LR, ex2217.SWEEP_LRS[1])
+"""The peak learning rates the scout trains at each length: the recipe rate, and the next rate up on ex-2.2.17's
+quarter-decade grid (0.00562). A shorter run spends less time at a high rate, so its best peak rate may be higher. At
+400 epochs, ex-2.2.17 found the two about level at one seed, and 0.01 lower."""
+
 SCOUT_SEED = 0
 """Seed index 0, model seed 600: the initialization of the ex-2.2.18 `no-four` run."""
 
@@ -82,7 +87,8 @@ CONFIRM_SEEDS: tuple[int, ...] = (1, 2, 3)
 """Seed indices of the confirmation runs, model seeds 601-603. None of them helped choose the length."""
 
 MAX_CONFIRM_LENGTHS = 2
-"""The chosen length, and twice it as a fallback when that is still shorter than the reference."""
+"""The chosen length, and twice it as a fallback when that is still shorter than the reference. Each trains at the
+peak rate that did better at that length in the scout; the reference stays at `PEAK_LR`."""
 
 PARTIAL_TOL = 0.03
 """The partial band of H1: about the seed range of ex-2.2.17's three runs on the full set."""
