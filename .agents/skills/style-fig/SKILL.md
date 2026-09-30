@@ -25,6 +25,12 @@ A chart (loss curve, score sweep, schedule) keeps its axes. Use the stylesheet d
 - Label the roles of an equation in figures with the symbols of $P_o(y \mid a, b)$: *a* and *b* for the operands, *y* for the answer, *o* for the op, and `?` and `=` as printed. Keep op1, op2, and ans for code and data columns. New figures follow this; older reports keep their labels.
 - Decide `sharex`/`sharey` from the units: panels measuring the same quantity share; panels measuring different quantities get their own scale, however close the numbers. Two panels with nearly-but-not-quite equal limits look like a bug.
 
+## Confusion matrices
+
+To show where a model puts mass it shouldn't, draw a confusion matrix: rows are the true class (an op, a concept), columns are where the mass lands, and each square counts mass on answers of the column class that the true class cannot give. Blank the diagonal and outline it, since it is a different quantity on a different scale, and give the off-diagonal squares a sequential map that runs from the page color (`light_dark("Blues", "magma")`), so it prints. Print values only above a floor, so the few squares that matter stand out.
+
+Compare conditions with one small matrix each, in a grid with shared axes and one colorbar, so a square can be followed across conditions. Where a condition removes a class (a dropped op, an ablated concept), hatch its row, which has no data, and keep its column with a dashed outline: that column counts mass on the answers of a class the model never learned, so it is the background level for the other squares. Reference: `confusion_draw` in `docs/m2/ex-2.2.18/report.py`; the pattern should carry over to intervention experiments, with the intervention in place of the dropped class.
+
 ## Gates and thresholds
 
 Where a hypothesis is scored against a gate, draw the gate in the figure so the reader can see the verdict rather than compute it: a dashed rule at the gate level, a dotted rule for a secondary level under it (a partial-credit bar, a reference value), and the **failing side hatched** — `axhspan(..., facecolor="none", edgecolor=..., hatch="//", lw=0, alpha=0.1, zorder=0)`. Hatching rather than a tint, because a tint would compete with the marks' own color, and color is data. A miss then reads as a region a mark has strayed into, and the eye needs no arithmetic to tell which side is which.

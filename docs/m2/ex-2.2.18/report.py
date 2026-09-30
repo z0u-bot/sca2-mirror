@@ -187,6 +187,12 @@ def n_conf(s: str, op: str) -> int:
     return int(N_CONFIDENT[s][ALL_OPS.index(op)])
 
 
+def unrelated(s: str, a: str, dropped: str) -> float:
+    """In run *s*, the median square on the row of *a* over the ops other than *a* and *dropped*: the background."""
+    row = CONFUSION[s][ALL_OPS.index(a)]
+    return float(np.nanmedian([row[j] for j, o in enumerate(ALL_OPS) if o not in (a, dropped)]))
+
+
 def leak(s: str, dropped: str) -> float:
     """The leak onto *dropped*: mass on its answers beyond those of its partner, on confident partner contexts."""
     return conf(s, PAIR_OF[dropped], dropped)
@@ -231,6 +237,8 @@ def confusion_draw(alt_text: str, caption: str) -> str:
                     )
             for i in np.flatnonzero(np.isnan(m[:, 0])):
                 ax.axhspan(i - 0.5, i + 0.5, facecolor="none", edgecolor="0.6", hatch="///", lw=0)
+                # The column of a dropped op stays: it is a baseline, the mass that lands on its colors by chance.
+                ax.add_patch(plt.Rectangle((i - 0.5, -0.5), 1, n, fill=False, ec=rule_color(), ls=(0, (2, 2)), lw=0.8))
             ax.set_title(s, fontsize=9)
             ax.set_xticks(range(n), ALL_OPS, rotation=90, fontsize=6.5)
             ax.set_yticks(range(n), ALL_OPS, fontsize=6.5)
@@ -510,17 +518,19 @@ Ex-2.2.17 found the model keeping mass on the answers of a similar op even where
 confusion_draw(
     f"""
         Nine small heatmaps in a three-by-three grid, one per op set, each with the eleven true ops as rows and the
-        eleven ops as columns; rows of dropped ops are hatched, and the diagonal is left blank. Most squares are pale.
+        eleven ops as columns; rows of dropped ops are hatched, their columns
+        outlined with a dashed line, and the diagonal is left blank. Most squares are pale.
         In the full set, four squares stand out: lighten onto screen ({conf(FULL, "lighten", "screen"):.2f}), darken
         onto multiply ({conf(FULL, "darken", "multiply"):.2f}), hsvmix and mix onto each other
         ({conf(FULL, "hsvmix", "mix"):.2f} and {conf(FULL, "mix", "hsvmix"):.2f}), and difference onto exclusion
-        ({conf(FULL, "difference", "exclusion"):.2f}). In each drop, the column of the dropped op is pale. The darkest squares
+        ({conf(FULL, "difference", "exclusion"):.2f}). In each drop, the outlined column of the dropped op is as pale as its neighbors. The darkest squares
         are in no-multiply, where sat-hsv and value-hsv put {conf("no-multiply", "sat-hsv", "value-hsv"):.2f} and
         {conf("no-multiply", "value-hsv", "sat-hsv"):.2f} onto each other.
     """,
     """
         **Where the mass goes, by op.** One matrix per op set, on confident held-out contexts. Rows are the true op, and
-        hatched rows are dropped ops, which have no contexts. Off the diagonal, each square is the mass the model puts
+        hatched rows are dropped ops, which have no contexts; their columns, outlined, count the colors those ops would
+        give. Off the diagonal, each square is the mass the model puts
         on colors the column op can give and the true op cannot, with values of 0.03 and above printed. The diagonal
         is outlined and left blank.
     """,
@@ -530,7 +540,11 @@ rf"""
 
 In the full set, most of the mass off the diagonal sits in the squares of the four pairs. Confident `lighten` contexts put {leak(FULL, "screen"):.2f} of their mass on colors only `screen` gives, and `darken`, `mix`, and `difference` contexts put {listed(f"{leak(FULL, d):.2f}" for d in ("multiply", "hsvmix", "exclusion"))} on colors only their partner gives. The leak is lopsided: confident `screen` contexts put {leak(FULL, "lighten"):.3f} on colors only `lighten` gives. Part of that is in how it is counted. `lighten` gives one color, often one of the colors `screen` gives, so there are fewer colors for `screen` contexts to leak onto.
 
-When an op is dropped, its column goes pale: the leak onto a dropped op is at or below {max(leak(s, d) for s in SETS[1:] for d in RUNS[s]["dropped"]):.3f} in every run that drops it. A model never trained on `screen` has no reason to give its answers, so this was expected, and it confirms that the leak came from the pairing. Dropping an op also makes more contexts confident: without `screen`, {n_conf("no-screen", "lighten")} held-out `lighten` contexts are confident, against {n_conf(FULL, "lighten")} in the full set.
+A dropped op keeps its column. The model answers with colors and never names an op, so the colors `screen` would give are still colors the model can put mass on, whether or not it trained on `screen`. What changes is why mass lands there. In a run that drops an op, nothing it learned points at those colors, so its column is a baseline: the mass that falls on some set of plausible colors through the general spread of the answers. It is small. On the partner row, the leak onto a dropped op is at most {max(leak(s, d) for s in SETS[1:] for d in RUNS[s]["dropped"] if PAIR_OF[d] in ops_of(s)):.3f}, about the level of the unrelated ops on the same row, whose median square runs from {min(unrelated(s, PAIR_OF[d], d) for s in SETS[1:] for d in RUNS[s]["dropped"] if PAIR_OF[d] in ops_of(s)):.3f} to {max(unrelated(s, PAIR_OF[d], d) for s in SETS[1:] for d in RUNS[s]["dropped"] if PAIR_OF[d] in ops_of(s)):.3f} across these runs.
+
+That gives a scale for the rest of the matrix. A square means something only where it stands clear of this background, so `lighten` onto `screen` at {leak(FULL, "screen"):.2f} in the full set is mostly the pairing, with about {leak("no-screen", "screen"):.3f} of it expected without `screen` at all, while squares near 0.01 are background.
+
+Dropping an op also makes more contexts confident: without `screen`, {n_conf("no-screen", "lighten")} held-out `lighten` contexts are confident, against {n_conf(FULL, "lighten")} in the full set.
 
 The matrices also show where the HSV-channel ops of E2 fell short. In `no-multiply`, confident `sat-hsv` and `value-hsv` contexts put {conf("no-multiply", "sat-hsv", "value-hsv"):.2f} and {conf("no-multiply", "value-hsv", "sat-hsv"):.2f} of their mass on the answers of each other, and the other runs that fell short spread smaller amounts over several ops.
 
@@ -591,7 +605,7 @@ The single drops say less. Dropping one op mostly moved the ceiling and the mode
 
 **Corpora.** Each op set has its own corpus of 300,000 contexts, its own holdout of {ex.ex2216.HOLDOUT_CONTEXTS:,} contexts per op, and its own probe set of 200 per op, drawn with the sampler of ex-2.2.16 from the answer table restricted to its ops. The posterior, ceiling, and floor are ex-2.2.16's, computed on the same restricted table.
 
-**Leak.** The answers a dropped op gives come from the full eleven-op answer table, so its column is defined in runs that never trained on it. Confident contexts are chosen on the posterior of the op set of the run, so they differ between runs.
+**Leak.** The colors a dropped op would give come from the full eleven-op answer table, so its column is defined in runs that never trained on it, and serves there as a baseline for the other columns. Confident contexts are chosen on the posterior of the op set of the run, so they differ between runs.
 
 **Cost.** The scout cost about \$2.42 on Modal, \$2.30 of it L4 time: about \$0.26 per training run. Each training run took 14 to 17 minutes on one L4, about 7,000 steps a minute.
 """
