@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import cast
 
 import matplotlib.pyplot as plt
+from matplotlib.axes import Axes
 import numpy as np
 
 import experiment as ex
@@ -223,6 +224,7 @@ def confusion_draw(alt_text: str, caption: str) -> str:
         cmap = seq_cmap()
         im = None
         for ax, s in zip(axes.flat, SETS, strict=True):
+            ax = cast(Axes, ax)
             m = CONFUSION[s]
             im = ax.imshow(np.where(eye, np.nan, m), cmap=cmap, vmin=0, vmax=vmax)
             for i, j in np.ndindex(n, n):
@@ -236,9 +238,17 @@ def confusion_draw(alt_text: str, caption: str) -> str:
                         j, i, f"{v:.2f}"[1:], ha="center", va="center", fontsize=5.5, color=cell_text_color(v, vmax)
                     )
             for i in np.flatnonzero(np.isnan(m[:, 0])):
-                ax.axhspan(i - 0.5, i + 0.5, facecolor="none", edgecolor="0.6", hatch="///", lw=0)
+                ax.axhspan(i - 0.5, i + 0.5, facecolor="none", edgecolor=light_dark("0.7", "0.3"), hatch="///", lw=0)
                 # The column of a dropped op stays: it is a baseline, the mass that lands on its colors by chance.
-                ax.add_patch(plt.Rectangle((i - 0.5, -0.5), 1, n, fill=False, ec=rule_color(), ls=(0, (2, 2)), lw=0.8))
+                ax.axvspan(
+                    i - 0.5,
+                    i + 0.5,
+                    facecolor="none",
+                    edgecolor=light_dark("0.7", "0.3"),
+                    hatch="/",
+                    lw=0,
+                    alpha=light_dark(0.4, 0.5),
+                )
             ax.set_title(s, fontsize=9)
             ax.set_xticks(range(n), ALL_OPS, rotation=90, fontsize=6.5)
             ax.set_yticks(range(n), ALL_OPS, fontsize=6.5)
@@ -518,19 +528,19 @@ Ex-2.2.17 found the model keeping mass on the answers of a similar op even where
 confusion_draw(
     f"""
         Nine small heatmaps in a three-by-three grid, one per op set, each with the eleven true ops as rows and the
-        eleven ops as columns; rows of dropped ops are hatched, their columns
-        outlined with a dashed line, and the diagonal is left blank. Most squares are pale.
+        eleven ops as columns; rows of dropped ops are densely hatched, their columns
+        faintly hatched over the values, and the diagonal is left blank. Most squares are pale.
         In the full set, four squares stand out: lighten onto screen ({conf(FULL, "lighten", "screen"):.2f}), darken
         onto multiply ({conf(FULL, "darken", "multiply"):.2f}), hsvmix and mix onto each other
         ({conf(FULL, "hsvmix", "mix"):.2f} and {conf(FULL, "mix", "hsvmix"):.2f}), and difference onto exclusion
-        ({conf(FULL, "difference", "exclusion"):.2f}). In each drop, the outlined column of the dropped op is as pale as its neighbors. The darkest squares
+        ({conf(FULL, "difference", "exclusion"):.2f}). In each drop, the faintly hatched column of the dropped op is as pale as its neighbors. The darkest squares
         are in no-multiply, where sat-hsv and value-hsv put {conf("no-multiply", "sat-hsv", "value-hsv"):.2f} and
         {conf("no-multiply", "value-hsv", "sat-hsv"):.2f} onto each other.
     """,
     """
-        **Where the mass goes, by op.** One matrix per op set, on confident held-out contexts. Rows are the true op, and
-        hatched rows are dropped ops, which have no contexts; their columns, outlined, count the colors those ops would
-        give. Off the diagonal, each square is the mass the model puts
+        **Where the mass goes, by op.** One matrix per op set, on confident held-out contexts. Rows are the true op. Densely
+        hatched rows are dropped ops, which have no contexts; their columns, faintly hatched, still count the colors
+        those ops would give. Off the diagonal, each square is the mass the model puts
         on colors the column op can give and the true op cannot, with values of 0.03 and above printed. The diagonal
         is outlined and left blank.
     """,
