@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [modal, mini]
 opened: 2026-09-27
+closed: 2026-09-29
 ---
 # The Modal worker image ships only the `.py` files of project packages
 
@@ -13,3 +14,7 @@ ex-2.2.17 round 3 hit this through `mini.temporal`, which imported `mini.vis` fo
 - Read report assets lazily in `mini.reports`, at the first render that needs them, so importing the module has no file reads.
 
 A test that imports each `mini` subpackage with the non-Python files hidden would catch the next one.
+
+## Notes
+
+**2026-09-29, tech debt** — Took both routes. `make_image` now passes `ignore=skip_in_source`, which keeps every file but bytecode and dot-files. An explicit `ignore` replaces Modal's default skip rather than adding to it, so the predicate has to name those two itself. The mount attaches at container start, so no image is rebuilt. `mini.reports` reads its two stylesheets at first use. `subline` still reads `theme.css` at import, which is fine now that it ships. `tests/mini/test_worker_source.py` checks that every tracked file of each project package reaches the mount, and that every `mini` module imports from a copy with only its `.py` files.
