@@ -329,9 +329,9 @@ These experiments were preparation for the main work: exercising the infrastruct
     How short a run on the seven-op set (`no-four`) can be and keep most of the skill of the 400-epoch recipe. A scout at one seed trained 50, 100, and 200 epochs, and a rule fixed in advance picked 200: at 100 epochs the HSV-channel ops were still far short. On three fresh seeds, 200 epochs fell short of 400 by 0.016 on average, just over the gate of 0.015, with calibration unchanged; we adopt 200 epochs, which halves the cost of a run. The fresh seeds also show `no-four` closer to its ceiling than the full set at every paired seed.
 
     <span class="tags">`in-context` `training`</span>
-- [2.2.20. A high-rate head start before the recipe schedule](./m2/ex-2.2.20/report.py) (preregistration draft)
+- [2.2.20. A high-rate head start before the recipe schedule](./m2/ex-2.2.20/report.py) (results; discussion pending)
 
-    Whether a 200-epoch run on the seven-op set keeps more of the skill of the 400-epoch recipe when its first 50 epochs run on a short schedule at a higher learning rate and the remaining 150 on the recipe schedule. Four runs, paired by seed with the 200- and 400-epoch runs of ex-2.2.19, at the same cost as a plain 200-epoch run. Also asks whether the HSV-channel ops wait for a number of epochs or for the learning rate to fall.
+    Whether a 200-epoch run on the seven-op set keeps more of the skill of the 400-epoch recipe when its first 50 epochs run on a short schedule at a higher learning rate and the remaining 150 on the recipe schedule. Two schedules, the second with a lower second peak, four runs each, paired by seed with the 200- and 400-epoch runs of ex-2.2.19. Neither keeps more of the skill than the plain 200-epoch run: both fall further short in the HSV-channel ops, so the plain schedule stays.
 
     <span class="tags">`in-context` `training`</span>
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
