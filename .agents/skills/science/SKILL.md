@@ -20,7 +20,7 @@ Conventions:
 - Sections carry a short label in their heading, and `Findings` and cross-references use it: H*n* for a hypothesis, S*n* for a preregistered procedure with no prediction of its own (a scout whose frozen rule picks what a later stage confirms), and E*n* for an exploratory analysis, usually post hoc.
 - A prediction lives at the top of its own result section and nowhere else: no standalone `## Hypotheses` block. A reviewer reads them in sequence through the `Findings` index, and in a draft the sections are consecutive anyway, with only a placeholder between them. A block up front would state every gate a second time before its section states it again.
 - A constants-only `experiment.py` is marked `DESIGN_ONLY = True`. Landing the design constants — grid sizes, thresholds, schedules — as a module during preregistration lets the report import them instead of restating numbers the code will later own. But `tests/mini/test_experiments_e2e.py` globs every `docs/**/experiment.py` and asserts it loads into a named experiment with a callable `main(ctx)`, which a design module doesn't have yet; `DESIGN_ONLY = True` at module level skips that check. Delete the line in the same change that adds the DAG, or the implemented experiment silently loses its load coverage.
-- Freeze the hypotheses once the skeleton is agreed (immaterial edits aside), and say so in the report under "How to read this draft", quoting the commit — with the predictions spread over their sections, that hash is what says they were fixed in advance. Results replace placeholders, and anything conceived after seeing the data is marked as post hoc, within the E section it grew from or in a section of its own.
+- Freeze the hypotheses once the skeleton is agreed (immaterial edits aside, and every `Open decision` box resolved), and say so in the report under "How to read this draft", quoting the commit — with the predictions spread over their sections, that hash is what says they were fixed in advance. Results replace placeholders, and anything conceived after seeing the data is marked as post hoc, within the E section it grew from or in a section of its own.
 - The discussion interprets. It may refer to a result and never requotes it: the verdict and its deciding number live in the result section and in `Findings`.
 - Avoid over-claiming in the analysis and discussion. An experiment may _inform_ the next, but committing to an interpretation now can close off the follow-up.
 - A claim stated before its evidence exists gets paid for twice, once where it is stated and once where it is met. That is inherent to preregistration and worth the cost for hypotheses and thresholds, and not for anything else, so keep rationales, caveats, and worked reasoning at the point of use rather than in the method. Where a restatement is unavoidable, quote the frozen line rather than paraphrasing it, since a paraphrase drifts.
@@ -161,6 +161,16 @@ Reports go through several fresh-eyes review rounds, each reader starting from t
 ```
 
 An HTML comment inside a Markdown string works when the note has to sit beside one specific paragraph; it stays invisible in the render. Make it visible only when a reader of the published report benefits from it. The marker is greppable either way, so a review pass can find every prior decision before touching the same text.
+
+**A decision left for the human goes in a box they can see.** The human reviews drafts as printed PDFs, where comments don't show, so a choice that waits on them (a threshold to confirm, a rule to keep or drop) goes in an admonition titled `Open decision`, beside the text it concerns:
+
+```md
+/// admonition | Open decision
+Criterion (b) uses the seed band, so it would also catch a small real cost we might accept. The alternative is a fixed margin of 0.015. To check: the gaps on the old recipe sat inside its seed spread.
+///
+```
+
+Say what is open, the alternative, and what to check, as for a `REVIEW` note. Once the human decides, fold the outcome into the text (with a `REVIEW` note if it changed a claim) and delete the box. None survives the freeze, and the marker is greppable, like `TODO`.
 
 **A note should only record the change and its warrant:** what the report now claims, and why that follows from the data. It is the same category of thing as a code comment explaining a non-obvious invariant, which is why the next round may read it. It never carries a judgment of the report's quality, a round's confidence, or anything phrased as "I suspect" or "this felt weak", since that primes the next reader instead of informing them. Observations of that kind go in the round's own report, under `Tensions`, where they reach the supervisor and stop.
 
