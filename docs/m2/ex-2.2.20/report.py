@@ -596,16 +596,16 @@ We train the seven-op set for 200 epochs on a schedule of two cycles: a short on
 
 ## Findings
 
-- [The head start keeps most of the skill (H1)](#the-head-start-keeps-most-of-the-skill-h1) — miss. The head-start runs fall short of the {REF_E}-epoch runs by {H1[LO]["mean"]:.4f} on average, inside the partial band, but all three HSV-channel ops fall short by more than their tolerance.
-- [The head start beats the plain schedule (H2)](#the-head-start-beats-the-plain-schedule-h2) — miss. The head start scores above the plain {E}-epoch run at {H2[LO]["wins"]} of the three seeds, and {-H2[LO]["mean"]:.4f} below it on average. We keep the plain schedule.
-- [The HSV-channel ops come sooner (H3)](#the-hsv-channel-ops-come-sooner-h3) — miss. They came {-SOONER[LO][0]:.0f} and {-SOONER[LO][1]:.0f} epochs later than in the plain run at two seeds, and {SOONER[LO][2]:.0f} sooner at the third.
+- [The head start keeps most of the skill (H1)](#the-head-start-keeps-most-of-the-skill-h1) — miss. The head-start runs fall short of the {REF_E}-epoch runs, inside the partial band, but all three HSV-channel ops fall short by more than their tolerance.
+- [The head start beats the plain schedule (H2)](#the-head-start-beats-the-plain-schedule-h2) — miss. The head start scores above the plain {E}-epoch run at {H2[LO]["wins"]} of the three seeds, but below it on average. We keep the plain schedule.
+- [The HSV-channel ops come sooner (H3)](#the-hsv-channel-ops-come-sooner-h3) — miss. They came later than in the plain run at two out of three seeds.
 - [Where the first cycle leaves off (E1)](#where-the-first-cycle-leaves-off-e1) — the head start leads the plain run at epoch {HS}, and the second warmup takes the lead away within {ex.WARMUP_EPOCHS:g} epochs.
 - [Calibration (E2)](#calibration-e2) — the head start is about as well calibrated as the plain {E}-epoch run.
 - [Op confusion (E3)](#op-confusion-e3) — the head start puts more mass off the diagonal in the HSV-channel rows than the plain {E}-epoch run does.
-- [A lower second peak (E4)](#a-lower-second-peak-e4) — misses both rules by a wider margin: a shortfall of {H1[BAND]["mean"]:.4f}, and below the plain run at all three seeds.
+- [A lower second peak (E4)](#a-lower-second-peak-e4) — misses both rules by a wider margin.
 
-/// admonition | How to read this draft
-This is a preregistration: the hypotheses, their gates, and the adoption rule were frozen at commit `2ea0b76`, before any run of this experiment. Each section opens with what we expect, and the results replaced the placeholders in place. The discussion waits for a review round.
+/// admonition | How to read this report
+This report was preregistered: the hypotheses, their gates, and the adoption rule were frozen at commit `2ea0b76`, before any run of this experiment. Each section opens with what we expect, and the results replaced the placeholders in place.
 ///
 
 ## Why
@@ -901,7 +901,15 @@ Its HSV-channel ops came {-SOONER[BAND][0]:.0f} and {-SOONER[BAND][1]:.0f} epoch
 
 ## What it means for what follows
 
-TODO after the results.
+The {E}-epoch runs that follow keep the plain schedule, as ex-2.2.19 adopted it.
+
+The head start does what the {HS}-epoch run of ex-2.2.19 suggested, while it lasts: by the end of the first cycle the model has learned most ops outside the HSV channel. The second warmup then takes the lead away (E1). The second cycle seems to relearn those ops rather than build on the first.
+
+The HSV-channel ops, which the first cycle had not learned, came no sooner (H3), and the head-start runs ended with more of their probability mass on the answers of the wrong op (E3).
+
+The lower second peak was meant to give those ops more time at the rates where the plain runs learned them, yet it ended furthest short (E4). So time near those rates does not seem to be what the HSV-channel ops wait for. We hold this loosely: the schedule changes three things at once, and the three seeds disagree about the timing.
+
+One question stays open: does the restart itself cost the lead? A schedule that hands over from the first cycle without a second warmup would answer it.
 
 ## Method
 
