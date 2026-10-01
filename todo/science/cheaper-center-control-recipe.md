@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, training, performance, ex-2.2.17]
 opened: 2026-09-28
-priority: high
+closed: 2026-10-01
 ---
 # A cheaper recipe for the center control before building on it
 
@@ -55,3 +55,5 @@ Choices, as settled in review:
 | d128-L4 | 852k | 12.3–13.7 | 1.50–1.56 |
 
 So the premise of this item no longer holds on the scanned loop: a d128-L4 step costs about 1.5 times a d64-L4 step, and a shorter d128 run is cheaper only below about two thirds of the steps. Each size also paid 10 to 22 seconds of compile and start-up, whatever its length. The ratios agree closely across containers, though one container was 10 to 25% faster at every size. The probe left out the trajectory EEM measurement, which runs about fifty times per run. The probe cost under $0.25. The design note above builds on these numbers.
+
+**2026-10-01, closed** — Closed without running the sweep. A run of the recipe costs about $0.13, so the cheapest size (d32-L2, about 0.4 times the step cost) would save about 8 cents a run, and a change of size would need a fresh control for the anchored runs of pivot step 3, which build on d64-L4 like every control from ex-2.2.14 on. Ex-2.2.20 kept the plain schedule, so the center control recipe stays as ex-2.2.19 adopted it. The design note and the step timings stay here for when model size comes up again as a question in its own right (for instance [`narrow-stream-raise-superposition-pressure-sequenced-up`](/todo/science/narrow-stream-raise-superposition-pressure-sequenced-up.md)).
