@@ -91,8 +91,8 @@ def plain(epochs: int, seed: int) -> str:
     return X19.label_of(epochs, ex.LO_LR, seed)
 
 
+# The 50-epoch scout run of ex-2.2.19 at the higher peak rate, which the first cycle repeats.
 HI50 = X19.label_of(HS, ex.HI_LR, 0)
-"""The 50-epoch scout run of ex-2.2.19 at the higher peak rate, which the first cycle repeats."""
 
 
 def eem(label: str, op: str | None = None) -> float:
