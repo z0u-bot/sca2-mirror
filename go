@@ -37,7 +37,7 @@ show_help() {
 		  check   [--lint] [--format] [--typecheck] [--test] [--links] [--fix]:
 		                       run checks in parallel (default: all without --fix)
 		                       individual commands: format | lint | types | tests | links
-		                       advisory, and outside check: dead
+		                       outside check, run monthly by a routine: dead
 		  links   [...paths]:  relative doc links and #anchors that no longer resolve
 		                       (default: every .md we author)
 		  deps    [--audit] [--actions] [--updates]:
