@@ -334,6 +334,11 @@ These experiments were preparation for the main work: exercising the infrastruct
     Whether a 200-epoch run on the seven-op set keeps more of the skill of the 400-epoch recipe when its first 50 epochs run on a short schedule at a higher learning rate and the remaining 150 on the recipe schedule. Two schedules, the second with a lower second peak, four runs each, paired by seed with the 200- and 400-epoch runs of ex-2.2.19. Neither keeps more of the skill than the plain 200-epoch run: both fall further short in the HSV-channel ops, so the plain schedule stays.
 
     <span class="tags">`in-context` `training`</span>
+- [2.2.21. The in-context grammar pilot, on the reworked recipe](./m2/ex-2.2.21/report.py) (preregistration draft)
+
+    Round 2 of the D2.2 route again, now that the control on the seven-op set gets about nine tenths of the way to its ceiling. It trains the control and anchored `difference` under the whole-line label and its variants, and scores the rules ex-2.2.16 never reached: the label, where round 3 anchors and which edit it suppresses with, and whether verification lines stay. A preview on ex-2.2.16's stored runs found the anchor on the answer positions, away from the query `=` where the answer is computed, so two new label variants pull the prompt and the query `=` alone.
+
+    <span class="tags">`pilot` `in-context` `anchoring` `labelling` `preregistration`</span>
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
 
     A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
