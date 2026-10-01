@@ -154,7 +154,10 @@ assert traj_skill(HI50)[0, -1] > max(LONGER_AT_50), "the Why section says the he
 _t = TRAJ_19[plain(E, 0)]
 EPOCH_LENGTH = round(_t["step"][-1] / _t["epoch"][-1])
 CHECK = ex.schedule_check(EPOCH_LENGTH)
-assert CHECK["second"] < 1e-5, "the second cycle is the recipe schedule for its length and peak"
+assert all(ex.schedule_check(EPOCH_LENGTH, p)["second"] < 1e-5 for p in ex.SECOND_PEAKS), (
+    "the second cycle is the recipe schedule for its length and peak"
+)
+BAND = ex.BAND_LR
 
 
 def schedule_curve(epochs: int, peak: float, sheet: str | None = None) -> tuple[np.ndarray, np.ndarray]:
@@ -187,8 +190,9 @@ def schedule_draw(alt_text: str, caption: str) -> str:
                 (REF_E, ex.LO_LR, None, f"{REF_E} epochs"),
                 (E, ex.LO_LR, None, f"{E} epochs"),
                 (E, ex.HI_LR, ex.lr_sheet(), "head start"),
+                (E, ex.HI_LR, ex.lr_sheet(BAND), f"head start, second peak {BAND:g}"),
             ],
-            ("C7", "C0", "C1"),
+            ("C7", "C0", "C1", "C3"),
             strict=True,
         ):
             x, y = schedule_curve(epochs, peak, sheet)
@@ -198,13 +202,13 @@ def schedule_draw(alt_text: str, caption: str) -> str:
         ax.set_xlabel("epoch")
         ax.set_ylabel("learning rate")
         ax.set_xlim(0, REF_E)
-        fig.legend(loc="outside upper center", ncols=3, frameon=False, fontsize=8)
+        fig.legend(loc="outside upper center", ncols=2, frameon=False, fontsize=8)
         return fig
 
     return _plot()
 
 
-COST = len(ex.SEEDS) * ex.cost_per_run(E)
+COST = len(ex.SECOND_PEAKS) * len(ex.SEEDS) * ex.cost_per_run(E)
 
 rf"""
 
@@ -212,7 +216,7 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-We train the seven-op set for 200 epochs on a schedule of two cycles: a short one at a high learning rate, then the recipe schedule for the rest of the run. We ask whether that keeps more of the skill of the 400-epoch recipe than a plain 200-epoch run does.
+We train the seven-op set for 200 epochs on a schedule of two cycles: a short one at a high learning rate, then the recipe schedule for the rest of the run, or the same with a lower second peak. We ask whether that keeps more of the skill of the 400-epoch recipe than a plain 200-epoch run does.
 ///
 
 ## Findings
@@ -223,6 +227,7 @@ We train the seven-op set for 200 epochs on a schedule of two cycles: a short on
 - [Where the first cycle leaves off (E1)](#where-the-first-cycle-leaves-off-e1) —
 - [Calibration (E2)](#calibration-e2) —
 - [Op confusion (E3)](#op-confusion-e3) —
+- [A lower second peak (E4)](#a-lower-second-peak-e4) —
 
 /// admonition | How to read this draft
 This is a preregistration: the hypotheses and their gates are written down before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
@@ -244,6 +249,8 @@ The second cycle is the recipe schedule of a {E - HS}-epoch run, step for step.[
 
 The schedule differs from the plain one in three ways at once: a higher peak for the first {HS} epochs, a restart, and a final anneal {E - HS} epochs long instead of {E}. A result would say whether the schedule helps, and leave open which of the three did it.
 
+A second head-start condition is the same, except that its second cycle peaks at {BAND:g}, about the highest rate at which a plain {E}-epoch run of ex-2.2.19 learned the HSV-channel ops (H3). So it spends longer near those rates, and less time above them, than the first head start. From about epoch 80 on, its rate is close to that of the plain {E}-epoch run, so the two differ mostly in the first 80 epochs.
+
 [^sheet]: The schedule is a dopesheet: keyframes at the start and peak of each warmup and at the end of each cosine, joined by straight lines going up and half cosines going down. At {EPOCH_LENGTH} steps an epoch, the second cycle matches the recipe schedule of a {E - HS}-epoch run to within {CHECK["second"]:.0e} of its peak.
 
 [^adam]: Adam keeps running averages of the gradient and of its square. These decay with time constants of about 10 and 20 steps. The second warmup lasts {ex.WARMUP_EPOCHS * EPOCH_LENGTH:,g} steps, so a reset at the end of the first cycle would be forgotten early in it, while the rate is still near its floor.
@@ -255,13 +262,14 @@ schedule_draw(
         A line chart of learning rate against epoch from 0 to {REF_E}. The {REF_E}-epoch recipe warms up to
         {ex.LO_LR:g} and falls along a cosine to near zero at {REF_E}. The {E}-epoch recipe does the same by {E}. The
         head-start schedule rises to {ex.HI_LR:g}, falls to near zero by epoch {HS}, rises again to {ex.LO_LR:g} by
-        epoch {HS + ex.WARMUP_EPOCHS:g}, and falls to near zero by {E}. A dot on each recipe curve marks, for each
+        epoch {HS + ex.WARMUP_EPOCHS:g}, and falls to near zero by {E}. The second head-start schedule is the same, with a
+        second peak of {BAND:g}. A dot on each recipe curve marks, for each
         seed, where the HSV-channel ops were learned: on the {E}-epoch curve between epochs
         {span([r[0] for r in RISE_200.values()], ".0f")}, and on the {REF_E}-epoch curve between epochs
         {span([r[0] for r in RISE_400.values()], ".0f")}, where its rate is higher.
     """,
     f"""
-        **The three schedules.** Learning rate against epoch, as the training code computes it. Each dot is the point
+        **The four schedules.** Learning rate against epoch, as the training code computes it. Each dot is the point
         at which the HSV-channel skill of a plain run of ex-2.2.19 first passed {HSV_HALF:g}, one per seed; seeds
         that passed at the same epoch overlap.
     """,
@@ -275,6 +283,13 @@ table_html(
             "head start (new)",
             f"{E}",
             f"{HS} at {ex.HI_LR:g}, then {E - HS} at {ex.LO_LR:g}",
+            "600–603",
+            f"{len(ex.SEEDS)}",
+        ],
+        [
+            f"head start, second peak {BAND:g} (new)",
+            f"{E}",
+            f"{HS} at {ex.HI_LR:g}, then {E - HS} at {BAND:g}",
             "600–603",
             f"{len(ex.SEEDS)}",
         ],
@@ -308,7 +323,7 @@ The shortfall of the head-start and plain {E}-epoch runs from the {REF_E}-epoch 
 
 A miss would mean the second cycle kept nothing of the first, or lost it in the second warmup. H2 checks only the direction of the gain: the whole gap to the {REF_E}-epoch runs is small, so H1 covers its size.
 
-**Which schedule we adopt.** If H1 and H2 both pass, we adopt the head-start schedule for the {E}-epoch runs that follow. Otherwise we keep the plain schedule.
+**Which schedule we adopt.** H1 and H2 score the head start with the recipe peak, and E4 scores the one with a second peak of {BAND:g} by the same rules. If both hypotheses pass for either schedule, the {E}-epoch runs that follow will use that schedule. If both schedules pass, we take the one with the higher mean EEM over seeds {ex.SEED_OFFSET + min(ex.GATE_SEEDS)}–{ex.SEED_OFFSET + max(ex.GATE_SEEDS)}. Otherwise we keep the plain schedule.
 
 /// admonition | TODO
 The gain of the head-start run over the plain {E}-epoch run, overall and per op, one dot per seed with a bar for the mean.
@@ -356,6 +371,14 @@ In ex-2.2.19 the {E}-epoch runs put more mass off the diagonal than the {REF_E}-
 
 /// admonition | TODO
 The op confusion matrices of the head-start, plain {E}-epoch, and plain {REF_E}-epoch runs, side by side, on one color scale.
+///
+
+## A lower second peak (E4)
+
+Exploratory, with no prediction. We score the head start with a second peak of {BAND:g} by the rules of H1 and H2. As in H3, we also show the epoch at which its HSV-channel skill first passes {HSV_HALF:g}, beside the same epoch for the other head start.
+
+/// admonition | TODO
+The shortfall from the {REF_E}-epoch runs and the gain over the plain {E}-epoch run for both head-start schedules, one dot per seed; the H1 and H2 verdicts for this schedule; and its skill curves added to the H3 figure.
 ///
 
 ## What it means for what follows
