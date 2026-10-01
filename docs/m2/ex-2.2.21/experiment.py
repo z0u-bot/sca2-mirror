@@ -5,8 +5,8 @@ its anchored arms were trained and evaluated but never scored. Ex-2.2.17 to ex-2
 recipe (the newline mask, a lower peak rate, the seven-op set, 200 epochs), and the control now reaches about nine
 tenths of the way. This pilot trains the anchored arms again on that recipe and scores the rules ex-2.2.16 left
 open, with the changes the report argues for: the corpus rule becomes a regression check, two label variants move
-the pull toward the query `=`, and the hinge and operator rules merge into one rule for where round 3 anchors and
-how it edits.
+the pull toward the query `=` as references, and the hinge and operator rules merge into one rule that scores where
+the anchor can be edited.
 
 This module holds the design constants only, for the preregistration; the DAG lands once the plan is frozen.
 """
@@ -55,8 +55,8 @@ ANCHORED_OP = ex2216.ANCHORED_OP
 assert ANCHORED_OP in OP_NAMES
 
 CENTRE: tuple[int, float] = ex2216.CENTRE
-"""Three examples at ρ = 0.3, the only corpus condition. The report rechecks on the seven-op table that it still
-grades the stimulus on `difference` contexts."""
+"""Three examples at ρ = 0.3, the only corpus condition. The report rechecks the posterior on `difference` contexts
+on the seven-op table."""
 
 CUBE_RATE = ex2216.CUBE_RATE
 MIDDLE_BAND = ex2216.MIDDLE_BAND
@@ -91,9 +91,10 @@ LABEL_VARIANTS: tuple[tuple[str, str], ...] = (
     ("query-eq", "(f) the query `=` alone"),
 )
 """Ex-2.2.16's whole-line label and its four variants, then two new ones. Ex-2.2.16's anchored arms put most of their
-alignment on the answer positions and very little at the query `=`, where the answer is computed (the report has
-the measurement). Variant (e) leaves out the answer the model writes, as an M3 labeller that marks a prompt and not
-its response would; variant (f) pulls only the position round 3 most needs to edit."""
+alignment on the answer positions and very little at the query `=`, whose state predicts the answer (the report has
+the measurement). Variant (e) leaves the query answer out of the pull, to see where the pooled term settles without
+it; variant (f) pulls only the query `=`, a position oracle that shows what an anchor there would allow. Both are
+references for the site rule, and not labels round 3 could adopt as they stand."""
 
 PRIMARY = "anchor-whole"
 CONTROL = "control"
@@ -139,14 +140,17 @@ the whole-line arm for the label, site, and verification arms."""
 N_RUNS = sum(a.seeds for a in ARMS)
 assert N_RUNS == 37
 
-SITE_ARMS: tuple[str, ...] = (PRIMARY, "anchor-prompt", "anchor-hinge", "anchor-query-eq")
-"""The arms the site rule chooses among, in its order of preference: the whole-line label first, as the M3-shaped
-labeller; then the prompt label, which an M3 labeller could also give; then the two that need the site or the cap
-chosen by hand."""
+SITE_ARMS: tuple[str, ...] = (PRIMARY, "anchor-hinge")
+"""The candidates of the site rule, in its order of preference: the whole-line label, as the M3-shaped labeller,
+then the same label with the hinge, a training setting M3 could also use."""
 
-SUPPRESSION_ARMS: tuple[str, ...] = (*SITE_ARMS, CONTROL)
-"""The arms the scoring-only suppression pass runs on: the four candidates of the site rule and the control, whose
-damage under the same edit is subtracted."""
+SITE_REFERENCES: tuple[str, ...] = ("anchor-prompt", "anchor-query-eq")
+"""Scored by the site rule beside the candidates, and never chosen: they show where the anchor settles when the pull
+leaves out the query answer, and what an anchor at the query `=` would allow."""
+
+SUPPRESSION_ARMS: tuple[str, ...] = (*SITE_ARMS, *SITE_REFERENCES, CONTROL)
+"""The arms the scoring-only suppression pass runs on: the candidates and references of the site rule, and the
+control, whose damage under the same edit is subtracted."""
 
 
 def arm(name: str) -> Arm:
@@ -177,19 +181,30 @@ DOSE_GAMMAS = ex2216.DOSE_GAMMAS
 REPULSION_LANDINGS = ex2216.REPULSION_LANDINGS
 REPULSION_THRESHOLD = ex2216.REPULSION_THRESHOLD
 REFLECT_GAMMA = ex2216.REFLECT_GAMMA
-EDIT_SITES = ex2216.EDIT_SITES
+EDIT_SITES: tuple[str, ...] = (*ex2216.EDIT_SITES, "example answers")
 SELECTIVITY_GATE = ex2216.SELECTIVITY_GATE
 GRADING_MIN_DAMAGE = ex2216.GRADING_MIN_DAMAGE
 """The suppression pass and the two criteria of ex-2.2.16's operator rule (e), unchanged: the operators, their dose
 axes, the three sites, a selectivity gate of 0.02 on each other op net of the control, and full-dose damage at least
 half the way to the target null, net of the control."""
 
-MIDDLE_BINS: tuple[float, ...] = tuple(b for b in ex2216.EVIDENCE_BINS if MIDDLE_BAND[0] <= b <= MIDDLE_BAND[1])
-"""H2: ex-2.2.16's evidence bins inside the middle band, three bins and so two rising steps."""
+GRADE_DIP = 0.01
+"""S2: the net drop on the anchored op may dip by at most this between adjacent doses and still count as grading, as
+ex-2.2.1 and ex-2.2.2 allowed (they used 0.02, on larger drops). Half the selectivity gate, and about a quarter of a
+dose step of the whole-line projection in ex-2.2.16."""
+
+TASK_COST_TOL = 0.01
+"""H1 (b): the whole-line arm may fall short of the control by at most this in seed-mean held-out expected exact
+match. A little wider than the seed band of five seeds against five (about 0.009), so a miss is a cost the comparison
+resolves, and narrower than the 0.015 of (a)."""
 
 SCORED_SITES: tuple[str, ...] = ("query =", "every position")
 """S2 qualifies an operator at either of these sites. Ex-2.2.16 scored only every position; the query `=` is added
-because round 3 edits where the answer is computed, and the two new variants put the anchor there."""
+because its state predicts the answer, and `query-eq` puts the anchor there."""
+
+REPORTED_SITES: tuple[str, ...] = ("query ?", "example answers")
+"""Sites the suppression pass also edits, reported with no gate. The example answers are new: ex-2.2.16's anchored
+arms put much of their alignment there, and the query may read the op back from them."""
 
 
 def cost_per_run(epochs: int = EPOCHS) -> float:

@@ -84,6 +84,7 @@ def seed_band(n1: int, n2: int, sd: float = REF19_SD) -> float:
 
 BAND_55 = seed_band(5, 5)
 BAND_53 = seed_band(5, 3)
+BAND_33 = seed_band(3, 3)
 
 # --- The preview: ex-2.2.16's anchored arms ------------------------------------------------------------------
 
@@ -170,18 +171,49 @@ def worst_other(arm: str, key: tuple) -> float:
     return float(np.delete(net_drop(arm, key), D16).max())
 
 
+QUERY_START = len(ROLE_LABELS) - 6
+SLICE_NAMES = ["emb", *(f"block {i}" for i in range(1, ALIGN16["anchor-whole"].shape[1]))]
+STACK_GAP = 1.1
+
+
+def smooth_step(y: list[float], flat: float = 0.55, n: int = 12) -> tuple[np.ndarray, np.ndarray]:
+    """A per-token profile drawn as plateaus joined by smoothstep ramps, so it reads as a sequence of tokens."""
+    xs, ys = [], []
+    for i, v in enumerate(y):
+        xs += [i - flat / 2, i + flat / 2]
+        ys += [v, v]
+        if i + 1 < len(y):
+            t = np.linspace(0, 1, n)[1:-1]
+            xs += list(i + flat / 2 + t * (1 - flat))
+            ys += list(v + (y[i + 1] - v) * (3 * t**2 - 2 * t**3))
+    return np.array(xs), np.array(ys)
+
+
+def profiles(arm: str) -> dict:
+    """Per slice, the alignment on `difference` contexts and the mean over the other ops."""
+    a = ALIGN16[arm]
+    return {
+        "anchored": a[D16].tolist(),
+        "other": np.delete(a, D16, axis=0).mean(axis=0).tolist(),
+    }
+
+
 def preview_figure() -> str:
-    data = {a: {"anchored": last_block(a, True).tolist(), "other": last_block(a, False).tolist()} for a in PREVIEW_ARMS}
+    data = {a: profiles(a) for a in PREVIEW_ARMS}
     w = data["anchor-whole"]["anchored"]
-    h = data["anchor-hinge"]["anchored"]
+    h = data["anchor-hinge"]
+    ex_mid = [w[2][i] for i in EX_ANS]
     alt = f"""
-        Three line charts side by side, one per arm of ex-2.2.16 (the control, the whole-line arm, and the hinge arm),
-        each plotting the alignment with the anchored axis at the last block against the 24 positions of a
-        three-example context, with one line for `difference` contexts and one for the mean of the other ops. The
-        control is flat near zero. On the whole-line arm the `difference` line peaks at the answer positions: about
-        {min(w[i] for i in EX_ANS):.2f} to {max(w[i] for i in EX_ANS):.2f} at the three example answers and
-        {w[Q_ANS]:.2f} at the query answer, with {w[Q_EQ]:.2f} at the query `=`. The hinge arm moves part of it to the
-        query `=` ({h[Q_EQ]:.2f}).
+        Three panels side by side, one per arm of ex-2.2.16 (the control, the whole-line arm, and the hinge arm). Each
+        stacks five step-shaped traces, one per slice from the embedding at the bottom to the last block at the top,
+        plotting the alignment with the anchored axis against the 24 positions of a three-example context: a solid
+        trace for `difference` contexts and a dashed one for the mean of the other ops, with the other two arms as
+        faint lines. A vertical line marks where the query starts. The control is flat near zero at every slice. On
+        the whole-line arm the `difference` trace peaks on the answers: the example answers reach
+        {min(ex_mid):.2f} to {max(ex_mid):.2f} at block 2, and the query answer climbs from {w[1][Q_ANS]:.2f} at
+        block 1 to {w[-1][Q_ANS]:.2f} at the last block, while the query `=` stays below {max(r[Q_EQ] for r in w):.2f}
+        at every slice. On the hinge arm the query `=` holds about {h["anchored"][-1][Q_EQ]:.2f} at the last block,
+        and so does the dashed trace for the other ops ({h["other"][-1][Q_EQ]:.2f}).
     """
     return preview_draw(data, alt)
 
@@ -189,78 +221,148 @@ def preview_figure() -> str:
 @memo
 def preview_draw(data: dict, alt_text: str) -> str:
     @themed(
-        name="preview-alignment",
+        name="preview-alignment-stack",
         alt_text=alt_text,
         caption=f"""
-            **Where ex-2.2.16 put the anchor.** Alignment with e₁ at the last block, by position in a context of
-            three examples, seed means over three runs on held-out contexts. Solid: `{ex.ANCHORED_OP}` contexts.
-            Dashed: the mean over the other ten ops. The shaded column is the query `=`, where the answer is
-            computed. The labels are the roles: a, b, and y for the operands and the answer, numbered by example and
-            bare for the query.
+            **Where ex-2.2.16 put the anchor.** Alignment with e₁ by position in a context of three examples, one
+            trace per slice, from the embedding at the bottom to the last block at the top; seed means over three
+            runs on held-out contexts. Solid: `{ex.ANCHORED_OP}` contexts. Dashed: the mean over the other ten ops.
+            Faint: the `{ex.ANCHORED_OP}` trace of the other two arms. The shaded column is the query `=`, whose state
+            predicts the answer; the vertical line marks the start of the query. The labels are the roles: a, b, and
+            y for the operands and the answer, numbered by example and bare for the query. Each trace's baseline is a
+            hairline at zero, and the bar at top left is 0.5 of alignment.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, axes = plt.subplots(1, 3, figsize=(8.4, 2.9), layout="constrained", sharey=True)
+        fig, axes = plt.subplots(1, 3, figsize=(8.4, 5.2), layout="constrained", sharey=True)
         axes = cast(AxesRow, axes)
         ink = rule_color()
         accent = light_dark("#c0392b", "#ff8a76")
-        x = np.arange(len(ROLE_LABELS))
+        ghost = light_dark("#999", "#777")
         titles = {"control-k3-r0.3": "control", "anchor-whole": "whole-line", "anchor-hinge": "hinge"}
+        n_slices = len(data["anchor-whole"]["anchored"])
         for ax, (arm, d) in zip(axes, data.items(), strict=True):
-            ax.axvspan(Q_EQ - 0.5, Q_EQ + 0.5, facecolor=light_dark("#000", "#fff"), alpha=0.08, lw=0)
-            ax.plot(x, d["anchored"], "-o", color=accent, lw=1.2, ms=2.5, label=ex.ANCHORED_OP)
-            ax.plot(x, d["other"], "--", color=ink, lw=1.0, label="other ops")
+            ax.axvspan(Q_EQ - 0.5, Q_EQ + 0.5, facecolor=light_dark("#000", "#fff"), alpha=0.07, lw=0)
+            ax.axvline(QUERY_START - 0.5, color=ink, lw=0.8, ls=(0, (2, 2)))
+            for sl in range(n_slices):
+                base = sl * STACK_GAP
+                ax.axhline(base, color=ink, lw=0.3, alpha=0.5)
+                for other, od in data.items():
+                    if other != arm:
+                        ax.plot(*_lift(smooth_step(od["anchored"][sl]), base), color=ghost, lw=0.6, alpha=0.6)
+                ax.plot(*_lift(smooth_step(d["other"][sl]), base), "--", color=ink, lw=0.9)
+                ax.plot(*_lift(smooth_step(d["anchored"][sl]), base), color=accent, lw=1.3)
             ax.set_title(titles[arm], fontsize=9)
-            ax.set_xticks(x, ROLE_LABELS, fontsize=6)
-            ax.set_ylim(-0.1, 1.0)
-        axes[0].set_ylabel("alignment, last block")
-        handles, labels = axes[0].get_legend_handles_labels()
-        fig.legend(handles, labels, loc="outside upper center", ncols=2, frameon=False, fontsize=7)
+            ax.set_xticks(np.arange(len(ROLE_LABELS)), ROLE_LABELS, fontsize=6)
+            ax.set_xlim(-0.6, len(ROLE_LABELS) - 0.4)
+            ax.text(QUERY_START - 0.3, (n_slices - 0.05) * STACK_GAP, "query", fontsize=6, color=ink, va="top")
+        top = (n_slices - 1) * STACK_GAP
+        axes[0].plot([0.4, 0.4], [top + 0.3, top + 0.8], color=ink, lw=1.2)
+        axes[0].text(0.8, top + 0.55, "0.5", fontsize=6, color=ink, va="center")
+        axes[0].set_yticks([sl * STACK_GAP for sl in range(n_slices)], SLICE_NAMES, fontsize=7)
+        axes[0].set_ylim(-0.15, n_slices * STACK_GAP)
+        handles = [
+            plt.Line2D([], [], color=accent, lw=1.3, label=ex.ANCHORED_OP),
+            plt.Line2D([], [], color=ink, lw=0.9, ls="--", label="other ops"),
+            plt.Line2D([], [], color=ghost, lw=0.6, label="the other arms"),
+        ]
+        fig.legend(handles=handles, loc="outside upper center", ncols=3, frameon=False, fontsize=7)
         return fig
 
     return _plot()
 
 
-PREVIEW_EDITS = (
-    ("projection", 1.0, "query ="),
-    ("projection", 1.0, "every position"),
-    ("projection", 0.5, "every position"),
-    ("repulsion", 0.0, "every position"),
+def _lift(xy: tuple[np.ndarray, np.ndarray], base: float) -> tuple[np.ndarray, np.ndarray]:
+    return xy[0], xy[1] + base
+
+
+SUPP_SITES = ("query ?", "query =", "every position")
+SUPP_EDITS = (
+    *(("projection", g, f"γ {g:g}") for g in (0.25, 0.5, 0.75, 1.0)),
+    ("repulsion", 0.25, "rep. 0.25"),
+    ("repulsion", 0.0, "rep. 0"),
+    ("reflection", 2.0, "refl."),
 )
 
 
-def preview_table() -> str:
-    head = ["arm", "edit", "site", "drop on `difference`", "share of the way to the null", "worst other op"]
-    rows = []
-    for arm in ("anchor-whole", "anchor-hinge"):
-        for op, dose, site in PREVIEW_EDITS:
-            k = (op, dose, site)
-            dose_txt = f"γ = {dose:g}" if op == "projection" else f"landing {dose:g}"
-            rows.append(
-                [
-                    f"`{arm}`",
-                    f"{op}, {dose_txt}",
-                    site,
-                    f"{net_drop(arm, k)[D16]:.3f}",
-                    f"{to_null(arm, k):.0%}",
-                    f"{worst_other(arm, k):.3f}",
-                ]
-            )
-    return table_html(
-        head,
-        rows,
-        f"Ex-2.2.16's suppression pass on its two scored anchored arms, a few of its edits. Every number is a seed "
-        f"mean of the drop in held-out expected exact match, less the drop the control shows under the same edit. "
-        f"The share is of the way from the clean score on `{ex.ANCHORED_OP}` to the target null; the operator rule "
-        f"asked for {ex.GRADING_MIN_DAMAGE:.0%} at full dose and at most {ex.SELECTIVITY_GATE:g} on every other op.",
-        text_cols=3,
+def suppression_figure() -> str:
+    data: dict[str, dict] = {
+        arm: {
+            "half": float(ex.GRADING_MIN_DAMAGE * (SUPP[arm]["clean"][D16] - SUPP[arm]["null"][D16])),
+            "sites": {
+                site: {
+                    "anchored": [float(net_drop(arm, (o, g, site))[D16]) for o, g, _ in SUPP_EDITS],
+                    "worst": [worst_other(arm, (o, g, site)) for o, g, _ in SUPP_EDITS],
+                }
+                for site in SUPP_SITES
+            },
+        }
+        for arm in ("anchor-whole", "anchor-hinge")
+    }
+    wf = data["anchor-whole"]["sites"]["every position"]
+    he = data["anchor-hinge"]["sites"]["query ="]
+    alt = f"""
+        A grid of six panels: rows for the whole-line arm and the hinge arm of ex-2.2.16, columns for the three edit
+        sites (the query `?`, the query `=`, and every position). Each panel plots the net drop in expected exact
+        match against the edit: the projection at four doses, the repulsion at two, and the reflection, with a solid
+        trace for `difference` contexts and a dashed one for the worst other op, a rule at the selectivity gate of
+        {ex.SELECTIVITY_GATE:g}, and a rule halfway to the target null. At the query `?` both arms stay at zero. At
+        the query `=` the whole-line arm stays at zero, and on the hinge arm the drop on `difference`
+        ({min(he["anchored"][:4]):.2f} to {max(he["anchored"][:4]):.2f} under the projection) is matched by the worst
+        other op. At every position the whole-line projection rises to {max(wf["anchored"][:4]):.2f}, below the
+        halfway rule at {data["anchor-whole"]["half"]:.2f}, and the worst other op passes the gate from γ = 0.75.
+    """
+    return suppression_draw(data, alt)
+
+
+@memo
+def suppression_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="preview-suppression",
+        alt_text=alt_text,
+        caption=f"""
+            **Ex-2.2.16's suppression pass on its two scored anchored arms.** The net drop in held-out expected exact
+            match under each edit: the seed-mean drop, less the drop the control shows under the same edit. Solid:
+            on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other ten ops. The dotted rule is the selectivity
+            gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is {ex.GRADING_MIN_DAMAGE:.0%} of the way from the
+            clean score on `{ex.ANCHORED_OP}` to the target null. The projection runs from γ = 0.25 to full removal;
+            the repulsion lands states at 0.25 and then 0; the reflection has one dose.
+        """,
     )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(2, 3, figsize=(8.4, 4.6), layout="constrained", sharey=True, sharex=True)
+        ink = rule_color()
+        accent = light_dark("#c0392b", "#ff8a76")
+        x = np.arange(len(SUPP_EDITS))
+        groups = (slice(0, 4), slice(4, 6), slice(6, 7))
+        titles = {"anchor-whole": "whole-line", "anchor-hinge": "hinge"}
+        for r, (arm, d) in enumerate(data.items()):
+            for c, site in enumerate(SUPP_SITES):
+                ax = axes[r, c]
+                ax.axhline(ex.SELECTIVITY_GATE, color=ink, lw=0.8, ls=":")
+                ax.axhline(d["half"], color=ink, lw=0.8, ls="-.")
+                ax.axhline(0, color=ink, lw=0.3, alpha=0.5)
+                for g in groups:
+                    ax.plot(x[g], d["sites"][site]["anchored"][g], "-o", color=accent, lw=1.3, ms=3)
+                    ax.plot(x[g], d["sites"][site]["worst"][g], "--o", color=ink, lw=0.9, ms=2.5, mfc="none")
+                if r == 0:
+                    ax.set_title(f"at {site}", fontsize=9)
+                if c == 0:
+                    ax.set_ylabel(f"{titles[arm]}\nnet drop", fontsize=8)
+                ax.set_xticks(x, [e[2] for e in SUPP_EDITS], fontsize=6, rotation=45, ha="right")
+        handles = [
+            plt.Line2D([], [], color=accent, lw=1.3, marker="o", ms=3, label=ex.ANCHORED_OP),
+            plt.Line2D([], [], color=ink, lw=0.9, ls="--", marker="o", ms=2.5, mfc="none", label="worst other op"),
+        ]
+        fig.legend(handles=handles, loc="outside upper center", ncols=2, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
 
 
-PV = {
-    "whole_full": ("projection", 1.0, "every position"),
-    "whole_eq": ("projection", 1.0, "query ="),
-}
+PV = {"whole_full": ("projection", 1.0, "every position")}
+WHOLE = profiles("anchor-whole")["anchored"]
+HINGE = profiles("anchor-hinge")
 
 # --- The posterior on the seven-op table -------------------------------------------------------------------------
 
@@ -312,6 +414,7 @@ def band_shares(post: np.ndarray) -> tuple[float, float, float]:
 C7 = POST7[ex.CENTRE]
 BANDS7 = band_shares(C7["post"])
 BANDS11 = band_shares(POST11["post"])
+STEP7 = float(((C7["post"] >= 0.85) & (C7["post"] < 0.95)).mean() / BANDS7[1])
 
 
 def posterior_figure() -> str:
@@ -374,6 +477,15 @@ def grid_table() -> str:
 # --- The design tables --------------------------------------------------------------------------------------
 
 
+def label_cell(a: ex.Arm) -> str:
+    """The label an arm pulls with; `no-emb` is the whole-line label with the embedding slice left out."""
+    if not a.anchored:
+        return "—"
+    if a.label == "no-emb":
+        return "`whole` + no-emb"
+    return f"`{a.label}`" + (" + hinge" if a.hinge else "")
+
+
 def arms_table() -> str:
     head = ["arm", "group", "anchored", "label", "corpus", "what it asks", "seeds"]
     rows = [
@@ -381,7 +493,7 @@ def arms_table() -> str:
             f"`{a.name}`",
             a.group,
             "yes" if a.anchored else "—",
-            (f"`{a.label}`" if a.anchored else "—") + (" + hinge" if a.hinge else ""),
+            label_cell(a),
             "verification" if a.verify else "—",
             a.note,
             str(a.seeds),
@@ -414,8 +526,7 @@ A second try at round 2 of the D2.2 route, on the recipe ex-2.2.17 to ex-2.2.20 
 - [Where the anchor sits (E1)](#where-the-anchor-sits-e1) —
 - [The site and operator rule (S2)](#the-site-and-operator-rule-s2) —
 - [The verification rule (S3)](#the-verification-rule-s3) —
-- [The anchor follows the evidence (H2)](#the-anchor-follows-the-evidence-h2) —
-- [The leans stay with the control (H3)](#the-leans-stay-with-the-control-h3) —
+- [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) —
 
 ## How to read this draft
 
@@ -423,29 +534,45 @@ This is a preregistration draft: nothing in it has been trained. The rules and p
 
 ## Why this experiment
 
-[Ex-2.2.16](/docs/m2/ex-2.2.16/report.py) was round 2 of the [D2.2 route](/docs/m2/d2.2/design.md#quick-route): train the control on the in-context grammar, anchor `{ex.ANCHORED_OP}` on the same grammar, and let rules frozen in advance choose the label, the site, the operator, and whether verification lines stay in the corpus for round 3. It stopped at its first rule. The control learned less than half of what its examples allow ({CTRL16_SKILL:.0%} of the way from the floor to the Bayes ceiling), and an anchor compared with a model that far from finished would say little about round 3.
+[Ex-2.2.16](/docs/m2/ex-2.2.16/report.py) was round 2 of the [D2.2 route](/docs/m2/d2.2/design.md#quick-route). It trained a control and several arms that anchor `{ex.ANCHORED_OP}` on the in-context grammar, and froze rules for how round 3 would anchor and edit: the label, the site, the operator, and whether verification lines stay in the corpus. (Round 3 anchors the inferred op at fresh seeds, then suppresses it.)
+
+Ex-2.2.16 stopped at its first rule. Its control had learned less than half of what the examples allow, {CTRL16_SKILL:.0%} of the way from the floor to the Bayes ceiling. An anchor compared with a model that far from finished would say little about round 3.
 
 Four reports then worked on the control alone: [ex-2.2.17](/docs/m2/ex-2.2.17/report.py) added the newline mask, a lower peak learning rate, and more steps; [ex-2.2.18](/docs/m2/ex-2.2.18/report.py) dropped four ops whose answers often coincide with another op; [ex-2.2.19](/docs/m2/ex-2.2.19/report.py) settled the length at {ex.EPOCHS} epochs; and [ex-2.2.20](/docs/m2/ex-2.2.20/report.py) kept the plain schedule.
 
-On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe. It keeps ex-2.2.16's label, verification, and operator rules, with one change each where ex-2.2.16's stored runs or the new recipe ask for it, and adds two label variants. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1 and S1 to S3.
+On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe. It keeps the label, verification, and operator rules of ex-2.2.16, changing each only where the stored runs of ex-2.2.16 or the new recipe call for it, and adds two label variants as references. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1 and S1 to S3.
 
 ## What ex-2.2.16's anchored arms already show
 
-Ex-2.2.16's anchored arms were trained and evaluated, but the eval was never scored. These numbers come from the half-trained model, so they show what to look for and decide nothing.
+Ex-2.2.16's anchored arms were trained and evaluated, but the eval was never scored. These numbers come from the half-trained model, so they only show what to look for.
 
-The anchor landed. The op margin, which measures how far `{ex.ANCHORED_OP}` contexts sit along the anchored axis beyond the rest, was {MARGIN16["anchor-whole"]:.2f} on the whole-line arm against {MARGIN16["control-k3-r0.3"]:.2f} on the control. But it landed in a place round 3 cannot use as it is:
+It turns out the anchor landed. The op margin, which measures how far `{ex.ANCHORED_OP}` contexts sit along the anchored axis beyond the rest, was {MARGIN16["anchor-whole"]:.2f} on the whole-line arm against {MARGIN16["control-k3-r0.3"]:.2f} on the control. But most of it landed where an edit cannot reach the answer:
 
 {preview_figure()}
 
-Most of the alignment sits on the answers: on each example answer, and most of all on the query answer, which reaches {last_block("anchor-whole", True)[Q_ANS]:.2f} at the last block. The query `=`, where the model computes the answer, holds {last_block("anchor-whole", True)[Q_EQ]:.2f}. The pooled anchor term asks a labelled context to align somewhere in its span; the answers are where the context has shown the most evidence about its op, so the pull seems to have settled there.
+On the whole-line arm the alignment (the cosine of a state with e₁) sits on the answers. It builds up on the example answers by block 2 ({min(WHOLE[2][i] for i in EX_ANS):.2f} to {max(WHOLE[2][i] for i in EX_ANS):.2f}) and fades a little after; on the query answer it climbs with depth, to {WHOLE[-1][Q_ANS]:.2f} at the last block. The query `=`, whose state predicts the answer, stays below {max(r[Q_EQ] for r in WHOLE):.2f} at every slice.
 
-The query `?` stayed clean ({last_block("anchor-whole", True)[Q_Q]:.2f}). Ex-2.2.16 worried that it would saturate, but the position that came close was the query answer. The hinge arm, which caps the pull, moved part of the alignment to the query `=` ({last_block("anchor-hinge", True)[Q_EQ]:.2f}).
+The pooled anchor term asks a labelled context to align somewhere in its span. The answers are where the context has shown the most evidence about its op, so the pull seems to have settled there.
 
-The suppression pass agrees. An edit at the query `=` barely touches the answer. The projection at every position grades with dose, but it stops short of the target null and spills onto other ops:
+For an edit, the two kinds of answer differ. The state at the query answer comes after the answer is predicted (the model reads left to right) and predicts only the line break, so an edit there cannot change the answer. The query can read the example answers, so an edit there may still reach it.
 
-{preview_table()}
+The query `?` stayed clean ({WHOLE[-1][Q_Q]:.2f}). Ex-2.2.16 worried that it would saturate, but the position that came close was the query answer. The hinge arm, which caps the pull, holds {HINGE["anchored"][-1][Q_EQ]:.2f} at the query `=` at the last block, but the other ops hold nearly as much there ({HINGE["other"][-1][Q_EQ]:.2f}), so that alignment says little about `{ex.ANCHORED_OP}`.
 
-The preview changes three things in this plan. Two new label variants pull the positions up to the query `=` and the query `=` alone, giving the site rule an arm anchored where the answer is computed. The saturation half of ex-2.2.16's hinge rule goes, since the query `?` did not saturate, though the hinge arm stays a candidate site. The operator rule is scored at the query `=` as well as at every position.
+The suppression pass agrees:
+
+{suppression_figure()}
+
+At the query `=`, an edit on the whole-line arm barely touches the answer, and on the hinge arm it lowers every op about as much as `{ex.ANCHORED_OP}`.
+
+With the edit at every position, the projection on the whole-line arm grows with dose up to γ = 0.75, then levels off {to_null("anchor-whole", PV["whole_full"]):.0%} of the way to the target null; from γ = 0.75 on it spills past the selectivity gate onto other ops. The hinge arm gets {to_null("anchor-hinge", PV["whole_full"]):.0%} of the way and spills more.
+
+The preview changes three things in this plan:
+
+- Two new label variants move the pull toward the query `=`, as references rather than candidates. `prompt` leaves the query answer out of the pull, to see where the pooled term settles without it. `query-eq` pulls the query `=` alone: a position oracle,[^oracle] which shows what an anchor there would allow.
+- The saturation half of ex-2.2.16's hinge rule goes, since the query `?` did not saturate, though the hinge arm stays a candidate.
+- The suppression pass also edits the example answers, and the operator rule is scored at the query `=` as well as at every position.
+
+[^oracle]: The term from [ex-2.1.8](/docs/m2/ex-2.1.8/report.py): a pull at a position chosen by hand, which no labeller could give. It is a reference for what the right position would allow, and not a strict ceiling.
 
 ## Glossary
 
@@ -453,17 +580,17 @@ Terms follow [ex-2.2.16](/docs/m2/ex-2.2.16/report.py#glossary); these are the o
 
 <dl>
 <dt>Alignment</dt>
-<dd>The cosine between a state and e₁, the anchored axis, per position and slice. (Cosine similarity compares direction only: 1 when two vectors point the same way, 0 when they are perpendicular.)</dd>
+<dd>The cosine between a state and e₁, the anchored axis, per position and slice. Cosine similarity compares direction only: 1 when two vectors point the same way, 0 when they are perpendicular.</dd>
 <dt>Op margin</dt>
-<dd>How far the contexts of the anchored op sit along e₁ beyond the rest. At each slice, take the mean alignment over `{ex.ANCHORED_OP}` contexts less the mean over all contexts, at the role where that gap is largest; then average over slices. The anchor term optimizes this quantity, so it checks that the pull landed.</dd>
+<dd>How far the contexts of the anchored op sit along e₁ beyond the rest. At each slice, take the mean alignment over <code>{ex.ANCHORED_OP}</code> contexts less the mean over all contexts, <code>{ex.ANCHORED_OP}</code> included, at the role where that gap is largest; then average over slices. The anchor term optimizes this quantity, so it checks that the pull landed.</dd>
 <dt>Expected exact match (EEM)</dt>
 <dd>The probability mass the model puts on the colors the query answer can be under the true op, weighted by how often the op gives each, averaged over held-out contexts. The task measurement.</dd>
 <dt>Bayes ceiling and floor</dt>
 <dd>The expected exact match of a predictor that holds the posterior over ops given the examples, and of one that ignores the examples.</dd>
 <dt>Target null</dt>
-<dd>The answer a model that has lost `{ex.ANCHORED_OP}` and nothing else would give: the posterior-weighted answer distribution with `{ex.ANCHORED_OP}` removed and the other ops renormalized.</dd>
+<dd>The answer a model that has lost <code>{ex.ANCHORED_OP}</code> and nothing else would give: the posterior-weighted answer distribution with <code>{ex.ANCHORED_OP}</code> removed and the other ops renormalized.</dd>
 <dt>Seed band</dt>
-<dd>The smallest difference between two seed means a comparison resolves: {ex.SEED_BAND_SD:g}σ√(1/n₁ + 1/n₂) for arms at n₁ and n₂ seeds, with σ the seed standard deviation pooled over the two. At the spread of ex-2.2.19's four runs it is about {BAND_55:.3f} for five seeds against five and {BAND_53:.3f} for five against three.</dd>
+<dd>The smallest difference between two seed means a comparison resolves: {ex.SEED_BAND_SD:g}σ√(1/n₁ + 1/n₂) for arms at n₁ and n₂ seeds, with σ the seed standard deviation pooled over the two. At the spread of ex-2.2.19's four runs it is about {BAND_55:.3f} for five seeds against five, {BAND_53:.3f} for five against three, and {BAND_33:.3f} for three against three.</dd>
 </dl>
 
 ## Conditions
@@ -474,7 +601,7 @@ Every arm trains at the center condition of ex-2.2.16 (three examples, ρ = {ex.
 
 Ex-2.2.16's arms at other corpus conditions, its larger control, and its two newline-mask arms are gone: the condition is settled, the larger control was for a shortfall the recipe has since closed, and the mask is now in every arm.
 
-**The new label variants.** Both keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break; an M3 labeller that marks the prompt and leaves the response alone would give this label. Variant (f), `query-eq`, pulls the query `=` alone: a slot pull at the position round 3 edits.
+**The new label variants.** Both keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break. Variant (f), `query-eq`, pulls the query `=` alone. Neither is a label round 3 could adopt as it stands, so both are references for the site rule.
 
 Neither variant leaves out the example answers, because they are part of the evidence. If the pull still settles on them under `prompt`, that is a result about pooling.
 
@@ -485,11 +612,13 @@ Neither variant leaves out the example answers, because they are part of the evi
 **What we expect.** Round 3 starts from this recipe only if both of these criteria hold:
 
 - **(a)** The control reproduces ex-2.2.19: its seed-mean held-out expected exact match is within {ex.REGRESSION_TOL:g} of {REF19_MEAN:.3f}, the mean of ex-2.2.19's four runs at {ex.EPOCHS} epochs.
-- **(b)** The whole-line arm is not worse than the control by more than the seed band.
+- **(b)** The whole-line arm falls short of the control by at most {ex.TASK_COST_TOL:g}, a little wider than the seed band of five seeds against five.
 
 The arms differ from ex-2.2.19 only in their seeds and in the anchor, so (a) checks that nothing else moved.
 
-We expect (b) to hold too. Ex-2.2.14 found that the anchor costs the task nothing when {ex.LABEL_RATE:.0%} of contexts are labelled, and the stored runs of ex-2.2.16 agree: the whole-line arm scored {EEM16["anchor-whole"]:.3f} against {EEM16["control-k3-r0.3"]:.3f} for the control, and {EEM16["anchor-mask"]:.3f} against {EEM16["control-mask"]:.3f} with the newline mask. A miss on (b) would mean the anchor and the task compete on this recipe, and would leave the site rule with no qualifying arm, since it asks the same of each candidate.
+We expect (b) to hold too. Ex-2.2.14 found the anchor costs the task nothing when {ex.LABEL_RATE:.0%} of contexts are labelled, and the stored runs of ex-2.2.16 agree: the whole-line arm scored {EEM16["anchor-whole"]:.3f} against {EEM16["control-k3-r0.3"]:.3f} for the control, and {EEM16["anchor-mask"]:.3f} against {EEM16["control-mask"]:.3f} with the newline mask.
+
+A miss on (b) would mean the anchor and the task compete on this recipe, and would leave the site rule with no candidate, since it asks the same of each.
 
 This replaces corpus rule (a) of ex-2.2.16, which asked the control to come within 0.03 of the calibrated ceiling. The seven-op control misses that: it sits {REF19_CEIL - REF19_MEAN:.3f} below the ceiling at {ex.EPOCHS} epochs, and still misses at 400. Ex-2.2.17 found the remaining gap on contexts whose examples settle the op, where the model keeps mass on the answers of a similar op.
 
@@ -497,23 +626,15 @@ We take the control as it stands. Its skill score and calibration KL[^kl] are re
 
 [^kl]: A KL divergence: a non-negative measure, in nats, of how far one probability distribution sits from another, 0 when they match. Here it compares the model's answer distribution with the Bayes predictor's.
 
-/// admonition | Open decision
-Criterion (b) uses the seed band, about 0.009 at the spread of ex-2.2.19, so it would also catch a small real cost we might accept. The alternative is a fixed margin, 0.015 as in (a). A miss on (b) leaves S2 with no candidates. To check: the gaps on the old recipe, quoted above, sat inside its seed spread.
-///
-
-/// admonition | Open decision
-Dropping the absolute ceiling margin. The alternative is to keep 0.03 and treat the pilot as blocked on the control, which ex-2.2.17 to ex-2.2.20 suggest no cheap change to the recipe will clear. To check: E4 of ex-2.2.19 and the answer scoring of ex-2.2.17.
-///
-
 /// admonition | TODO
 A figure of held-out expected exact match per seed for the control and the whole-line arm, seed means as bars, with ex-2.2.19's four runs as a reference column; the ceiling and floor as rules and the band of (a) shaded. Beside it, the calibration KL for the same runs. A table with the seed means, the seed band, and the verdict on each criterion.
 ///
 
 ## The label rule (S1)
 
-**The rule.** Ex-2.2.16's rule (b), unchanged. The whole-line label stays the primary unless a variant clears the task gate: its seed-mean held-out expected exact match exceeds that of the whole-line arm by more than the seed band, while it holds the anchor, with an op margin of at least {ex.MARGIN_KEEP:.0%} of the whole-line margin. If more than one variant qualifies, the one with the higher op margin goes forward.
+**The rule.** Ex-2.2.16's rule (b), unchanged. The whole-line label stays the primary unless a candidate variant (below) clears the task gate: its seed-mean held-out expected exact match beats the whole-line arm by more than the seed band, while it holds the anchor, with an op margin of at least {ex.MARGIN_KEEP:.0%} of the whole-line margin. If several qualify, the one with the higher op margin goes forward.
 
-The candidates are `no-emb`, `latter`, and `prefix`. Variant (d), `sampled`, trains the grading that [H2](#the-anchor-follows-the-evidence-h2) measures, so it is reported and not promoted. The two new variants go to the site rule.
+The candidates are `latter`, `prefix`, and `no-emb` (the whole-line label with the embedding slice left out of the pull). Variant (d), `sampled`, trains the grading that round 3 will measure, so it is reported and not promoted.
 
 **What we expect.** No variant clears the gate, for the reasons ex-2.2.16 gave: the label share barely moved the margin in ex-2.2.14, and the variants change less than that.
 
@@ -523,44 +644,47 @@ A figure with one column per label arm: held-out expected exact match (seeds and
 
 ## Where the anchor sits (E1)
 
-The site rule depends on where along the context each anchored arm puts its alignment. E1 measures, for every anchored arm, the seed-mean alignment at each position of a held-out context and each slice, on `{ex.ANCHORED_OP}` contexts and on the other ops. The preview figure is the last-block row of this for ex-2.2.16.
+The site rule depends on where along the context each anchored arm puts its alignment. E1 measures, per anchored arm, the seed-mean alignment at each position of a held-out context and each slice, on `{ex.ANCHORED_OP}` contexts and on the other ops. The preview figure shows this for ex-2.2.16.
 
 /// admonition | TODO
-One heatmap per anchored arm, positions across and slices down, of the alignment on `{ex.ANCHORED_OP}` contexts less the alignment on the other ops. Beside them, the last-block profile of every arm on one set of axes, as in the preview figure. A table of the alignment at the query `?`, the query `=`, the query answer, and the example answers, at the last block.
+One stacked figure per anchored arm, as in the preview: positions across, slices up, the alignment on `{ex.ANCHORED_OP}` contexts and the mean over the other ops as two traces, and the other arms as faint traces. A table of the alignment at the query `?`, the query `=`, the query answer, and the example answers, at the last block.
 ///
 
 ## The site and operator rule (S2)
 
-**The rule.** It picks the arm to anchor with in round 3 and the edit to suppress with, merging hinge rule (c) and operator rule (e) of ex-2.2.16.
+S2 asks whether `{ex.ANCHORED_OP}` can be edited out of an anchored model with a dial: an edit whose effect on `{ex.ANCHORED_OP}` grows with its dose while the other ops stay as they were. It scores each anchored arm at two sites and says which candidate arm and edit come closest. It merges hinge rule (c) and operator rule (e) of ex-2.2.16.
 
-The suppression pass of ex-2.2.16 (scoring only, unchanged) runs on the four candidate arms (`{"`, `".join(ex.SITE_ARMS)}`) and on the control. It applies three edits: the projection at γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}}, the repulsion to a landing at {", ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)} for states above an alignment of {ex.REPULSION_THRESHOLD:g}, and the reflection as a one-dose reference. Each edit is applied at every slice and at three sites: the query `?`, the query `=`, and every position.
+**The edits.** The suppression pass of ex-2.2.16 runs, scoring only, on the two candidates (`{"`, `".join(ex.SITE_ARMS)}`), the two references (`{"`, `".join(ex.SITE_REFERENCES)}`), and the control. It has three operators, each applied at every slice:
 
-Every drop below is a net drop: the seed-mean fall in held-out expected exact match, minus the fall the control shows under the same edit. An operator at a site *qualifies* on an arm when:
+- the projection, which removes a share γ of the component along e₁, for γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}};
+- the repulsion, which moves states aligned above {ex.REPULSION_THRESHOLD:g} down to an alignment of {" and then ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)};
+- the reflection, which flips the component, at one dose.
 
-- it grades with dose: the net drop on `{ex.ANCHORED_OP}` contexts never shrinks as the dose rises, and at full dose it covers at least {ex.GRADING_MIN_DAMAGE:.0%} of the distance from the clean score to the target null;
-- it is selective: on each of the other six ops, the net drop is at most {ex.SELECTIVITY_GATE:g} at every dose.
+Each edit is applied at four sites: the query `?`, the query `=`, the example answers, and every position. Every drop below is a net drop: the seed-mean fall in held-out expected exact match, minus the fall the control shows under the same edit, so only the part the anchor caused counts.
 
-The rule is scored at the query `=` and at every position. The query `?` gates nothing; with the query `=`, it gives the first bypass measurement.
+**When an edit qualifies.** An operator at a site qualifies on an arm when both of these hold:
 
-An arm is a *candidate* when it passes H1 (b) against the control. Candidates are taken in the order listed, and the first on which some operator qualifies goes forward, with that operator and site. The reflection has one dose, so it cannot grade; it is a reference only.
+- **It grades.** The net drop on `{ex.ANCHORED_OP}` contexts rises with the dose, allowing a dip between adjacent doses of at most {ex.GRADE_DIP:g}, and at full dose it covers at least {ex.GRADING_MIN_DAMAGE:.0%} of the distance from the clean score to the target null. The reflection has one dose, so it cannot grade.
+- **It is selective.** On each of the other six ops, the net drop is at most {ex.SELECTIVITY_GATE:g} at every dose. This is the threshold [ex-2.2.11](/docs/m2/ex-2.2.11/report.py) set for a change in expected exact match too small to matter for the task. It sits well above the seed band of three seeds against three, because the worst of six ops is the largest of six noisy numbers.
 
-If several operators qualify on the same arm, the tie breaks by site first, then by operator. The query `=` beats every position, since round 3 edits the narrower site first; at the same site, the projection beats the repulsion.
-If nothing qualifies on any candidate, round 3's operator stays open, and the report says which criterion failed where.
+The criteria apply at the query `=` and at every position; the other two sites are reported only. Together the four sites show how the op reaches the answer.
+
+If the edit at every position works and the one at the query `=` does not, the answer takes the op from somewhere else, and the edit at the example answers shows whether that is the examples. This is a first look at the bypass test of the design, which round 3 runs in full.
+
+**The outcome.** A candidate with a qualifying edit goes forward to round 3, with that edit. The whole-line arm wins over the hinge if both have one, since M3 would have to justify the cap. On one arm, the query `=` wins over every position, being the narrower edit; at the same site, the projection wins over the repulsion.
+
+If neither candidate has a qualifying edit, the report says which criterion failed where, and the references show whether an anchor at the query `=` would have changed that.
+
+**What we expect.** Neither candidate qualifies. On the whole-line arm the projection at every position levels off about a third of the way to the null, as in the preview, and on the hinge arm the edit at every position spills onto other ops.
+
+On `query-eq` we expect the projection at the query `=` to qualify, which would say that an anchor there can be edited with a dial, if a label could put it there. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
 
 /// admonition | Open decision
-The review made the tie-break order explicit (site first, then operator) and stated that the reflection cannot qualify, as ex-2.2.16 has it. The earlier wording left a projection at every position against a repulsion at the query `=` undecided. If the operator should take precedence, the order swaps.
+Whether S2 stays a rule. With the expectation above, it most likely ends with nothing going forward, and round 3 would then be designed after this report. The alternative is to make it exploratory: the same edits, sites, and criteria, scored as a description of each arm, with no arm chosen.
 ///
-
-/// admonition | Open decision
-"Never shrinks as the dose rises" is the non-decreasing criterion of ex-2.2.16, which a dip of a thousandth in a seed mean at a small dose would fail. A slack of 0.005 per step is an option. To check against the preview: the whole-line projection at every position rises by 0.04 to 0.06 per step.
-///
-
-The order favors the labels an M3 labeller could give: the whole context, then the prompt. The hinge and the slot pull need the cap or the site chosen by hand, which M3 would have to justify.
-
-**What we expect.** On the whole-line arm nothing qualifies, as in the preview. On `query-eq` and `prompt` the projection at the query `=` grades and is selective, and `prompt` goes forward. We are least sure of `prompt`: the pooled term may still put the alignment on the example answers, which E1 will show.
 
 /// admonition | TODO
-One figure per candidate arm: the net drop on `{ex.ANCHORED_OP}` against dose, one line per operator and site, with the target null as a rule; beneath it, the worst net drop over the other ops against dose, with the selectivity gate as a rule. A table of each operator and site on each arm against the two criteria, and the verdict.
+One figure per arm, as the preview figure of the suppression pass: the net drop on `{ex.ANCHORED_OP}` and the worst other op against the edit, with the selectivity gate and the halfway rule, one panel per site. A table of each operator and site on each arm against the two criteria, and the verdict.
 ///
 
 ## The verification rule (S3)
@@ -573,21 +697,7 @@ One figure per candidate arm: the net drop on `{ex.ANCHORED_OP}` against dose, o
 A figure of held-out expected exact match per seed for the two pairs, with the seed band of each shaded, and verification accuracy beside it. A table of the same and the verdict.
 ///
 
-## The anchor follows the evidence (H2)
-
-**What we expect.** We score the arm the site rule sends forward, or the whole-line arm if it sends none, on the alignment at the query `=` at the last block of held-out `{ex.ANCHORED_OP}` contexts.
-
-We expect it to rise with the posterior on `{ex.ANCHORED_OP}` across the middle band ({ex.MIDDLE_BAND[0]:g} to {ex.MIDDLE_BAND[1]:g}): in the bins with edges at {", ".join(f"{b:g}" for b in ex.MIDDLE_BINS)}, the seed-mean alignment in each bin is higher than in the bin below. On contexts of the other ops it should stay low and flat.
-
-The label is binary on the true op, so a context whose examples half-fit `{ex.ANCHORED_OP}` is pulled as hard as one that names it. If the alignment grades anyway, the anchor holds the inferred op rather than the op label.
-
-The same measurement is reported at the query answer, and on every anchored arm beside the one scored. In the preview, the whole-line arm showed little grading at the query `=`, where it held little alignment to grade.
-
-/// admonition | TODO
-A figure of alignment at the query `=` against the posterior on `{ex.ANCHORED_OP}`, binned, for the scored arm (seed means, seeds faded) with the other ops' contexts beside it, and `sampled` as the trained comparison. A second panel at the query answer.
-///
-
-## The leans stay with the control (H3)
+## The leans stay with the control (H2)
 
 **What we expect.** On the whole-line arm, the first-operand lean and the trailing-fragment lean stay within the seed band of the control, as ex-2.2.16 defined them. The newline mask now keeps a context from reading the one before it, which should make a cut-off fragment look less like a whole context than it did in ex-2.2.15.
 
@@ -598,7 +708,7 @@ A figure of both leans per seed for the control and every anchored arm, with the
 ## Discussion
 
 /// admonition | TODO
-After the run. The outcomes that change round 3: which arm and edit go forward (S2), and if none, whether the anchor can be moved to the query `=` without choosing the site by hand.
+After the run. What the pilot settles for round 3: the recipe (H1), the label (S1), and the verification lines (S3). It may leave the site and the operator open; if so, what the references suggest about where an anchor would need to sit to be edited.
 ///
 
 ## Method
@@ -607,7 +717,9 @@ After the run. The outcomes that change round 3: which arm and edit go forward (
 
 The corpus is ex-2.2.18's seven-op corpus at the center condition, which ex-2.2.19 also trained on: one context per line, 300,000 contexts, three examples and ρ = {ex.CENTRE[1]:g}, cube noise at κ = {ex.CUBE_RATE:g}, and stochastic rounding. The held-out and probe sets are ex-2.2.18's. The verification arms train on the same generator with {ex.VERIFY_RATE:.0%} of contexts written as verification lines.
 
-Dropping four ops changes the posterior, but the center condition still grades the stimulus: on the seven-op table {BANDS7[1]:.0%} of `{ex.ANCHORED_OP}` contexts sit in the middle band, against {BANDS11[1]:.0%} on eleven ops, with {BANDS7[0]:.0%} below it and {BANDS7[2]:.0%} above. On these sampled contexts the Bayes ceiling is {C7["ceiling"]:.3f} and the floor {C7["floor"]:.3f}; on the held-out set of ex-2.2.19, the ceiling is {REF19_CEIL:.3f}.
+Dropping four ops leaves the posterior on `{ex.ANCHORED_OP}` much as it was: on the seven-op table {BANDS7[1]:.0%} of `{ex.ANCHORED_OP}` contexts sit in the middle band, against {BANDS11[1]:.0%} on eleven ops, with {BANDS7[0]:.0%} below it and {BANDS7[2]:.0%} above. On these sampled contexts the Bayes ceiling is {C7["ceiling"]:.3f} and the floor {C7["floor"]:.3f}; on the held-out set of ex-2.2.19, the ceiling is {REF19_CEIL:.3f}.
+
+But the posterior takes few distinct values: {STEP7:.0%} of the contexts in the middle band sit in one step between 0.85 and 0.95, so the stimulus has about three levels. That matters for the graded stimulus of round 3, but not for the rules here.
 
 {posterior_figure()}
 
@@ -623,9 +735,9 @@ Ex-2.2.16's measurements, scored on its held-out sets at the end of training, wi
 
 ### The new variants
 
-Both are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where.
+`prompt` and `query-eq` are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where.
 
-S2 chooses an arm without saying which of the two changes made the difference; E1 shows the alignment each arm reaches at each position.
+S2 scores `query-eq` without separating the two changes; E1 shows the alignment it reaches at the query `=` beside the other arms.
 
 ### Budget
 
