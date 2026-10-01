@@ -496,8 +496,14 @@ This replaces corpus rule (a) of ex-2.2.16, which asked the control to come with
 We take the control as it stands. Its skill score and calibration KL[^kl] are reported beside every comparison, but no criterion depends on them. In ex-2.2.19 the KL was about {REF19_KL:.2f} nats; ex-2.2.16 called a model calibrated below 0.05.
 
 [^kl]: A KL divergence: a non-negative measure, in nats, of how far one probability distribution sits from another, 0 when they match. Here it compares the model's answer distribution with the Bayes predictor's.
-<!-- REVIEW: (b) uses the seed band, about 0.009 at ex-2.2.19's spread, so it would also catch a real but small cost we might accept. A fixed margin (0.015, as in (a)) is the alternative; a miss on (b) leaves S2 with no candidates. Verify: the old-recipe gaps above, inside the seed spread of that recipe. -->
-<!-- REVIEW: dropping the absolute ceiling margin is a decision for Sandy. The alternative is to keep 0.03 and treat the pilot as blocked on the control, which ex-2.2.17 to ex-2.2.20 suggest no cheap change to the recipe will clear. Verify: ex-2.2.19's E4 and ex-2.2.17's answer scoring. -->
+
+/// admonition | Open decision
+Criterion (b) uses the seed band, about 0.009 at the spread of ex-2.2.19, so it would also catch a small real cost we might accept. The alternative is a fixed margin, 0.015 as in (a). A miss on (b) leaves S2 with no candidates. To check: the gaps on the old recipe, quoted above, sat inside its seed spread.
+///
+
+/// admonition | Open decision
+Dropping the absolute ceiling margin. The alternative is to keep 0.03 and treat the pilot as blocked on the control, which ex-2.2.17 to ex-2.2.20 suggest no cheap change to the recipe will clear. To check: E4 of ex-2.2.19 and the answer scoring of ex-2.2.17.
+///
 
 /// admonition | TODO
 A figure of held-out expected exact match per seed for the control and the whole-line arm, seed means as bars, with ex-2.2.19's four runs as a reference column; the ceiling and floor as rules and the band of (a) shaded. Beside it, the calibration KL for the same runs. A table with the seed means, the seed band, and the verdict on each criterion.
@@ -539,8 +545,15 @@ The rule is scored at the query `=` and at every position. The query `?` gates n
 An arm is a *candidate* when it passes H1 (b) against the control. Candidates are taken in the order listed, and the first on which some operator qualifies goes forward, with that operator and site. The reflection has one dose, so it cannot grade; it is a reference only.
 
 If several operators qualify on the same arm, the tie breaks by site first, then by operator. The query `=` beats every position, since round 3 edits the narrower site first; at the same site, the projection beats the repulsion.
-<!-- REVIEW: made the tie-break order explicit (site first, then operator) and stated that the reflection cannot qualify, as ex-2.2.16's REFLECT_GAMMA docstring has it. The earlier wording left a projection at every position against a repulsion at the query `=` undecided. Verify: if operator should take precedence, swap the order. --> If nothing qualifies on any candidate, round 3's operator stays open, and the report says which criterion failed where.
-<!-- REVIEW: "does not fall along the dose axis" is ex-2.2.16's non-decreasing criterion, which a seed-mean dip of a thousandth at a small dose would fail. A slack of 0.005 per step is an option. Verify against the preview: the whole-line projection at every position rises by 0.04 to 0.06 per step. -->
+If nothing qualifies on any candidate, round 3's operator stays open, and the report says which criterion failed where.
+
+/// admonition | Open decision
+The review made the tie-break order explicit (site first, then operator) and stated that the reflection cannot qualify, as ex-2.2.16 has it. The earlier wording left a projection at every position against a repulsion at the query `=` undecided. If the operator should take precedence, the order swaps.
+///
+
+/// admonition | Open decision
+"Never shrinks as the dose rises" is the non-decreasing criterion of ex-2.2.16, which a dip of a thousandth in a seed mean at a small dose would fail. A slack of 0.005 per step is an option. To check against the preview: the whole-line projection at every position rises by 0.04 to 0.06 per step.
+///
 
 The order favors the labels an M3 labeller could give: the whole context, then the prompt. The hinge and the slot pull need the cap or the site chosen by hand, which M3 would have to justify.
 
