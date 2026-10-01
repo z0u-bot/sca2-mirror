@@ -230,7 +230,7 @@ We train the seven-op set for 200 epochs on a schedule of two cycles: a short on
 - [A lower second peak (E4)](#a-lower-second-peak-e4) —
 
 /// admonition | How to read this draft
-This is a preregistration: the hypotheses and their gates are written down before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
+This is a preregistration: the hypotheses, their gates, and the adoption rule were frozen at commit `2ea0b76`, before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
 ///
 
 ## Why
