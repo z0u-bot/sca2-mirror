@@ -124,6 +124,10 @@ MARGIN16 = {
     a: float(np.mean([r["margin"]["value"] for r in runs16(a)]))
     for a in ("control-k3-r0.3", "anchor-whole", "anchor-hinge")
 }
+EEM16 = {
+    a: float(np.mean([r["task"]["eem"]["all"] for r in runs16(a)]))
+    for a in ("control-k3-r0.3", "anchor-whole", "control-mask", "anchor-mask")
+}
 CTRL16_EEM = float(np.mean([r["task"]["eem"]["all"] for r in runs16("control-k3-r0.3")]))
 CTRL16_SKILL = float(
     np.mean(
@@ -478,18 +482,21 @@ Neither variant leaves out the example answers, because they are part of the evi
 
 ## The recipe holds, and the anchor costs nothing (H1)
 
-**What we expect.** Two criteria, and round 3 starts from this recipe only if both hold:
+**What we expect.** Round 3 starts from this recipe only if both of these criteria hold:
 
 - **(a)** The control reproduces ex-2.2.19: its seed-mean held-out expected exact match is within {ex.REGRESSION_TOL:g} of {REF19_MEAN:.3f}, the mean of ex-2.2.19's four runs at {ex.EPOCHS} epochs.
 - **(b)** The whole-line arm is not worse than the control by more than the seed band.
 
-The arms differ from ex-2.2.19 only in their seeds and in the anchor, so (a) is a check that nothing else moved. Ex-2.2.14 and ex-2.2.16 found that the anchor costs the task nothing at {ex.LABEL_RATE:.0%} of contexts labelled, so we expect (b) to hold too. A miss on (b) would mean the anchor and the task compete on this recipe, and the site rule would have no qualifying arm, since it asks the same of each candidate.
+The arms differ from ex-2.2.19 only in their seeds and in the anchor, so (a) checks that nothing else moved.
 
-This replaces ex-2.2.16's corpus rule (a), which asked the control to come within 0.03 of the calibrated ceiling. The seven-op control misses that: it sits {REF19_CEIL - REF19_MEAN:.3f} below the ceiling at {ex.EPOCHS} epochs, and still misses at 400. Ex-2.2.17 found the remaining gap on contexts whose examples settle the op, where the model keeps mass on the answers of a similar op.
+We expect (b) to hold too. Ex-2.2.14 found that the anchor costs the task nothing when {ex.LABEL_RATE:.0%} of contexts are labelled, and the stored runs of ex-2.2.16 agree: the whole-line arm scored {EEM16["anchor-whole"]:.3f} against {EEM16["control-k3-r0.3"]:.3f} for the control, and {EEM16["anchor-mask"]:.3f} against {EEM16["control-mask"]:.3f} with the newline mask. A miss on (b) would mean the anchor and the task compete on this recipe, and would leave the site rule with no qualifying arm, since it asks the same of each candidate.
 
-We take the control as it stands. Its skill score and calibration KL[^kl] (about {REF19_KL:.2f} nats in ex-2.2.19; ex-2.2.16 called a model calibrated under 0.05) are reported beside every comparison, not gated on.
+This replaces corpus rule (a) of ex-2.2.16, which asked the control to come within 0.03 of the calibrated ceiling. The seven-op control misses that: it sits {REF19_CEIL - REF19_MEAN:.3f} below the ceiling at {ex.EPOCHS} epochs, and still misses at 400. Ex-2.2.17 found the remaining gap on contexts whose examples settle the op, where the model keeps mass on the answers of a similar op.
+
+We take the control as it stands. Its skill score and calibration KL[^kl] are reported beside every comparison, but no criterion depends on them. In ex-2.2.19 the KL was about {REF19_KL:.2f} nats; ex-2.2.16 called a model calibrated below 0.05.
 
 [^kl]: A KL divergence: a non-negative measure, in nats, of how far one probability distribution sits from another, 0 when they match. Here it compares the model's answer distribution with the Bayes predictor's.
+<!-- REVIEW: (b) uses the seed band, about 0.009 at ex-2.2.19's spread, so it would also catch a real but small cost we might accept. A fixed margin (0.015, as in (a)) is the alternative; a miss on (b) leaves S2 with no candidates. Verify: the old-recipe gaps above, inside the seed spread of that recipe. -->
 <!-- REVIEW: dropping the absolute ceiling margin is a decision for Sandy. The alternative is to keep 0.03 and treat the pilot as blocked on the control, which ex-2.2.17 to ex-2.2.20 suggest no cheap change to the recipe will clear. Verify: ex-2.2.19's E4 and ex-2.2.17's answer scoring. -->
 
 /// admonition | TODO
@@ -502,7 +509,7 @@ A figure of held-out expected exact match per seed for the control and the whole
 
 The candidates are `no-emb`, `latter`, and `prefix`. Variant (d), `sampled`, trains the grading that [H2](#the-anchor-follows-the-evidence-h2) measures, so it is reported and not promoted. The two new variants go to the site rule.
 
-**What we expect.** No variant clears the gate, for the reasons ex-2.2.16 gave: the label share barely moved the margin in ex-2.2.14, and the variants change less than that. In ex-2.2.16's stored runs every anchored arm sat within a few hundredths of its control on the task, at a skill near half.
+**What we expect.** No variant clears the gate, for the reasons ex-2.2.16 gave: the label share barely moved the margin in ex-2.2.14, and the variants change less than that.
 
 /// admonition | TODO
 A figure with one column per label arm: held-out expected exact match (seeds and seed mean, the whole-line seed band shaded) above, the op margin as a share of the whole-line margin below, with the {ex.MARGIN_KEEP:.0%} line. A table of the same numbers and the verdict.
@@ -518,23 +525,26 @@ One heatmap per anchored arm, positions across and slices down, of the alignment
 
 ## The site and operator rule (S2)
 
-**The rule.** It picks the arm round 3 anchors with and the edit it suppresses with, merging ex-2.2.16's hinge rule (c) and operator rule (e).
+**The rule.** It picks the arm to anchor with in round 3 and the edit to suppress with, merging hinge rule (c) and operator rule (e) of ex-2.2.16.
 
-A scoring-only suppression pass runs on the four candidate arms, `{"`, `".join(ex.SITE_ARMS)}`, and on the control. It is ex-2.2.16's pass, unchanged: the projection at γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}}, the repulsion to a landing at {", ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)} for states above an alignment of {ex.REPULSION_THRESHOLD:g}, and the reflection as a one-dose reference, each at every slice and at three sites: the query `?`, the query `=`, and every position.
+The suppression pass of ex-2.2.16 (scoring only, unchanged) runs on the four candidate arms (`{"`, `".join(ex.SITE_ARMS)}`) and on the control. It applies three edits: the projection at γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}}, the repulsion to a landing at {", ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)} for states above an alignment of {ex.REPULSION_THRESHOLD:g}, and the reflection as a one-dose reference. Each edit is applied at every slice and at three sites: the query `?`, the query `=`, and every position.
 
-Every drop below is a seed mean of held-out expected exact match, less the drop the control shows under the same edit. An operator at a site *qualifies* on an arm when:
+Every drop below is a net drop: the seed-mean fall in held-out expected exact match, minus the fall the control shows under the same edit. An operator at a site *qualifies* on an arm when:
 
-- **it grades with dose:** the net drop on `{ex.ANCHORED_OP}` contexts does not fall along the dose axis, and at full dose it reaches at least {ex.GRADING_MIN_DAMAGE:.0%} of the way from the clean score to the target null;
-- **it is selective:** on each of the other six ops, the net drop is at most {ex.SELECTIVITY_GATE:g} at every dose.
+- it grades with dose: the net drop on `{ex.ANCHORED_OP}` contexts never shrinks as the dose rises, and at full dose it covers at least {ex.GRADING_MIN_DAMAGE:.0%} of the distance from the clean score to the target null;
+- it is selective: on each of the other six ops, the net drop is at most {ex.SELECTIVITY_GATE:g} at every dose.
 
-The rule is scored at the query `=` and at every position. The query `?` gates nothing; together with the query `=`, it gives the first bypass measurement.
+The rule is scored at the query `=` and at every position. The query `?` gates nothing; with the query `=`, it gives the first bypass measurement.
 
-An arm is a *candidate* when it passes H1 (b) against the control. Candidates are taken in the order listed, and the first on which some operator qualifies goes forward with that operator and site. If several operators qualify on it, the projection is preferred to the repulsion, and the query `=` to every position, since round 3 edits the narrower site first. If nothing qualifies on any candidate, round 3's operator stays open, and the report says which criterion failed where.
+An arm is a *candidate* when it passes H1 (b) against the control. Candidates are taken in the order listed, and the first on which some operator qualifies goes forward, with that operator and site. The reflection has one dose, so it cannot grade; it is a reference only.
+
+If several operators qualify on the same arm, the tie breaks by site first, then by operator. The query `=` beats every position, since round 3 edits the narrower site first; at the same site, the projection beats the repulsion.
+<!-- REVIEW: made the tie-break order explicit (site first, then operator) and stated that the reflection cannot qualify, as ex-2.2.16's REFLECT_GAMMA docstring has it. The earlier wording left a projection at every position against a repulsion at the query `=` undecided. Verify: if operator should take precedence, swap the order. --> If nothing qualifies on any candidate, round 3's operator stays open, and the report says which criterion failed where.
 <!-- REVIEW: "does not fall along the dose axis" is ex-2.2.16's non-decreasing criterion, which a seed-mean dip of a thousandth at a small dose would fail. A slack of 0.005 per step is an option. Verify against the preview: the whole-line projection at every position rises by 0.04 to 0.06 per step. -->
 
 The order favors the labels an M3 labeller could give: the whole context, then the prompt. The hinge and the slot pull need the cap or the site chosen by hand, which M3 would have to justify.
 
-**What we expect.** On the whole-line arm nothing qualifies, as in the preview: the edit at the query `=` does little, and the edit at every position spills onto other ops. On `query-eq` and `prompt` the projection at the query `=` grades and is selective, and `prompt` goes forward. We are least sure of `prompt`: the pooled term may still put the alignment on the example answers, which E1 will show.
+**What we expect.** On the whole-line arm nothing qualifies, as in the preview. On `query-eq` and `prompt` the projection at the query `=` grades and is selective, and `prompt` goes forward. We are least sure of `prompt`: the pooled term may still put the alignment on the example answers, which E1 will show.
 
 /// admonition | TODO
 One figure per candidate arm: the net drop on `{ex.ANCHORED_OP}` against dose, one line per operator and site, with the target null as a rule; beneath it, the worst net drop over the other ops against dose, with the selectivity gate as a rule. A table of each operator and site on each arm against the two criteria, and the verdict.
@@ -552,9 +562,13 @@ A figure of held-out expected exact match per seed for the two pairs, with the s
 
 ## The anchor follows the evidence (H2)
 
-**What we expect.** On the arm the site rule sends forward (the whole-line arm if it sends none), the alignment at the last block at the query `=` on held-out `{ex.ANCHORED_OP}` contexts rises with the posterior on `{ex.ANCHORED_OP}` across the middle band ({ex.MIDDLE_BAND[0]:g} to {ex.MIDDLE_BAND[1]:g}). That is, binned by posterior, the seed-mean alignment in each bin is higher than in the bin below.
+**What we expect.** We score the arm the site rule sends forward, or the whole-line arm if it sends none, on the alignment at the query `=` at the last block of held-out `{ex.ANCHORED_OP}` contexts.
 
-The label is binary on the true op, so a context whose examples half-fit `{ex.ANCHORED_OP}` is pulled as hard as one that names it. If the alignment grades anyway, the anchor holds the inferred op rather than the op label. On contexts of the other ops the alignment should stay low and flat. The same measurement is reported at the query answer, and on every anchored arm beside the one scored. In the preview, the whole-line arm showed little grading at the query `=`, where it held little alignment to grade.
+We expect it to rise with the posterior on `{ex.ANCHORED_OP}` across the middle band ({ex.MIDDLE_BAND[0]:g} to {ex.MIDDLE_BAND[1]:g}): in the bins with edges at {", ".join(f"{b:g}" for b in ex.MIDDLE_BINS)}, the seed-mean alignment in each bin is higher than in the bin below. On contexts of the other ops it should stay low and flat.
+
+The label is binary on the true op, so a context whose examples half-fit `{ex.ANCHORED_OP}` is pulled as hard as one that names it. If the alignment grades anyway, the anchor holds the inferred op rather than the op label.
+
+The same measurement is reported at the query answer, and on every anchored arm beside the one scored. In the preview, the whole-line arm showed little grading at the query `=`, where it held little alignment to grade.
 
 /// admonition | TODO
 A figure of alignment at the query `=` against the posterior on `{ex.ANCHORED_OP}`, binned, for the scored arm (seed means, seeds faded) with the other ops' contexts beside it, and `sampled` as the trained comparison. A second panel at the query answer.
@@ -596,7 +610,9 @@ Ex-2.2.16's measurements, scored on its held-out sets at the end of training, wi
 
 ### The new variants
 
-Both are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, so on `query-eq` the pool has one position.
+Both are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where.
+
+S2 chooses an arm without saying which of the two changes made the difference; E1 shows the alignment each arm reaches at each position.
 
 ### Budget
 

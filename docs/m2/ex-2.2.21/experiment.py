@@ -184,6 +184,9 @@ GRADING_MIN_DAMAGE = ex2216.GRADING_MIN_DAMAGE
 axes, the three sites, a selectivity gate of 0.02 on each other op net of the control, and full-dose damage at least
 half the way to the target null, net of the control."""
 
+MIDDLE_BINS: tuple[float, ...] = tuple(b for b in ex2216.EVIDENCE_BINS if MIDDLE_BAND[0] <= b <= MIDDLE_BAND[1])
+"""H2: ex-2.2.16's evidence bins inside the middle band, three bins and so two rising steps."""
+
 SCORED_SITES: tuple[str, ...] = ("query =", "every position")
 """S2 qualifies an operator at either of these sites. Ex-2.2.16 scored only every position; the query `=` is added
 because round 3 edits where the answer is computed, and the two new variants put the anchor there."""
