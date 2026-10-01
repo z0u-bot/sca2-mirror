@@ -134,6 +134,18 @@ def hsv_rise(label: str) -> tuple[float, float]:
 
 
 RISE_200 = {s: hsv_rise(plain(E, s)) for s in ex.SEEDS}
+RISE_400 = {s: hsv_rise(plain(REF_E, s)) for s in ex.SEEDS}
+RISE_HI200 = hsv_rise(X19.label_of(E, ex.HI_LR, 0))
+assert min(r for _, r in RISE_400.values()) > max(r for _, r in RISE_200.values()), "H3 says the rates do not overlap"
+
+
+def hsv_best(label: str) -> float:
+    return float(traj_skill(label)[[1 + OPS.index(op) for op in HSV_CHANNEL]].mean(0).max())
+
+
+# The short scout runs of ex-2.2.19 annealed to their floor without the HSV-channel ops passing HSV_HALF.
+SHORT_BEST = max(hsv_best(X19.label_of(e, lr, 0)) for e in (HS, 2 * HS) for lr in (ex.LO_LR, ex.HI_LR))
+assert SHORT_BEST < HSV_HALF
 LONGER_AT_50 = [skill_near(plain(e, s), HS) for e in (E, REF_E) for s in ex.SEEDS]
 assert traj_skill(HI50)[0, -1] > max(LONGER_AT_50), "the Why section says the head start is ahead at epoch 50"
 
@@ -157,10 +169,12 @@ def schedule_curve(epochs: int, peak: float, sheet: str | None = None) -> tuple[
     return steps / EPOCH_LENGTH, np.asarray(configure_schedule(config, peak, EPOCH_LENGTH)(steps))
 
 
-# Where the second cosine passes the rates at which the plain 200-epoch runs learned the HSV-channel ops.
+# Where the first cosine falls below every rate at which a plain run learned the HSV-channel ops.
 _ep, _lr = schedule_curve(E, ex.HI_LR, ex.lr_sheet())
-_after = _ep > HS + ex.WARMUP_EPOCHS
-SECOND_PASS = [float(_ep[_after][np.argmax(_lr[_after] <= lr)]) for _, lr in RISE_200.values()]
+_falling = (_ep > ex.WARMUP_EPOCHS) & (_ep < HS)
+FIRST_PASS = float(
+    _ep[_falling][np.argmax(_lr[_falling] <= min(r for _, r in [*RISE_200.values(), *RISE_400.values()]))]
+)
 
 
 @memo
@@ -179,8 +193,8 @@ def schedule_draw(alt_text: str, caption: str) -> str:
         ):
             x, y = schedule_curve(epochs, peak, sheet)
             ax.plot(x, y, color=color, lw=1.4, label=name)
-        lo, hi = min(r for _, r in RISE_200.values()), max(r for _, r in RISE_200.values())
-        ax.axhspan(lo, hi, color="C0", alpha=0.12, lw=0)
+        for rises, color in ((RISE_400, "C7"), (RISE_200, "C0")):
+            ax.scatter(*zip(*rises.values(), strict=True), s=14, color=color, zorder=3)
         ax.set_xlabel("epoch")
         ax.set_ylabel("learning rate")
         ax.set_xlim(0, REF_E)
@@ -208,6 +222,7 @@ We train the seven-op set for 200 epochs on a schedule of two cycles: a short on
 - [The HSV-channel ops come sooner (H3)](#the-hsv-channel-ops-come-sooner-h3) —
 - [Where the first cycle leaves off (E1)](#where-the-first-cycle-leaves-off-e1) —
 - [Calibration (E2)](#calibration-e2) —
+- [Op confusion (E3)](#op-confusion-e3) —
 
 /// admonition | How to read this draft
 This is a preregistration: the hypotheses and their gates are written down before any run of this experiment. Each section opens with what we expect, and a `TODO` marks where its evidence will go.
@@ -225,7 +240,7 @@ So we try both in one run: {HS} epochs on the schedule of that short run, then {
 
 Each run follows the {E}-epoch recipe of ex-2.2.19 with a different learning-rate schedule. The first cycle warms up over {ex.WARMUP_EPOCHS:g} epochs to {ex.HI_LR:g} and follows a cosine down to 1% of {ex.LO_LR:g} at epoch {HS}. The second warms up from there over {ex.WARMUP_EPOCHS:g} epochs to {ex.LO_LR:g}, and follows a cosine down to 1% of that at epoch {E}.
 
-The second cycle is the recipe schedule of a {E - HS}-epoch run, step for step.[^sheet] The first cycle is the schedule of the ex-2.2.19 run at {ex.HI_LR:g}, except that it ends where the second warmup starts. The optimizer state carries over between cycles, though resetting it should make no difference we could measure.[^adam]
+The second cycle is the recipe schedule of a {E - HS}-epoch run, step for step.[^sheet] The first cycle is the schedule of the ex-2.2.19 run at {ex.HI_LR:g}, except that it ends where the second warmup starts. The optimizer state carries over between cycles, though resetting it should make no measurable difference.[^adam]
 
 The schedule differs from the plain one in three ways at once: a higher peak for the first {HS} epochs, a restart, and a final anneal {E - HS} epochs long instead of {E}. A result would say whether the schedule helps, and leave open which of the three did it.
 
@@ -240,12 +255,15 @@ schedule_draw(
         A line chart of learning rate against epoch from 0 to {REF_E}. The {REF_E}-epoch recipe warms up to
         {ex.LO_LR:g} and falls along a cosine to near zero at {REF_E}. The {E}-epoch recipe does the same by {E}. The
         head-start schedule rises to {ex.HI_LR:g}, falls to near zero by epoch {HS}, rises again to {ex.LO_LR:g} by
-        epoch {HS + ex.WARMUP_EPOCHS:g}, and falls to near zero by {E}. A shaded band between {span([r[1] for r in RISE_200.values()], ".4f")}
-        marks the rates at which the plain {E}-epoch runs learned the HSV-channel ops.
+        epoch {HS + ex.WARMUP_EPOCHS:g}, and falls to near zero by {E}. A dot on each recipe curve marks, for each
+        seed, where the HSV-channel ops were learned: on the {E}-epoch curve between epochs
+        {span([r[0] for r in RISE_200.values()], ".0f")}, and on the {REF_E}-epoch curve between epochs
+        {span([r[0] for r in RISE_400.values()], ".0f")}, where its rate is higher.
     """,
     f"""
-        **The three schedules.** Learning rate against epoch, as the training code computes it. The shaded band spans
-        the rates at which the HSV-channel skill of the plain {E}-epoch runs first passed {HSV_HALF:g}.
+        **The three schedules.** Learning rate against epoch, as the training code computes it. Each dot is the point
+        at which the HSV-channel skill of a plain run of ex-2.2.19 first passed {HSV_HALF:g}, one per seed; seeds
+        that passed at the same epoch overlap.
     """,
 )
 
@@ -263,9 +281,9 @@ table_html(
         [f"plain {E} (ex-2.2.19)", f"{E}", f"{ex.LO_LR:g}", "600–603", "reused"],
         [f"plain {REF_E} (ex-2.2.18, ex-2.2.19)", f"{REF_E}", f"{ex.LO_LR:g}", "600–603", "reused"],
     ],
-    f"""
+    """
         **The runs.** All train `no-four` from the same four initializations, so each head-start run pairs with a plain
-        run of each length. The new runs cost about \\${COST:.2f} in all, scaled from the cost of an ex-2.2.18 run.
+        run of each length.
     """,
     text_cols=3,
 )
@@ -298,13 +316,15 @@ The gain of the head-start run over the plain {E}-epoch run, overall and per op,
 
 ## The HSV-channel ops come sooner (H3)
 
-**What we expect.** In the plain {E}-epoch runs, the mean skill of the HSV-channel ops first passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_200.values()], ".0f")}. We expect the head-start runs to pass it about 25 epochs sooner, paired by seed, an estimate read from the skill curves of ex-2.2.19.
+**What we expect.** In the plain {E}-epoch runs, the mean skill of the HSV-channel ops first passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_200.values()], ".0f")}. We expect the head-start runs to pass it about 25 epochs sooner, paired by seed (a gap estimated from the skill curves of ex-2.2.19).
 
-Do these ops wait for a number of epochs, or for the rate to fall low enough? Ex-2.2.19 could not tell, and this schedule pulls the two apart. There is no gate, since no decision hangs on it.
+The runs of ex-2.2.19 already suggest these ops do not wait for the learning rate to fall to some level. The {REF_E}-epoch runs passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_400.values()], ".0f")}, close to the {E}-epoch runs of the same seeds, but at rates between {span([r[1] for r in RISE_400.values()], ".4f")}, higher than any rate at which a {E}-epoch run passed it.
 
-If the rise comes at about the same epoch as in the plain run, the number of epochs is what matters. If the rate is what matters, the rise should come once the second cosine falls through the rate at which the plain run of that seed learned these ops: between epochs {span(SECOND_PASS, ".0f")}, about {np.mean(SECOND_PASS) - np.mean([r[0] for r in RISE_200.values()]):.0f} epochs later than in the plain runs.
+The {HS}- and {2 * HS}-epoch runs fell through those rates to their floor, and their HSV-channel skill stayed at or below {SHORT_BEST:.2f}. That includes the {HS}-epoch run at {ex.HI_LR:g}, the first cycle of the head-start schedule, which falls through all of those rates by about epoch {FIRST_PASS:.0f}.
 
-A rise sooner than both, as we expect, would say the first cycle did part of the work. The three outcomes lie further apart than the {E // ex.ex2218.N_TRAJ_POINTS}-epoch logging interval.
+So this schedule can separate elapsed time from learning progress. A rise at about the same epoch as in the plain run would say these ops wait for a number of epochs, whatever the model has learned by then. A sooner rise, as we expect, would say the progress of the first cycle carries over to them.
+
+A later rise is possible too: the {E}-epoch run of ex-2.2.19 at {ex.HI_LR:g} passed {HSV_HALF:g} only at epoch {RISE_HI200[0]:.0f}, so a high rate early may hold these ops back. The outcomes lie further apart than the {E // ex.ex2218.N_TRAJ_POINTS}-epoch logging interval. There is no gate, since no decision hangs on it.
 
 /// admonition | TODO
 Skill against epoch for the head-start and plain {E}-epoch runs, one panel for all ops and one for each op, with the epoch at which the HSV-channel skill first passes {HSV_HALF:g} marked on each run; and a table of that epoch per seed.
@@ -320,10 +340,22 @@ Skill at epoch {HS} and at the end of the second warmup, per op, for each schedu
 
 ## Calibration (E2)
 
-Exploratory, with no prediction. We show the calibration KL of each run beside its EEM: the KL divergence from the Bayes answer distribution to that of the model (a measure of how far one distribution is from another, zero when they match). In ex-2.2.19 the {E}- and {REF_E}-epoch runs were equally well calibrated, so a head start that buys EEM at some cost to calibration would show here.
+Exploratory, with no prediction. We show the calibration KL of each run beside its EEM: the KL divergence[^kl] from the Bayes answer distribution to the answer distribution of the model. In ex-2.2.19 the {E}- and {REF_E}-epoch runs were equally well calibrated, so a head start that buys EEM at some cost to calibration would show here.
+
+[^kl]: A measure of how far one probability distribution is from another; it is zero when they match.
 
 /// admonition | TODO
 Calibration KL against EEM, one dot per run, for the head-start, plain {E}-epoch, and plain {REF_E}-epoch runs.
+///
+
+## Op confusion (E3)
+
+Exploratory, with no prediction. We show the op confusion matrix of each schedule, as in ex-2.2.19. For confident contexts of each true op, it gives the probability mass the model puts on the answers of each op, averaged over seeds {ex.SEED_OFFSET + min(ex.GATE_SEEDS)}–{ex.SEED_OFFSET + max(ex.GATE_SEEDS)}.
+
+In ex-2.2.19 the {E}-epoch runs put more mass off the diagonal than the {REF_E}-epoch runs, mostly in the HSV-channel rows. This shows whether the head start moves that mass back.
+
+/// admonition | TODO
+The op confusion matrices of the head-start, plain {E}-epoch, and plain {REF_E}-epoch runs, side by side, on one color scale.
 ///
 
 ## What it means for what follows
@@ -335,6 +367,8 @@ TODO after the results.
 **Recipe.** The unanchored d64-L4 model with an untied readout and the newline mask, as in ex-2.2.19, on the `no-four` corpus condition that ex-2.2.18 built (`k3-r0.3`). The runs differ from the plain {E}-epoch runs of ex-2.2.19 in the learning-rate schedule alone.
 
 **Measurements.** EEM, ceiling, floor, and calibration KL on the {ex.ex2216.HOLDOUT_CONTEXTS:,} held-out contexts per op, with the evaluation of ex-2.2.18. Skill curves are logged at about {ex.ex2218.N_TRAJ_POINTS} points per run on {ex.ex2218.N_TRAJ_EEM_PER_OP} held-out contexts per op, every {E // ex.ex2218.N_TRAJ_POINTS} epochs at {E} epochs, so an epoch of first passing is known to within that.
+
+**Cost.** The new runs cost about \${COST:.2f} in all, scaled from the cost of an ex-2.2.18 run.
 
 **Per-op tolerances.** As in ex-2.2.19: the seed range of the gap of each op over the three ex-2.2.17 runs, or {ex.PARTIAL_TOL}, whichever is larger.
 
