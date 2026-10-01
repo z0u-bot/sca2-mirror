@@ -399,8 +399,11 @@ def scout_draw(alt_text: str, caption: str) -> str:
         ax.set_xscale("log")
         ax.set_ylim(0.3, 0.65)
         for i, lr in enumerate(ex.SCOUT_LRS):
-            xs = [*ex.SCOUT_EPOCHS, REF_E]
-            ys = [eem(ex.label_of(e, lr, ex.SCOUT_SEED)) for e in ex.SCOUT_EPOCHS] + [eem(REF_LABEL)]
+            # Only the recipe rate was trained to the reference length.
+            reaches_ref = lr == ex.PEAK_LR
+            xs = [*ex.SCOUT_EPOCHS, *([REF_E] if reaches_ref else [])]
+            ys = [eem(ex.label_of(e, lr, ex.SCOUT_SEED)) for e in ex.SCOUT_EPOCHS]
+            ys += [eem(REF_LABEL)] if reaches_ref else []
             ax.plot(xs, ys, "-", color=f"C{i}", lw=1.2, label=f"peak rate {lr:g}")
             for e, y in zip(ex.SCOUT_EPOCHS, ys, strict=False):
                 taken = SEL["rate"][str(e)] == lr
@@ -570,8 +573,8 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-We looked for the shortest training run on the seven-op set (`no-four`) that keeps most of the skill of the 400-epoch recipe of ex-2.2.17. A scout at one seed picked a length, and three fresh seeds checked it.
-Half the length keeps most of the skill, though it falls a little short of the gate we set; we adopt it. Runs of 50 and 100 epochs do not keep most of the skill. The seven-op set also stays closer to its ceiling than the full set at every paired seed, so its narrower gap was not seed variation.
+We looked for the shortest training run on the seven-op set that keeps most of the skill of the 400-epoch recipe. A scout at one seed picked a length, and three fresh seeds checked it.
+Half the length keeps most of the skill, though it falls a little short of the gate we set; we adopt it. Runs of 50 and 100 epochs do not keep enough of the skill. The seven-op set also stays closer to its ceiling than the full set at every paired seed, so its narrower gap was not seed variation.
 ///
 
 ## Findings
@@ -661,14 +664,15 @@ The overall tolerance is the largest last-fifth gain of any ex-2.2.18 run. The t
 scout_draw(
     f"""
         A line chart of held-out expected exact match against epochs on a log axis, for two peak learning rates. Both
-        lines rise from about {eem(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.2f} at 50 epochs to {eem(REF_LABEL):.2f} at
-        {REF_E}, where they meet. The higher rate is above the lower at 50 and 100 epochs and below it at {PICK}. A
+        lines rise, from {eem(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.2f} and {eem(ex.label_of(50, ex.SCOUT_LRS[1], 0)):.2f} at
+        50 epochs, and the line for the
+        recipe rate goes on to {eem(REF_LABEL):.2f} at {REF_E}. The higher rate is above the lower at 50 and 100 epochs and below it at {PICK}. A
         dashed line marks the Bayes ceiling at {CEILING:.2f}, and a hatched region below {REF_EEM - ex.SHORTFALL_TOL:.3f}
         marks where a run falls short of the tolerance. Apart from the reference, only the {PICK}-epoch run, ringed, is above that level.
     """,
     f"""
-        **Held-out EEM by length at the scout seed.** One line per peak rate, meeting at the {REF_E}-epoch run of
-        ex-2.2.18. Filled dots mark the rate the rule takes at each length. The dashed line is the Bayes ceiling
+        **Held-out EEM by length at the scout seed.** One line per peak rate. Only the recipe rate was trained for
+        {REF_E} epochs, in ex-2.2.18. Filled dots mark the rate the rule takes at each length. The dashed line is the Bayes ceiling
         (skill on the right axis), and the hatched region is more than {ex.SHORTFALL_TOL} below the {REF_E}-epoch run.
         The pick is ringed.
     """,
@@ -828,15 +832,15 @@ The rest of this analysis is post hoc. In the {PICK}-epoch and {REF_E}-epoch run
 
 The calibration KL of each run (the KL divergence from the Bayes answer distribution to that of the model) beside its EEM, since ex-2.2.17 found a model can score well and be poorly calibrated.
 
-**What we saw.** Calibration KL falls as EEM rises across the lengths, from {kl(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.2f} at 50 epochs at the recipe rate to {kl(REF_LABEL):.2f} at {REF_E}. At {PICK} and {REF_E} epochs the points overlap: {span([kl(lab(PICK, s)) for s in (0, *SEEDS)], ".3f")} over the four seeds at {PICK} epochs and {span([kl(lab(REF_E, s)) for s in (0, *SEEDS)], ".3f")} at {REF_E}. Within those two groups, a higher EEM does not go with a lower KL. The {PICK}-epoch runs are no worse calibrated than the longer ones. So the case that ex-2.2.17 found, a model that scores well but is poorly calibrated, does not arise at {PICK} epochs.
+**What we saw.** Calibration KL falls as EEM rises across the lengths, from {kl(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.2f} at 50 epochs at the recipe rate to {kl(REF_LABEL):.2f} at {REF_E}. The higher rate brings it down sooner: {kl(ex.label_of(50, ex.SCOUT_LRS[1], 0)):.2f} at 50 epochs and {kl(ex.label_of(100, ex.SCOUT_LRS[1], 0)):.2f} at 100. At {PICK} and {REF_E} epochs the points overlap: {span([kl(lab(PICK, s)) for s in (0, *SEEDS)], ".3f")} over the four seeds at {PICK} epochs and {span([kl(lab(REF_E, s)) for s in (0, *SEEDS)], ".3f")} at {REF_E}. Within those two groups, a higher EEM does not go with a lower KL. The {PICK}-epoch runs are no worse calibrated than the longer ones. So the case that ex-2.2.17 found, a model that scores well but is poorly calibrated, does not arise at {PICK} epochs.
 
 """
 
 calibration_draw(
     f"""
         A scatter plot of calibration KL against held-out EEM, one dot per run, colored by training length. The
-        50-epoch runs are at the upper left, near KL {kl(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.1f}, the 100-epoch runs
-        lower, and the {PICK}-epoch and {REF_E}-epoch runs form one cluster at the lower right, all between
+        50-epoch runs are at the upper left, at KL {kl(ex.label_of(50, ex.SCOUT_LRS[0], 0)):.2f} and
+        {kl(ex.label_of(50, ex.SCOUT_LRS[1], 0)):.2f}, the 100-epoch runs lower, and the {PICK}-epoch and {REF_E}-epoch runs form one cluster at the lower right, all between
         {min(kl(lbl) for lbl in RUNS if RUNS[lbl]["epochs"] >= PICK):.2f} and {max(kl(lbl) for lbl in RUNS if RUNS[lbl]["epochs"] >= PICK):.2f}, with no clear order by length within it.
     """,
     """
