@@ -62,7 +62,6 @@ def fetch_jsons(*names: str) -> list[dict]:
         return [json.loads(p.read_text()) for p in paths]
 
 
-@memo
 def stored_evals() -> tuple[dict, dict, dict, dict, dict, dict]:
     """Ex-2.2.16's eval and suppression pass and ex-2.2.19's eval, then this experiment's eval, suppression pass, and
     training trajectories, as each was published.
