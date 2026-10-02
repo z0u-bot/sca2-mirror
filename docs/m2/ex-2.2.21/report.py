@@ -1087,7 +1087,7 @@ def syntax_table() -> str:
 
 # --- E2 ----------------------------------------------------------------------------------------------------------
 
-SUPP_E2 = {a: supp_mean(SUPP21, a) for a in (*E2_ARMS, ex.CONTROL)}
+SUPP_E2 = {a: supp_mean(SUPP21, a) for a in (*E2_ARMS, *ex.POST_HOC_SUPPRESSION_ARMS, ex.CONTROL)}
 E2_SITES = ex.EDIT_SITES
 OPERATORS = ("projection", "repulsion", "reflection")
 
@@ -1200,6 +1200,63 @@ def e2_table() -> str:
         f"the null over the doses, and the largest net drop on any other op at any dose.",
         text_cols=3,
     )
+
+
+NO_EMB = "anchor-no-emb"
+PH_ARMS = [ex.PRIMARY, "anchor-hinge", NO_EMB]
+CRIT_PH = {(a, "every position", o): criteria(a, "every position", o) for a in PH_ARMS for o in OPERATORS}
+EX_ANS = list(ex.example_answer_roles(ex.K))
+
+
+def other_at_examples(arm: str) -> np.ndarray:
+    """Per slice, the alignment at the example answers, mean over the other ops."""
+    return np.delete(ALIGN[arm], D, axis=0)[:, :, EX_ANS].mean(axis=(0, 2))
+
+
+def selective_max(arm: str, operator: str) -> tuple[float, float]:
+    """The largest share of the way to the null over the doses of *operator* at every position whose worst other
+    op stays within the selectivity gate, with that dose; (0, 0) if no dose does.
+    """
+    keys = [(o, g, "every position") for o, g, _ in SUPP_EDITS if o == operator]
+    ok = [
+        (float(drop21(arm, k)[D]) / gap21(arm), k[1])
+        for k in keys
+        if float(np.delete(drop21(arm, k), D).max()) <= ex.SELECTIVITY_GATE
+    ]
+    return max(ok, default=(0.0, 0.0))
+
+
+def no_emb_figure() -> str:
+    sites = ("every position", "example answers")
+    data = {
+        arm: {
+            "half": ex.GRADING_MIN_DAMAGE * gap21(arm),
+            "sites": {
+                site: {
+                    "anchored": [float(drop21(arm, (o, g, site))[D]) for o, g, _ in SUPP_EDITS],
+                    "worst": [float(np.delete(drop21(arm, (o, g, site)), D).max()) for o, g, _ in SUPP_EDITS],
+                }
+                for site in sites
+            },
+        }
+        for arm in PH_ARMS
+    }
+    ne = data[NO_EMB]["sites"]["every position"]
+    alt = f"""
+        A grid of six panels: rows for the whole-line, hinge, and no-emb arms, columns for two edit sites (every
+        position and the example answers). Each panel plots the net drop in expected exact match against the edit,
+        as in the E2 figure, solid for `{ex.ANCHORED_OP}` and dashed for the worst other op. The first two rows
+        repeat E2. On no-emb at every position the solid trace rises faster with the projection dose
+        ({", ".join(f"{v:.2f}" for v in ne["anchored"][:4])}), and the dashed trace rises with it, to
+        {ne["worst"][3]:.3f} under the full projection and {ne["worst"][5]:.3f} under the deeper repulsion, well
+        over the gate of {ex.SELECTIVITY_GATE:g}.
+    """
+    caption = f"""
+        **Post hoc: the suppression pass on no-emb, beside the two candidates.** As the E2 figure, at two of its
+        sites. Solid: on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other six ops. Dotted: the selectivity
+        gate; dash-dot: {ex.GRADING_MIN_DAMAGE:.0%} of the way to the target null.
+    """
+    return suppression_draw(data, alt, "e2-no-emb", caption, (6.0, 6.4))
 
 
 POSTERIOR_OTHER = np.delete(SUPP_E2[ex.CONTROL]["posterior"], D)
@@ -1664,6 +1721,22 @@ The next figure sets the drop on each other op under the full projection beside 
 {confusion_figure()}
 
 The mean posterior on `{ex.ANCHORED_OP}` in the contexts of the other six ops runs from {POSTERIOR_OTHER.min():.3f} to {POSTERIOR_OTHER.max():.3f}, so the ops do not spread along the x-axis and the figure cannot show whether the drop follows the posterior.
+
+### Post hoc: editing the no-emb arm
+
+The `no-emb` arm (the whole-line pull with the embedding slice left out) had the highest task score of any arm in S1, and it kept the anchor. After the results were in, we added its three runs to the suppression pass, to see whether its anchor edits as well as the candidates. Nothing here was predicted, and no criterion was set for it in advance; the figure applies the E2 criteria for comparison.
+
+{no_emb_figure()}
+
+The edit takes `{ex.ANCHORED_OP}` out of `no-emb` faster than out of the candidates, and takes more of the other ops with it. At every position the projection covers {", ".join(f"{v:.2f}" for v in shares(NO_EMB, "every position", "projection"))} of the way to the target null over its four doses, against {", ".join(f"{v:.2f}" for v in shares(ex.PRIMARY, "every position", "projection"))} on the whole-line arm. It grades, but the drop on the worst other op reaches {CRIT_PH[(NO_EMB, "every position", "projection")]["worst"]:.3f} under the projection and {CRIT_PH[(NO_EMB, "every position", "repulsion")]["worst"]:.3f} under the repulsion, several times the gate of {ex.SELECTIVITY_GATE:g}.
+
+The edit stays selective up to the half dose, where the projection covers {selective_max(NO_EMB, "projection")[0]:.2f} of the way to the null. On the candidates, a selective projection gets as far as {selective_max(ex.PRIMARY, "projection")[0]:.2f} on the whole-line arm (γ {selective_max(ex.PRIMARY, "projection")[1]:g}) and {selective_max("anchor-hinge", "projection")[0]:.2f} on the hinge arm (γ {selective_max("anchor-hinge", "projection")[1]:g}). So leaving out the embedding slice buys no edit the candidates lack.
+
+The E1 alignment suggests why. At the example answers in blocks 1 and 2, the other ops sit higher on e₁ on `no-emb` ({", ".join(f"{v:.2f}" for v in other_at_examples(NO_EMB)[1:3])}) than on the whole-line arm ({", ".join(f"{v:.2f}" for v in other_at_examples(ex.PRIMARY)[1:3])}), so an edit there removes more of what the other ops use. Leaving the embedding slice out of the pull seems to make the early blocks hold the axis less selectively.
+
+/// admonition | Note
+Post hoc. `no-emb` would not meet the E2 criteria at every position: the projection and the repulsion both grade, and neither is selective.
+///
 
 ## The verification rule (S2)
 
