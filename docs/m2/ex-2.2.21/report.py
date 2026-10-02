@@ -540,7 +540,7 @@ Ex-2.2.16 stopped at its first rule. Its control had learned less than half of w
 
 Four reports then worked on the control alone: [ex-2.2.17](/docs/m2/ex-2.2.17/report.py) added the newline mask, a lower peak learning rate, and more steps; [ex-2.2.18](/docs/m2/ex-2.2.18/report.py) dropped four ops whose answers often coincide with another op; [ex-2.2.19](/docs/m2/ex-2.2.19/report.py) settled the length at {ex.EPOCHS} epochs; and [ex-2.2.20](/docs/m2/ex-2.2.20/report.py) kept the plain schedule.
 
-On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe. It keeps the label, verification, and operator rules of ex-2.2.16, changing each only where the stored runs of ex-2.2.16 or the new recipe call for it, and adds two label variants as references. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1 and S1 to S3.
+On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe. It keeps the label, verification, and operator rules of ex-2.2.16, changing each only where the stored runs of ex-2.2.16 or the new recipe call for it, and adds three label variants as references. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1 and S1 to S3.
 
 ## What ex-2.2.16's anchored arms already show
 
@@ -568,7 +568,7 @@ With the edit at every position, the projection on the whole-line arm grows with
 
 The preview changes three things in this plan:
 
-- Two new label variants move the pull toward the query `=`, as references rather than candidates. `prompt` leaves the query answer out of the pull, to see where the pooled term settles without it. `query-eq` pulls the query `=` alone: a position oracle,[^oracle] which shows what an anchor there would allow.
+- Three new label variants move the pull toward the query `=`, as references rather than candidates. `prompt` leaves the query answer out of the pull, to see where the pooled term settles without it. `query-eq` pulls the query `=` alone: a position oracle,[^oracle] which shows what an anchor there would allow. `every-eq` pulls every `=`, the positions whose next token depends on the op, to see whether a pull spread over the examples settles at the query `=` too.
 - The saturation half of ex-2.2.16's hinge rule goes, since the query `?` did not saturate, though the hinge arm stays a candidate.
 - The suppression pass also edits the example answers, and the operator rule is scored at the query `=` as well as at every position.
 
@@ -601,9 +601,9 @@ Every arm trains at the center condition of ex-2.2.16 (three examples, ρ = {ex.
 
 Ex-2.2.16's arms at other corpus conditions, its larger control, and its two newline-mask arms are gone: the condition is settled, the larger control was for a shortfall the recipe has since closed, and the mask is now in every arm.
 
-**The new label variants.** Both keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break. Variant (f), `query-eq`, pulls the query `=` alone. Neither is a label round 3 could adopt as it stands, so both are references for the site rule.
+**The new label variants.** All three keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break. Variant (f), `query-eq`, pulls the query `=` alone. Variant (g), `every-eq`, pulls the `=` of each example and of the query: the four positions that predict an answer, and so the ones whose next token depends on the op. The first example's `=` comes before any evidence, so its pull asks for the op before the context shows it. None of the three is a label round 3 could adopt as it stands, so all three are references for the site rule.
 
-Neither variant leaves out the example answers, because they are part of the evidence. If the pull still settles on them under `prompt`, that is a result about pooling.
+`prompt` keeps the example answers in the pull, because they are part of the evidence. If the pull still settles on them, that is a result about pooling.
 
 **The seeds.** Fresh model seeds from {ex.SEED_OFFSET}. The control and the whole-line arm get {ex.SEEDS_REFERENCE} each, since every comparison runs through one of them; the others get three.
 
@@ -654,7 +654,7 @@ One stacked figure per anchored arm, as in the preview: positions across, slices
 
 S2 asks whether `{ex.ANCHORED_OP}` can be edited out of an anchored model with a dial: an edit whose effect on `{ex.ANCHORED_OP}` grows with its dose while the other ops stay as they were. It scores each anchored arm at two sites and says which candidate arm and edit come closest. It merges hinge rule (c) and operator rule (e) of ex-2.2.16.
 
-**The edits.** The suppression pass of ex-2.2.16 runs, scoring only, on the two candidates (`{"`, `".join(ex.SITE_ARMS)}`), the two references (`{"`, `".join(ex.SITE_REFERENCES)}`), and the control. It has three operators, each applied at every slice:
+**The edits.** The suppression pass of ex-2.2.16 runs, scoring only, on the two candidates (`{"`, `".join(ex.SITE_ARMS)}`), the three references (`{"`, `".join(ex.SITE_REFERENCES)}`), and the control. It has three operators, each applied at every slice:
 
 - the projection, which removes a share γ of the component along e₁, for γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}};
 - the repulsion, which moves states aligned above {ex.REPULSION_THRESHOLD:g} down to an alignment of {" and then ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)};
@@ -677,7 +677,7 @@ If neither candidate has a qualifying edit, the report says which criterion fail
 
 **What we expect.** Neither candidate qualifies. On the whole-line arm the projection at every position levels off about a third of the way to the null, as in the preview, and on the hinge arm the edit at every position spills onto other ops.
 
-On `query-eq` we expect the projection at the query `=` to qualify, which would say that an anchor there can be edited with a dial, if a label could put it there. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
+On `query-eq` we expect the projection at the query `=` to qualify, which would say that an anchor there can be edited with a dial, if a label could put it there. On `every-eq` we expect the same, more weakly, since a quarter of its pull lands on the query `=`. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
 
 /// admonition | Open decision
 Whether S2 stays a rule. With the expectation above, it most likely ends with nothing going forward, and round 3 would then be designed after this report. The alternative is to make it exploratory: the same edits, sites, and criteria, scored as a description of each arm, with no arm chosen.
@@ -735,9 +735,9 @@ Ex-2.2.16's measurements, scored on its held-out sets at the end of training, wi
 
 ### The new variants
 
-`prompt` and `query-eq` are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where.
+`prompt`, `query-eq`, and `every-eq` are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where. On `every-eq` the pool has four positions, so the query `=` gets a quarter of that.
 
-S2 scores `query-eq` without separating the two changes; E1 shows the alignment it reaches at the query `=` beside the other arms.
+S2 scores `query-eq` and `every-eq` without separating the two changes; E1 shows the alignment it reaches at the query `=` beside the other arms.
 
 ### Budget
 

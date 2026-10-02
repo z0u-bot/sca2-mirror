@@ -89,11 +89,14 @@ LABEL_VARIANTS: tuple[tuple[str, str], ...] = (
     *ex2216.LABEL_VARIANTS,
     ("prompt", "(e) the context up to and including the query `=`: the query answer and the line break left out"),
     ("query-eq", "(f) the query `=` alone"),
+    ("every-eq", "(g) every `=`, the examples' and the query's: the positions whose next token depends on the op"),
 )
-"""Ex-2.2.16's whole-line label and its four variants, then two new ones. Ex-2.2.16's anchored arms put most of their
+"""Ex-2.2.16's whole-line label and its four variants, then three new ones. Ex-2.2.16's anchored arms put most of their
 alignment on the answer positions and very little at the query `=`, whose state predicts the answer (the report has
 the measurement). Variant (e) leaves the query answer out of the pull, to see where the pooled term settles without
-it; variant (f) pulls only the query `=`, a position oracle that shows what an anchor there would allow. Both are
+it; variant (f) pulls only the query `=`, a position oracle that shows what an anchor there would allow; variant (g) pulls every `=`, the four positions whose next token is an answer
+and so depends on the op, to see whether an anchor spread over the examples' `=` settles there too. (The first
+example's `=` has no evidence before it, so its pull asks for the op before the context shows it.) All three are
 references for the site rule, and not labels round 3 could adopt as they stand."""
 
 PRIMARY = "anchor-whole"
@@ -128,8 +131,9 @@ ARMS: tuple[Arm, ...] = (
         for label, desc in ex2216.LABEL_VARIANTS
         if label != "whole"
     ),
-    Arm("anchor-prompt", "site", anchored=True, label="prompt", note=LABEL_VARIANTS[-2][1]),
-    Arm("anchor-query-eq", "site", anchored=True, label="query-eq", note=LABEL_VARIANTS[-1][1]),
+    Arm("anchor-prompt", "site", anchored=True, label="prompt", note=LABEL_VARIANTS[-3][1]),
+    Arm("anchor-query-eq", "site", anchored=True, label="query-eq", note=LABEL_VARIANTS[-2][1]),
+    Arm("anchor-every-eq", "site", anchored=True, label="every-eq", note=LABEL_VARIANTS[-1][1]),
     Arm("anchor-hinge", "site", anchored=True, hinge=True, note="the whole-line pull capped by a hinge"),
     Arm("control-verify", "verify", verify=True, note="the control with verification lines"),
     Arm("anchor-verify", "verify", anchored=True, verify=True, note="the whole-line arm with verification lines"),
@@ -138,15 +142,16 @@ ARMS: tuple[Arm, ...] = (
 the whole-line arm for the label, site, and verification arms."""
 
 N_RUNS = sum(a.seeds for a in ARMS)
-assert N_RUNS == 37
+assert N_RUNS == 40
 
 SITE_ARMS: tuple[str, ...] = (PRIMARY, "anchor-hinge")
 """The candidates of the site rule, in its order of preference: the whole-line label, as the M3-shaped labeller,
 then the same label with the hinge, a training setting M3 could also use."""
 
-SITE_REFERENCES: tuple[str, ...] = ("anchor-prompt", "anchor-query-eq")
+SITE_REFERENCES: tuple[str, ...] = ("anchor-prompt", "anchor-query-eq", "anchor-every-eq")
 """Scored by the site rule beside the candidates, and never chosen: they show where the anchor settles when the pull
-leaves out the query answer, and what an anchor at the query `=` would allow."""
+leaves out the query answer, what an anchor at the query `=` would allow, and whether one spread over every `=`
+lands at the query `=`."""
 
 SUPPRESSION_ARMS: tuple[str, ...] = (*SITE_ARMS, *SITE_REFERENCES, CONTROL)
 """The arms the scoring-only suppression pass runs on: the candidates and references of the site rule, and the
@@ -200,7 +205,7 @@ resolves, and narrower than the 0.015 of (a)."""
 
 SCORED_SITES: tuple[str, ...] = ("query =", "every position")
 """S2 qualifies an operator at either of these sites. Ex-2.2.16 scored only every position; the query `=` is added
-because its state predicts the answer, and `query-eq` puts the anchor there."""
+because its state predicts the answer, and `query-eq` and `every-eq` put the anchor there."""
 
 REPORTED_SITES: tuple[str, ...] = ("query ?", "example answers")
 """Sites the suppression pass also edits, reported with no gate. The example answers are new: ex-2.2.16's anchored
