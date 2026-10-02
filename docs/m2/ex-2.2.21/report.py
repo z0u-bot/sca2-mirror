@@ -1,12 +1,13 @@
 # title: Ex 2.2.21: the in-context grammar pilot, on the reworked recipe
 
 # The design constants come from `experiment.py` beside this script (the directory of the script is on sys.path
-# while it runs). Nothing here has been trained yet: the preview section scores the eval ex-2.2.16 published for its
-# own anchored arms, and the method section computes the posterior from the seven-op table alone.
+# while it runs). The preview section scores the eval ex-2.2.16 published for its own anchored arms, the result
+# sections read this experiment's published eval, suppression pass, and trajectories, and the method section computes
+# the posterior from the seven-op table alone.
 import json
 import tempfile
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -14,6 +15,8 @@ import numpy as np
 import experiment as ex
 from mini.lit import memo
 from mini.store import project_store
+from matplotlib.axes import Axes
+
 from mini.vis import AxesRow, figure_html, light_dark, themed
 
 P = ex.ex2216._POSTERIOR_MODULE
@@ -46,25 +49,36 @@ def rule_color() -> str:
     return light_dark("#333", "#ddd")
 
 
-def fetch_json(ref_name: str) -> dict:
+def fetch_jsons(*names: str) -> list[dict]:
+    """Several published JSON refs, resolved in one round trip and downloaded in one batch."""
     store = project_store()
-    ref = store.get_refs([ref_name])[ref_name]
-    assert ref is not None, f"{ref_name} is not published"
+    got = store.get_refs(list(names))
+    refs = [got[n] for n in names]
+    assert all(r is not None for r in refs), (
+        f"not published: {[n for n, r in zip(names, refs, strict=True) if r is None]}"
+    )
     with tempfile.TemporaryDirectory() as tmp:
-        return json.loads(store.get_many([(ref, Path(tmp) / "x.json")])[0].read_text())
+        paths = store.get_many([(r, Path(tmp) / f"{i}.json") for i, r in enumerate(refs) if r is not None])
+        return [json.loads(p.read_text()) for p in paths]
 
 
 @memo
-def stored_evals() -> tuple[dict, dict, dict]:
-    """Ex-2.2.16's eval and suppression pass, and ex-2.2.19's eval, as each published them."""
-    return (
-        fetch_json(ex.ex2216.EVAL_REF),
-        fetch_json(ex.ex2216.SUPPRESSION_REF),
-        fetch_json(ex.ex2219.EVAL_REF),
+def stored_evals() -> tuple[dict, dict, dict, dict, dict, dict]:
+    """Ex-2.2.16's eval and suppression pass and ex-2.2.19's eval, then this experiment's eval, suppression pass, and
+    training trajectories, as each was published.
+    """
+    e16, s16, e19, e21, s21, t21 = fetch_jsons(
+        ex.ex2216.EVAL_REF,
+        ex.ex2216.SUPPRESSION_REF,
+        ex.ex2219.EVAL_REF,
+        ex.EVAL_REF,
+        ex.SUPPRESSION_REF,
+        ex.TRAJ_REF,
     )
+    return e16, s16, e19, e21, s21, t21
 
 
-EVAL16, SUPP16, EVAL19 = stored_evals()
+EVAL16, SUPP16, EVAL19, EVAL, SUPP21, TRAJ = stored_evals()
 
 # --- The recipe the control has to reproduce ------------------------------------------------------------------
 
@@ -141,18 +155,21 @@ CTRL16_SKILL = float(
 )
 
 
-def supp_mean(arm: str) -> dict:
-    """Seed means of the suppression pass for one arm: clean and target-null scores per op, and each edit."""
-    rs = [r for r in SUPP16["runs"] if r["arm"] == arm]
+def supp_mean(supp: dict, arm: str) -> dict:
+    """Seed means of a suppression pass for one arm: clean and target-null scores per op, each edit, and the mean
+    posterior on the anchored op in the contexts of each op (NaN where the pass did not record it).
+    """
+    rs = [r for r in supp["runs"] if r["arm"] == arm]
     keys = [(e["operator"], e["dose"], e["site"]) for e in rs[0]["edits"]]
     return {
         "clean": np.mean([r["clean"]["eem"] for r in rs], axis=0),
         "null": np.mean([r["null"]["eem"] for r in rs], axis=0),
         "edits": {k: np.mean([r["edits"][i]["eem"] for r in rs], axis=0) for i, k in enumerate(keys)},
+        "posterior": np.mean([r.get("posterior_anchored", np.nan) for r in rs], axis=0),
     }
 
 
-SUPP = {a: supp_mean(a) for a in PREVIEW_ARMS}
+SUPP = {a: supp_mean(SUPP16, a) for a in PREVIEW_ARMS}
 
 
 def net_drop(arm: str, key: tuple) -> np.ndarray:
@@ -239,41 +256,65 @@ def preview_draw(data: dict, alt_text: str) -> str:
     def _plot() -> plt.Figure:
         fig, axes = plt.subplots(1, 3, figsize=(8.4, 5.2), layout="constrained", sharey=True)
         axes = cast(AxesRow, axes)
-        ink = rule_color()
-        accent = light_dark("#c0392b", "#ff8a76")
-        ghost = light_dark("#999", "#777")
         titles = {"control-k3-r0.3": "control", "anchor-whole": "whole-line", "anchor-hinge": "hinge"}
         n_slices = len(data["anchor-whole"]["anchored"])
         for ax, (arm, d) in zip(axes, data.items(), strict=True):
-            ax.axvspan(Q_EQ - 0.5, Q_EQ + 0.5, facecolor=light_dark("#000", "#fff"), alpha=0.07, lw=0)
-            ax.axvline(QUERY_START - 0.5, color=ink, lw=0.8, ls=(0, (2, 2)))
-            for sl in range(n_slices):
-                base = sl * STACK_GAP
-                ax.axhline(base, color=ink, lw=0.3, alpha=0.5)
-                for other, od in data.items():
-                    if other != arm:
-                        ax.plot(*_lift(smooth_step(od["anchored"][sl]), base), color=ghost, lw=0.6, alpha=0.6)
-                ax.plot(*_lift(smooth_step(d["other"][sl], flat=0.8), base), "--", color=ink, lw=0.9)
-                ax.plot(*_lift(smooth_step(d["anchored"][sl], flat=0.8), base), color=accent, lw=1.3)
+            stack_panel(ax, d, [od["anchored"] for other, od in data.items() if other != arm])
             ax.set_title(titles[arm], fontsize=9)
-            ax.set_xticks(np.arange(len(ROLE_LABELS)), ROLE_LABELS, fontsize=6)
-            ax.set_xlim(-0.6, len(ROLE_LABELS) - 0.4)
-            ax.text(QUERY_START - 0.3, (n_slices - 0.05) * STACK_GAP, "query", fontsize=6, color=ink, va="top")
-        bar_x = len(ROLE_LABELS) - 0.1
-        axes[-1].plot([bar_x, bar_x], [0, 1], color=ink, lw=1.2, clip_on=False)
-        for v in (0, 1):
-            axes[-1].text(bar_x + 0.35, v, f"{v}", fontsize=6, color=ink, va="center", clip_on=False)
-        axes[0].set_yticks([sl * STACK_GAP for sl in range(n_slices)], SLICE_NAMES, fontsize=7)
-        axes[0].set_ylim(-0.15, n_slices * STACK_GAP)
-        handles = [
-            plt.Line2D([], [], color=accent, lw=1.3, label=ex.ANCHORED_OP),
-            plt.Line2D([], [], color=ink, lw=0.9, ls="--", label="other ops"),
-            plt.Line2D([], [], color=ghost, lw=0.6, label="the other arms"),
-        ]
+        stack_frame(axes[0], axes[-1], n_slices)
+        handles = stack_handles()
+        handles.append(plt.Line2D([], [], color=stack_ghost(), lw=0.6, label="the other arms"))
         fig.legend(handles=handles, loc="outside upper center", ncols=3, frameon=False, fontsize=7)
         return fig
 
     return _plot()
+
+
+def stack_accent() -> str:
+    return light_dark("#c0392b", "#ff8a76")
+
+
+def stack_ghost() -> str:
+    return light_dark("#999", "#777")
+
+
+def stack_panel(ax, d: dict, ghosts: list, *, ticks: bool = True) -> None:
+    """One stacked alignment panel: per slice, a hairline baseline, faint *ghosts*, the mean over the other ops
+    (dashed), and the anchored op (solid), with the query `=` shaded and the start of the query marked.
+    """
+    ink = rule_color()
+    n_slices = len(d["anchored"])
+    ax.axvspan(Q_EQ - 0.5, Q_EQ + 0.5, facecolor=light_dark("#000", "#fff"), alpha=0.07, lw=0)
+    ax.axvline(QUERY_START - 0.5, color=ink, lw=0.8, ls=(0, (2, 2)))
+    for sl in range(n_slices):
+        base = sl * STACK_GAP
+        ax.axhline(base, color=ink, lw=0.3, alpha=0.5)
+        for g in ghosts:
+            ax.plot(*_lift(smooth_step(g[sl]), base), color=stack_ghost(), lw=0.6, alpha=0.6)
+        ax.plot(*_lift(smooth_step(d["other"][sl], flat=0.8), base), "--", color=ink, lw=0.9)
+        ax.plot(*_lift(smooth_step(d["anchored"][sl], flat=0.8), base), color=stack_accent(), lw=1.3)
+    if ticks:
+        ax.set_xticks(np.arange(len(ROLE_LABELS)), ROLE_LABELS, fontsize=6)
+    ax.set_xlim(-0.6, len(ROLE_LABELS) - 0.4)
+    ax.text(QUERY_START - 0.3, (n_slices - 0.05) * STACK_GAP, "query", fontsize=6, color=ink, va="top")
+
+
+def stack_frame(first, last, n_slices: int) -> None:
+    """The slice names on the *first* panel of a row, and the 0-to-1 scale bar beside the *last*."""
+    ink = rule_color()
+    bar_x = len(ROLE_LABELS) - 0.1
+    last.plot([bar_x, bar_x], [0, 1], color=ink, lw=1.2, clip_on=False)
+    for v in (0, 1):
+        last.text(bar_x + 0.35, v, f"{v}", fontsize=6, color=ink, va="center", clip_on=False)
+    first.set_yticks([sl * STACK_GAP for sl in range(n_slices)], SLICE_NAMES, fontsize=7)
+    first.set_ylim(-0.15, n_slices * STACK_GAP)
+
+
+def stack_handles() -> list:
+    return [
+        plt.Line2D([], [], color=stack_accent(), lw=1.3, label=ex.ANCHORED_OP),
+        plt.Line2D([], [], color=rule_color(), lw=0.9, ls="--", label="other ops"),
+    ]
 
 
 def _lift(xy: tuple[np.ndarray, np.ndarray], base: float) -> tuple[np.ndarray, np.ndarray]:
@@ -316,32 +357,31 @@ def suppression_figure() -> str:
         other op. At every position the whole-line projection rises to {max(wf["anchored"][:4]):.2f}, below the
         halfway rule at {data["anchor-whole"]["half"]:.2f}, and the worst other op passes the gate from γ = 0.75.
     """
-    return suppression_draw(data, alt)
+    caption = f"""
+        **Ex-2.2.16's suppression pass on its two scored anchored arms.** The net drop in held-out expected exact
+        match under each edit: the seed-mean drop, less the drop the control shows under the same edit. Solid:
+        on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other ten ops. The dotted rule is the selectivity
+        gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is {ex.GRADING_MIN_DAMAGE:.0%} of the way from the
+        clean score on `{ex.ANCHORED_OP}` to the target null. The projection runs from γ = 0.25 to full removal;
+        the repulsion lands states at 0.25 and then 0; the reflection has one dose.
+    """
+    return suppression_draw(data, alt, "preview-suppression", caption, (8.4, 4.6))
 
 
 @memo
-def suppression_draw(data: dict, alt_text: str) -> str:
-    @themed(
-        name="preview-suppression",
-        alt_text=alt_text,
-        caption=f"""
-            **Ex-2.2.16's suppression pass on its two scored anchored arms.** The net drop in held-out expected exact
-            match under each edit: the seed-mean drop, less the drop the control shows under the same edit. Solid:
-            on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other ten ops. The dotted rule is the selectivity
-            gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is {ex.GRADING_MIN_DAMAGE:.0%} of the way from the
-            clean score on `{ex.ANCHORED_OP}` to the target null. The projection runs from γ = 0.25 to full removal;
-            the repulsion lands states at 0.25 and then 0; the reflection has one dose.
-        """,
-    )
+def suppression_draw(data: dict, alt_text: str, name: str, caption: str, figsize: tuple[float, float]) -> str:
+    """Net drop against the edit: one row per arm in *data*, one column per site in each arm's `sites`."""
+    sites = list(next(iter(data.values()))["sites"])
+
+    @themed(name=name, alt_text=alt_text, caption=caption)
     def _plot() -> plt.Figure:
-        fig, axes = plt.subplots(2, 3, figsize=(8.4, 4.6), layout="constrained", sharey=True, sharex=True)
+        fig, axes = plt.subplots(len(data), len(sites), figsize=figsize, layout="constrained", sharey=True, sharex=True)
         ink = rule_color()
         accent = light_dark("#c0392b", "#ff8a76")
         x = np.arange(len(SUPP_EDITS))
         groups = (slice(0, 4), slice(4, 6), slice(6, 7))
-        titles = {"anchor-whole": "whole-line", "anchor-hinge": "hinge"}
         for r, (arm, d) in enumerate(data.items()):
-            for c, site in enumerate(SUPP_SITES):
+            for c, site in enumerate(sites):
                 ax = axes[r, c]
                 ax.axhline(ex.SELECTIVITY_GATE, color=ink, lw=0.8, ls=":")
                 ax.axhline(d["half"], color=ink, lw=0.8, ls="-.")
@@ -352,7 +392,7 @@ def suppression_draw(data: dict, alt_text: str) -> str:
                 if r == 0:
                     ax.set_title(f"at {site}", fontsize=9)
                 if c == 0:
-                    ax.set_ylabel(f"{titles[arm]}\nnet drop", fontsize=8)
+                    ax.set_ylabel(f"{arm_name(arm)}\nnet drop", fontsize=8)
                 ax.set_xticks(x, [e[2] for e in SUPP_EDITS], fontsize=6, rotation=45, ha="right")
         handles = [
             plt.Line2D([], [], color=accent, lw=1.3, marker="o", ms=3, label=ex.ANCHORED_OP),
@@ -517,6 +557,847 @@ def arms_table() -> str:
     )
 
 
+# --- This experiment: shared helpers ------------------------------------------------------------------------------
+
+OPS: tuple[str, ...] = tuple(EVAL["runs"][0]["ops"])
+D = OPS.index(ex.ANCHORED_OP)
+ANCHORED_ARMS = [a.name for a in ex.ARMS if a.anchored and not a.verify]
+E2_ARMS = [*ex.SITE_ARMS, *ex.SITE_REFERENCES]
+SLOW_SEED = 2  # model seed 702, the third seed of every arm
+
+
+def arm_name(arm: str) -> str:
+    """The short name a figure or table gives an arm."""
+    if arm == ex.PRIMARY:
+        return "whole-line"
+    return arm if arm.endswith("verify") else arm.removeprefix("anchor-")
+
+
+def runs(arm: str) -> list[dict]:
+    return [r for r in EVAL["runs"] if r["arm"] == arm]
+
+
+def eem(r: dict) -> float:
+    return r["task"]["eem"]["all"]
+
+
+def skill(r: dict) -> float:
+    t = r["task"]
+    return (t["eem"]["all"] - t["floor"]["all"]) / (t["ceiling"]["all"] - t["floor"]["all"])
+
+
+def per_seed(arm: str, f=eem) -> np.ndarray:
+    return np.array([f(r) for r in runs(arm)])
+
+
+def band(x: np.ndarray, y: np.ndarray) -> float:
+    """The seed band between two arms, with the seed standard deviation pooled over the two."""
+    n1, n2 = len(x), len(y)
+    var = ((n1 - 1) * np.var(x, ddof=1) + (n2 - 1) * np.var(y, ddof=1)) / (n1 + n2 - 2)
+    return float(ex.SEED_BAND_SD * np.sqrt(var) * np.sqrt(1 / n1 + 1 / n2))
+
+
+def mean(arm: str, f=eem) -> float:
+    return float(per_seed(arm, f).mean())
+
+
+def gate_line(ax: Axes, y: float, *, fail: str, xs: tuple[float, float] | None = None, ls: str = "--") -> None:
+    """A gate rule with its failing side hatched; across the panel, or over the x-range *xs* only."""
+    ink = rule_color()
+    lo, hi = ax.get_ylim()
+    span = (lo, y) if fail == "below" else (y, hi)
+    edge = light_dark("#000", "#fff")
+    if xs is None:
+        ax.axhline(y, color=ink, lw=0.9, ls=ls, zorder=2)
+        ax.axhspan(*span, facecolor="none", edgecolor=edge, hatch="//", lw=0, zorder=0, alpha=0.1)
+    else:
+        ax.plot(xs, [y, y], color=ink, lw=0.9, ls=ls, zorder=2)
+        ax.fill_between(xs, *span, facecolor="none", edgecolor=edge, hatch="//", lw=0, zorder=0, alpha=0.1)
+    ax.set_ylim(lo, hi)
+
+
+def dots(ax: Axes, x: float, v, color, *, rng, ms: float = 5.0) -> None:
+    """One column of per-seed dots with the seed mean on top; a thin bar behind spans the seed range."""
+    v = np.asarray(v, float)
+    ax.plot([x, x], [v.min(), v.max()], "-", color=color, lw=1.0, alpha=0.5, zorder=2, solid_capstyle="butt")
+    ax.plot(x + rng.uniform(-0.08, 0.08, len(v)), v, "o", ms=2.6, color=color, alpha=0.55, zorder=3, mew=0)
+    ax.plot(x, v.mean(), "o", ms=ms, color=color, zorder=4, mec=light_dark("white", "#111"), mew=0.6)
+
+
+def arm_color(arm: str) -> str:
+    if arm in (ex.CONTROL, "control-verify", "ex-2.2.19"):
+        return light_dark("#555", "#bbb")
+    return light_dark("#c0392b", "#ff8a76")
+
+
+def span(values, fmt: str = ".3f") -> str:
+    return f"{min(values):{fmt}} to {max(values):{fmt}}"
+
+
+def bold_if(ok, text: str) -> str:
+    return f"<b>{text}</b>" if bool(ok) else text
+
+
+# --- H1 ----------------------------------------------------------------------------------------------------------
+
+CTRL_EEM = per_seed(ex.CONTROL)
+WHOLE_EEM = per_seed(ex.PRIMARY)
+H1: dict[str, Any] = {
+    "ctrl": float(CTRL_EEM.mean()),
+    "ctrl_sd": float(np.std(CTRL_EEM, ddof=1)),
+    "whole": float(WHOLE_EEM.mean()),
+    "a_diff": float(abs(CTRL_EEM.mean() - REF19_MEAN)),
+    "b_short": float(CTRL_EEM.mean() - WHOLE_EEM.mean()),
+    "b_band": band(CTRL_EEM, WHOLE_EEM),
+}
+H1["a_holds"] = H1["a_diff"] <= ex.REGRESSION_TOL
+H1["b_holds"] = H1["b_short"] <= ex.TASK_COST_TOL
+KL = {arm: per_seed(arm, lambda r: r["task"]["kl"]["all"]) for arm in (ex.CONTROL, ex.PRIMARY)}
+SKILL = {arm: mean(arm, skill) for arm in (ex.CONTROL, ex.PRIMARY)}
+REF19_KLS = [r["task"]["kl"]["all"] for r in REF19]
+
+
+def h1_figure() -> str:
+    data = {
+        "eem": {"ex-2.2.19": REF19_EEM, ex.CONTROL: CTRL_EEM.tolist(), ex.PRIMARY: WHOLE_EEM.tolist()},
+        "kl": {"ex-2.2.19": REF19_KLS, ex.CONTROL: KL[ex.CONTROL].tolist(), ex.PRIMARY: KL[ex.PRIMARY].tolist()},
+        "ceiling": REF19_CEIL,
+        "floor": REF19_FLOOR,
+        "ref": REF19_MEAN,
+        "ctrl": H1["ctrl"],
+        "band": H1["b_band"],
+    }
+    alt = f"""
+        Two panels. Left: held-out expected exact match per seed in three columns, ex-2.2.19's four runs, the
+        control's five, and the whole-line arm's five, each with its seed mean as a larger dot. A shaded band of
+        ±{ex.REGRESSION_TOL:g} around ex-2.2.19's mean of {REF19_MEAN:.3f} contains the control's mean of
+        {H1["ctrl"]:.3f}. Over the whole-line column a dashed gate at {H1["ctrl"] - ex.TASK_COST_TOL:.3f}, hatched
+        below, sits above its mean of {H1["whole"]:.3f}, and a dotted mark at the seed band,
+        {H1["ctrl"] - H1["b_band"]:.3f}, sits below it. Whole-line seeds run from {WHOLE_EEM.min():.3f} to
+        {WHOLE_EEM.max():.3f}, the control from {CTRL_EEM.min():.3f} to {CTRL_EEM.max():.3f}. The Bayes ceiling,
+        {REF19_CEIL:.3f}, is a dashed rule above every run. Right: calibration KL for the same runs, seed means
+        {np.mean(REF19_KLS):.2f}, {KL[ex.CONTROL].mean():.2f}, and {KL[ex.PRIMARY].mean():.2f} nats.
+    """
+    return h1_draw(data, alt)
+
+
+@memo
+def h1_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h1-recipe",
+        alt_text=alt_text,
+        caption=f"""
+            **The control against ex-2.2.19, and the whole-line arm against the control.** Left: held-out expected
+            exact match, one small dot per run and the seed mean on top; the right axis gives the same scale as skill,
+            from the floor (0) to the Bayes ceiling (1, the dashed rule at the top). The shaded band is criterion
+            **(a)**, ex-2.2.19's mean ±{ex.REGRESSION_TOL:g}. Over the whole-line column, the dashed rule is criterion
+            **(b)**, the control mean less {ex.TASK_COST_TOL:g}, with the failing side hatched; the dotted rule is the
+            control mean less the seed band of five seeds against five. Right: calibration KL for the same runs.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, (a, b) = plt.subplots(1, 2, figsize=(7.2, 3.4), layout="constrained", width_ratios=[1.5, 1])
+        rng = np.random.default_rng(0)
+        ink = rule_color()
+        cols = list(data["eem"])
+        a.axhspan(data["ref"] - ex.REGRESSION_TOL, data["ref"] + ex.REGRESSION_TOL, color=ink, alpha=0.08, lw=0)
+        a.axhline(data["ceiling"], color=ink, lw=0.9, ls="--")
+        for i, arm in enumerate(cols):
+            dots(a, i, data["eem"][arm], arm_color(arm), rng=rng)
+            dots(b, i, data["kl"][arm], arm_color(arm), rng=rng)
+        a.set_ylim(0.4, data["ceiling"] + 0.02)
+        i = cols.index(ex.PRIMARY)
+        a.plot([i - 0.3, i + 0.3], [data["ctrl"] - data["band"]] * 2, ":", color=ink, lw=0.9)
+        gate_line(a, data["ctrl"] - ex.TASK_COST_TOL, fail="below", xs=(i - 0.3, i + 0.3))
+        floor, ceil = data["floor"], data["ceiling"]
+        a.secondary_yaxis(
+            "right", functions=(lambda y: (y - floor) / (ceil - floor), lambda s: floor + s * (ceil - floor))
+        ).set_ylabel("skill")
+        a.set_ylabel("held-out EEM")
+        b.set_ylabel("calibration KL (nats)")
+        b.set_ylim(0, None)
+        for ax in (a, b):
+            ax.set_xticks(range(len(cols)), [arm_name(c) for c in cols], fontsize=8)
+            ax.set_xlim(-0.6, len(cols) - 0.4)
+        return fig
+
+    return _plot()
+
+
+def h1_table() -> str:
+    rows = [
+        [
+            "<b>(a)</b> control vs. ex-2.2.19",
+            f"{H1['ctrl']:.4f} vs. {REF19_MEAN:.4f}",
+            f"{H1['a_diff']:.4f}",
+            f"≤ {ex.REGRESSION_TOL:g}",
+            "—",
+            bold_if(H1["a_holds"], "holds" if H1["a_holds"] else "misses"),
+        ],
+        [
+            "<b>(b)</b> whole-line short of control",
+            f"{H1['whole']:.4f} vs. {H1['ctrl']:.4f}",
+            f"{H1['b_short']:.4f}",
+            f"≤ {ex.TASK_COST_TOL:g}",
+            f"{H1['b_band']:.4f}",
+            bold_if(H1["b_holds"], "holds" if H1["b_holds"] else "misses"),
+        ],
+    ]
+    return table_html(
+        ["criterion", "seed means", "difference ↓", "tolerance", "seed band", "verdict"],
+        rows,
+        "**The two criteria of H1.** Seed means of held-out expected exact match. The seed band of (b) is for five "
+        "seeds against five, with the seed standard deviation pooled over the two arms; no criterion uses it.",
+        text_cols=2,
+    )
+
+
+def traj_points(r: dict) -> tuple[list[float], list[float]]:
+    t = r["traj"]
+    pts = [(x, e) for x, e in zip(t["epoch"], t["eem"], strict=True) if e is not None]
+    return [p[0] for p in pts], [p[1] for p in pts]
+
+
+TRAJ_GROUPS = {
+    "control": [ex.CONTROL],
+    "label": [a.name for a in ex.ARMS if a.group == "label"],
+    "site": [a.name for a in ex.ARMS if a.group == "site"],
+    "verify": [a.name for a in ex.ARMS if a.group == "verify"],
+}
+SLOW_LOWEST = [arm for arm in (a.name for a in ex.ARMS) if int(np.argmin(per_seed(arm))) == SLOW_SEED]
+
+
+def late_rise(arm: str) -> float:
+    """Over the last 20 epochs, the rise in trajectory EEM of the run with the lowest held-out EEM in an arm."""
+    seed = int(np.argmin(per_seed(arm)))
+    xs, ys = traj_points(next(r for r in TRAJ.values() if r["arm"] == arm and r["seed"] == seed))
+    return ys[-1] - ys[next(i for i, x in enumerate(xs) if x >= ex.EPOCHS - 20)]
+
+
+LOWEST_RISE = [late_rise(a.name) for a in ex.ARMS]
+
+
+def traj_figure() -> str:
+    data = {
+        g: [{"arm": r["arm"], "seed": r["seed"], "xy": traj_points(r)} for r in TRAJ.values() if r["arm"] in arms]
+        for g, arms in TRAJ_GROUPS.items()
+    }
+    alt = f"""
+        Four panels side by side, one per group of arms (control, label, site, verify), each plotting the expected
+        exact match on a held-out subset against the training epoch, 0 to {ex.EPOCHS}, one thin line per run, all
+        {ex.N_RUNS} runs in all. The runs at model seed {ex.SEED_OFFSET + SLOW_SEED} are drawn in a contrasting color.
+        Every run rises steeply over the first 50 epochs and then more slowly. In most arms the highlighted run lies
+        below the others over the second half of training. The lowest run of each arm is still rising over the last
+        20 epochs, by {span(LOWEST_RISE)}.
+    """
+    return traj_draw(data, alt)
+
+
+@memo
+def traj_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h1-trajectories",
+        alt_text=alt_text,
+        caption=f"""
+            **Expected exact match through training, every run (post hoc).** Measured on the first
+            {ex.N_TRAJ_EEM_PER_OP} held-out contexts of each op, one line per run, panels by the group of the arm. Colored: model seed {ex.SEED_OFFSET + SLOW_SEED}, the third
+            seed of every arm; grey: the other seeds.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.8), layout="constrained", sharey=True, sharex=True)
+        axes = cast(AxesRow, axes)
+        grey = light_dark("#aaa", "#666")
+        hi = light_dark("#d97706", "#fbbf24")
+        for ax, (g, rs) in zip(axes, data.items(), strict=True):
+            for r in sorted(rs, key=lambda r: r["seed"] == SLOW_SEED):
+                slow = r["seed"] == SLOW_SEED
+                ax.plot(*r["xy"], color=hi if slow else grey, lw=0.9 if slow else 0.6, alpha=0.9 if slow else 0.7)
+            ax.set_title(g, fontsize=9)
+            ax.set_xlabel("epoch", fontsize=8)
+            ax.set_xlim(0, ex.EPOCHS)
+        axes[0].set_ylabel("held-out EEM (subset)", fontsize=8)
+        handles = [
+            plt.Line2D([], [], color=hi, lw=0.9, label=f"model seed {ex.SEED_OFFSET + SLOW_SEED}"),
+            plt.Line2D([], [], color=grey, lw=0.6, label="other seeds"),
+        ]
+        fig.legend(handles=handles, loc="outside upper center", ncols=2, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- S1 ----------------------------------------------------------------------------------------------------------
+
+S1_ARMS = [a.name for a in ex.ARMS if a.group == "label"]
+S1_CANDIDATES = ["anchor-latter", "anchor-prefix", "anchor-no-emb"]
+WHOLE_MARGIN = mean(ex.PRIMARY, lambda r: r["margin"]["value"])
+S1: dict[str, dict[str, Any]] = {
+    arm: {
+        "eem": mean(arm),
+        "diff": mean(arm) - H1["whole"],
+        "band": band(per_seed(arm), WHOLE_EEM),
+        "margin": mean(arm, lambda r: r["margin"]["value"]),
+        "share": mean(arm, lambda r: r["margin"]["value"]) / WHOLE_MARGIN,
+    }
+    for arm in S1_ARMS
+    if arm != ex.PRIMARY
+}
+for v in S1.values():
+    v["qualifies"] = v["diff"] > v["band"] and v["share"] >= ex.MARGIN_KEEP
+S1_PROMOTED = [a for a in S1_CANDIDATES if S1[a]["qualifies"]]
+
+
+def s1_figure() -> str:
+    data = {
+        arm: {
+            "eem": per_seed(arm).tolist(),
+            "share": (per_seed(arm, lambda r: r["margin"]["value"]) / WHOLE_MARGIN).tolist(),
+            "gate": H1["whole"] + S1[arm]["band"] if arm in S1_CANDIDATES else None,
+        }
+        for arm in S1_ARMS
+    }
+    alt = f"""
+        Two stacked panels with one column per label arm: whole-line, then
+        {", ".join(arm_name(a) for a in S1_ARMS[1:])}. Top: held-out expected exact match per seed and seed mean,
+        with a faint rule at the whole-line mean of {H1["whole"]:.3f} and, over each candidate column, a dashed gate
+        at the whole-line mean plus the seed band, hatched below. The candidate means
+        ({", ".join(f"{arm_name(a)} {S1[a]['eem']:.3f}" for a in S1_CANDIDATES)}) all sit above the whole-line mean
+        and below their gates ({", ".join(f"{H1['whole'] + S1[a]['band']:.3f}" for a in S1_CANDIDATES)}). Bottom:
+        the op margin as a share of the whole-line mean margin, with a dashed rule at {ex.MARGIN_KEEP:.0%} hatched
+        below; seed-mean shares are {", ".join(f"{arm_name(a)} {S1[a]['share']:.2f}" for a in S1)}.
+    """
+    return s1_draw(data, H1["whole"], alt)
+
+
+@memo
+def s1_draw(data: dict, whole: float, alt_text: str) -> str:
+    @themed(
+        name="s1-label",
+        alt_text=alt_text,
+        caption=f"""
+            **The label rule.** One column per label arm; small dots are runs, large dots seed means. Top: held-out
+            expected exact match. The faint rule is the whole-line mean; over each candidate the dashed rule is the
+            whole-line mean plus the seed band of that pair, which a candidate has to clear, with the side that does
+            not qualify hatched. `sampled` is reported and not a candidate. Bottom: the op margin as a share of the
+            whole-line seed-mean margin, with the {ex.MARGIN_KEEP:.0%} floor.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, (a, b) = plt.subplots(2, 1, figsize=(6.4, 4.6), layout="constrained", sharex=True)
+        rng = np.random.default_rng(0)
+        ink = rule_color()
+        arms = list(data)
+        for i, arm in enumerate(arms):
+            color = light_dark("#555", "#bbb") if arm == ex.PRIMARY else arm_color(arm)
+            dots(a, i, data[arm]["eem"], color, rng=rng)
+            dots(b, i, data[arm]["share"], color, rng=rng)
+        a.axhline(whole, color=ink, lw=0.6, alpha=0.5)
+        a.set_ylim(0.4, 0.62)
+        for i, arm in enumerate(arms):
+            if data[arm]["gate"] is not None:
+                gate_line(a, data[arm]["gate"], fail="below", xs=(i - 0.35, i + 0.35))
+        b.set_ylim(0, 1.5)
+        gate_line(b, ex.MARGIN_KEEP, fail="below")
+        a.set_ylabel("held-out EEM", fontsize=8)
+        b.set_ylabel("share of whole-line\nop margin", fontsize=8)
+        b.set_xticks(range(len(arms)), [arm_name(x) for x in arms], fontsize=8)
+        b.set_xlim(-0.6, len(arms) - 0.4)
+        return fig
+
+    return _plot()
+
+
+def s1_table() -> str:
+    rows = [
+        [
+            f"`{arm_name(ex.PRIMARY)}`",
+            str(len(WHOLE_EEM)),
+            f"{H1['whole']:.4f}",
+            "—",
+            "—",
+            f"{WHOLE_MARGIN:.3f}",
+            "1.00",
+            "the primary",
+        ],
+        *(
+            [
+                f"`{arm_name(a)}`",
+                str(len(runs(a))),
+                f"{S1[a]['eem']:.4f}",
+                f"{S1[a]['diff']:+.4f}",
+                f"{S1[a]['band']:.4f}",
+                f"{S1[a]['margin']:.3f}",
+                bold_if(S1[a]["share"] >= ex.MARGIN_KEEP, f"{S1[a]['share']:.2f}"),
+                ("yes" if S1[a]["qualifies"] else "no") if a in S1_CANDIDATES else "not a candidate",
+            ]
+            for a in S1_ARMS[1:]
+        ),
+    ]
+    return table_html(
+        ["arm", "seeds", "EEM ↑", "vs. whole-line", "seed band", "op margin", "share ↑", "qualifies"],
+        rows,
+        f"**The label rule.** Seed means. A candidate qualifies if its EEM beats the whole-line arm by more than the "
+        f"seed band of the pair and its op margin is at least {ex.MARGIN_KEEP:.0%} of the whole-line margin; bold "
+        f"marks a share that keeps the margin.",
+    )
+
+
+# --- E1 ----------------------------------------------------------------------------------------------------------
+
+
+def align(arm: str) -> np.ndarray:
+    """Seed-mean alignment, ops × slices × positions."""
+    return np.mean([r["alignment"] for r in runs(arm)], axis=0)
+
+
+ALIGN = {a: align(a) for a in ANCHORED_ARMS}
+
+
+def profiles21(arm: str) -> dict:
+    a = ALIGN[arm]
+    return {"anchored": a[D].tolist(), "other": np.delete(a, D, axis=0).mean(axis=0).tolist()}
+
+
+def last_slice(arm: str) -> dict[str, tuple[float, float]]:
+    """At the last slice: the alignment on `difference` contexts and the mean over the other ops, at four roles."""
+    a = ALIGN[arm][:, -1, :]
+    d, o = a[D], np.delete(a, D, axis=0).mean(axis=0)
+    return {
+        "query ?": (float(d[Q_Q]), float(o[Q_Q])),
+        "query =": (float(d[Q_EQ]), float(o[Q_EQ])),
+        "query answer": (float(d[Q_ANS]), float(o[Q_ANS])),
+        "example answers": (float(d[EX_ANS].mean()), float(o[EX_ANS].mean())),
+    }
+
+
+LAST = {a: last_slice(a) for a in ANCHORED_ARMS}
+SYNTAX = {a: {t: mean(a, lambda r, t=t: r["syntax_embeddings"][t]) for t, _ in ex.SYNTAX_TOKENS} for a in ANCHORED_ARMS}
+SYNTAX_CTRL = {t: mean(ex.CONTROL, lambda r, t=t: r["syntax_embeddings"][t]) for t, _ in ex.SYNTAX_TOKENS}
+NL_ARMS = [a for a in ANCHORED_ARMS if SYNTAX[a]["⏎"] > 0.5]
+OTHER_EQ = [a for a in ANCHORED_ARMS if a not in ("anchor-query-eq", "anchor-every-eq")]
+
+
+def e1_figure() -> str:
+    data = {a: profiles21(a) for a in ANCHORED_ARMS}
+    alt = f"""
+        A grid of {len(ANCHORED_ARMS)} panels, three per row, one per anchored arm
+        ({", ".join(arm_name(a) for a in ANCHORED_ARMS)}). Each stacks five step-shaped traces, one per slice from
+        the embedding at the bottom to the last block at the top, of the alignment with the anchored axis across
+        the 24 positions of a three-example context: solid for `{ex.ANCHORED_OP}` contexts, dashed for the mean of
+        the other ops. At the last block, the `{ex.ANCHORED_OP}` trace at the query `=` is
+        {", ".join(f"{arm_name(a)} {LAST[a]['query ='][0]:.2f}" for a in ANCHORED_ARMS)}; at the query answer it is
+        {", ".join(f"{arm_name(a)} {LAST[a]['query answer'][0]:.2f}" for a in ANCHORED_ARMS)}. On query-eq and
+        every-eq the dashed trace at the query `=` reaches
+        {LAST["anchor-query-eq"]["query ="][1]:.2f} and {LAST["anchor-every-eq"]["query ="][1]:.2f}.
+    """
+    return e1_draw(data, alt)
+
+
+@memo
+def e1_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e1-alignment-stack",
+        alt_text=alt_text,
+        caption=f"""
+            **Where each anchored arm puts the anchor.** As the preview figure: alignment with e₁ by position, one
+            trace per slice from the embedding (bottom) to the last block (top); seed means on held-out contexts.
+            Solid: `{ex.ANCHORED_OP}` contexts. Dashed: the mean over the other six ops. The shaded column is the
+            query `=`; the vertical line marks the start of the query. The bar at the right of each row spans an
+            alignment of 0 to 1.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        n = len(data)
+        n_rows = -(-n // 3)
+        fig, axes = plt.subplots(n_rows, 3, figsize=(8.4, 3.5 * n_rows), layout="constrained", sharey=True)
+        n_slices = len(next(iter(data.values()))["anchored"])
+        for i, (arm, d) in enumerate(data.items()):
+            ax = axes[i // 3, i % 3]
+            stack_panel(ax, d, [])
+            ax.set_title(arm_name(arm), fontsize=9)
+        for r in range(n_rows):
+            stack_frame(axes[r, 0], axes[r, -1], n_slices)
+        for ax in axes.flat[n:]:
+            ax.set_visible(False)
+        fig.legend(handles=stack_handles(), loc="outside upper center", ncols=2, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+def e1_table() -> str:
+    roles = ("query ?", "query =", "query answer", "example answers")
+    labels = {"query ?": "`?`", "query =": "`=`", "query answer": "y", "example answers": "example y"}
+    head = ["arm", *(h for r in roles for h in (labels[r], f"{labels[r]} other"))]
+    rows = [[arm_name(a), *(f"{v:.2f}" for r in roles for v in LAST[a][r])] for a in ANCHORED_ARMS]
+    return table_html(
+        head,
+        rows,
+        f"**Alignment at the last block, by role in the query.** Seed means on held-out contexts. For each role, the "
+        f"first column is on `{ex.ANCHORED_OP}` contexts and the second the mean over the other six ops; example y "
+        f"is the mean over the three example answers.",
+    )
+
+
+def syntax_table() -> str:
+    head = ["arm", *(f"`{t}`" if t != "⏎" else "⏎" for t, _ in ex.SYNTAX_TOKENS)]
+    rows = [
+        [arm_name(ex.CONTROL), *(f"{SYNTAX_CTRL[t]:+.2f}" for t, _ in ex.SYNTAX_TOKENS)],
+        *([arm_name(a), *(f"{SYNTAX[a][t]:+.2f}" for t, _ in ex.SYNTAX_TOKENS)] for a in ANCHORED_ARMS),
+    ]
+    return table_html(
+        head,
+        rows,
+        "**The syntax embeddings at the embedding slice.** Alignment of each token embedding with e₁, seed means; "
+        "the control for reference.",
+        ref_rows=frozenset({0}),
+    )
+
+
+# --- E2 ----------------------------------------------------------------------------------------------------------
+
+SUPP_E2 = {a: supp_mean(SUPP21, a) for a in (*E2_ARMS, ex.CONTROL)}
+E2_SITES = ex.EDIT_SITES
+OPERATORS = ("projection", "repulsion", "reflection")
+
+
+def drop21(arm: str, key: tuple) -> np.ndarray:
+    """Per op, the net drop in expected exact match under an edit: the arm's drop less the control's."""
+    s, c = SUPP_E2[arm], SUPP_E2[ex.CONTROL]
+    return (s["clean"] - s["edits"][key]) - (c["clean"] - c["edits"][key])
+
+
+def gap21(arm: str) -> float:
+    s = SUPP_E2[arm]
+    return float(s["clean"][D] - s["null"][D])
+
+
+def criteria(arm: str, site: str, operator: str) -> dict:
+    """The two criteria of E2 for one operator at one site on one arm."""
+    keys = [(o, g, site) for o, g, _ in SUPP_EDITS if o == operator]
+    drops = [float(drop21(arm, k)[D]) for k in keys]
+    worst = max(float(np.delete(drop21(arm, k), D).max()) for k in keys)
+    rises = len(keys) > 1 and all(b >= a - ex.GRADE_DIP for a, b in zip(drops, drops[1:], strict=False))
+    full = drops[-1] / gap21(arm)
+    return {
+        "grades": rises and full >= ex.GRADING_MIN_DAMAGE,
+        "selective": worst <= ex.SELECTIVITY_GATE,
+        "share": max(d / gap21(arm) for d in drops),
+        "full": full,
+        "worst": worst,
+        "doses": len(keys),
+    }
+
+
+CRIT = {(a, s, o): criteria(a, s, o) for a in E2_ARMS for s in ex.SCORED_SITES for o in OPERATORS}
+MEETS = [k for k, v in CRIT.items() if v["grades"] and v["selective"]]
+
+
+def shares(arm: str, site: str, operator: str) -> list[float]:
+    """The net drop on the anchored op as a share of the way to the target null, at each dose of one operator."""
+    return [float(drop21(arm, (o, g, site))[D]) / gap21(arm) for o, g, _ in SUPP_EDITS if o == operator]
+
+
+FULL_PROJ = ("projection", 1.0, "every position")
+
+
+def e2_figure() -> str:
+    data = {
+        arm: {
+            "half": ex.GRADING_MIN_DAMAGE * gap21(arm),
+            "sites": {
+                site: {
+                    "anchored": [float(drop21(arm, (o, g, site))[D]) for o, g, _ in SUPP_EDITS],
+                    "worst": [float(np.delete(drop21(arm, (o, g, site)), D).max()) for o, g, _ in SUPP_EDITS],
+                }
+                for site in E2_SITES
+            },
+        }
+        for arm in E2_ARMS
+    }
+    hp = CRIT[("anchor-hinge", "every position", "projection")]
+    wp = CRIT[(ex.PRIMARY, "every position", "projection")]
+    alt = f"""
+        A grid of {len(E2_ARMS) * len(E2_SITES)} panels: rows for the {len(E2_ARMS)} arms
+        ({", ".join(arm_name(a) for a in E2_ARMS)}), columns for the four edit sites
+        ({", ".join(E2_SITES)}). Each panel plots the net drop in expected exact match against the edit (the
+        projection at four doses, the repulsion at two, the reflection), solid for `{ex.ANCHORED_OP}` contexts and
+        dashed for the worst other op, with a dotted rule at the selectivity gate of {ex.SELECTIVITY_GATE:g} and a
+        dash-dot rule halfway to the target null, about {data[ex.PRIMARY]["half"]:.2f}. At the query `?` every arm
+        stays near zero except prompt, which reaches {data["anchor-prompt"]["sites"]["query ?"]["anchored"][3]:.2f}
+        under the full projection. On whole-line and hinge, the query `=` stays near zero too, while every position and the
+        example answers rise with the projection dose past the halfway rule; on hinge at every position the dashed
+        trace stays at the gate or below (worst {hp["worst"]:.3f}), and on whole-line it reaches {wp["worst"]:.3f}
+        at full dose. On prompt the drop at every position rises with the worst other op close behind, up to
+        {CRIT[("anchor-prompt", "every position", "projection")]["worst"]:.2f}. On query-eq and every-eq, the query
+        `=` and every position rise steeply on both traces, the worst other op reaching
+        {CRIT[("anchor-query-eq", "query =", "projection")]["worst"]:.2f} and
+        {CRIT[("anchor-every-eq", "query =", "projection")]["worst"]:.2f} under the full projection, and the
+        example answers stay at zero.
+    """
+    caption = f"""
+        **The suppression pass on the candidates and references of E2.** As the preview figure: the net drop in
+        held-out expected exact match under each edit, the seed-mean drop less the control's drop under the same
+        edit. Solid: on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other six ops. The dotted rule is the
+        selectivity gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is {ex.GRADING_MIN_DAMAGE:.0%} of the way
+        from the clean score on `{ex.ANCHORED_OP}` to the target null. The query `=` and every position are the
+        scored sites.
+    """
+    return suppression_draw(data, alt, "e2-suppression", caption, (8.4, 9.0))
+
+
+def e2_table() -> str:
+    rows = [
+        [
+            arm_name(a),
+            s,
+            o,
+            bold_if(v["grades"], "yes" if v["grades"] else "no") if v["doses"] > 1 else "—",
+            bold_if(v["selective"], "yes" if v["selective"] else "no"),
+            f"{v['share']:.2f}",
+            f"{v['worst']:+.3f}",
+        ]
+        for (a, s, o), v in CRIT.items()
+    ]
+    return table_html(
+        ["arm", "site", "operator", "grades", "selective", "max share to null ↑", "worst other ↓"],
+        rows,
+        f"**The two criteria of E2 at the two scored sites.** Grades: the net drop on `{ex.ANCHORED_OP}` rises with "
+        f"dose (dips of at most {ex.GRADE_DIP:g}) and reaches {ex.GRADING_MIN_DAMAGE:.0%} of the way to the target "
+        f"null at full dose; the reflection has one dose and cannot grade. Selective: the net drop on every other op "
+        f"is at most {ex.SELECTIVITY_GATE:g} at every dose. The last two columns are the largest share of the way to "
+        f"the null over the doses, and the largest net drop on any other op at any dose.",
+        text_cols=3,
+    )
+
+
+POSTERIOR_OTHER = np.delete(SUPP_E2[ex.CONTROL]["posterior"], D)
+OTHER_OPS = [o for o in OPS if o != ex.ANCHORED_OP]
+
+
+def confusion_figure() -> str:
+    data = {
+        "posterior": POSTERIOR_OTHER.tolist(),
+        "drops": {a: np.delete(drop21(a, FULL_PROJ), D).tolist() for a in E2_ARMS},
+    }
+    alt = f"""
+        {len(E2_ARMS)} scatter panels side by side, one per arm ({", ".join(arm_name(a) for a in E2_ARMS)}), each
+        with six points, one per other op, colored by op: the net drop in expected exact match under the full
+        projection at every position on the y-axis, against the mean posterior on `{ex.ANCHORED_OP}` in that op's
+        contexts on the x-axis. Every point sits between x = {POSTERIOR_OTHER.min():.3f} and
+        {POSTERIOR_OTHER.max():.3f}, so each panel is a vertical column. The drops run
+        {", ".join(f"{arm_name(a)} {span(data['drops'][a], '+.3f')}" for a in E2_ARMS)}.
+    """
+    return confusion_draw(data, alt)
+
+
+@memo
+def confusion_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e2-confusion",
+        alt_text=alt_text,
+        caption=f"""
+            **Net drop on each other op against how plausible `{ex.ANCHORED_OP}` is in its contexts.** Under the
+            full projection at every position; one point per op other than `{ex.ANCHORED_OP}`. The x-axis is the
+            mean posterior on `{ex.ANCHORED_OP}` given the examples, over held-out contexts of that op. The dotted
+            rule is the selectivity gate.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        arms = list(data["drops"])
+        fig, axes = plt.subplots(1, len(arms), figsize=(8.4, 2.6), layout="constrained", sharey=True, sharex=True)
+        axes = cast(AxesRow, axes)
+        ink = rule_color()
+        for ax, arm in zip(axes, arms, strict=True):
+            ax.axhline(ex.SELECTIVITY_GATE, color=ink, lw=0.8, ls=":")
+            ax.axhline(0, color=ink, lw=0.3, alpha=0.5)
+            for j, op in enumerate(OTHER_OPS):
+                ax.plot(data["posterior"][j], data["drops"][arm][j], "o", ms=4, color=f"C{j}", label=op, alpha=0.85)
+            ax.set_title(arm_name(arm), fontsize=9)
+            ax.set_xlim(0, 0.1)
+            ax.set_xticks([0, 0.05, 0.1], ["0", "0.05", "0.1"], fontsize=7)
+            ax.set_xlabel(f"posterior on {ex.ANCHORED_OP}", fontsize=7)
+        axes[0].set_ylabel("net drop", fontsize=8)
+        fig.legend(*axes[0].get_legend_handles_labels(), loc="outside upper center", ncols=6, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- S2 ----------------------------------------------------------------------------------------------------------
+
+S2_PAIRS = (("control-verify", ex.CONTROL), ("anchor-verify", ex.PRIMARY))
+S2: dict[str, dict[str, Any]] = {
+    v: {
+        "ref": ref,
+        "diff": mean(v) - mean(ref),
+        "band": band(per_seed(v), per_seed(ref)),
+        "acc": per_seed(v, lambda r: r["verify"]["accuracy"]),
+    }
+    for v, ref in S2_PAIRS
+}
+for v in S2.values():
+    v["within"] = abs(v["diff"]) <= v["band"]
+VERIFY_MARGIN = mean("anchor-verify", lambda r: r["margin"]["value"])
+
+
+def s2_figure() -> str:
+    data = {
+        "eem": {a: per_seed(a).tolist() for pair in S2_PAIRS for a in pair[::-1]},
+        "bands": {v: (mean(ref), S2[v]["band"]) for v, ref in S2_PAIRS},
+        "acc": {v: S2[v]["acc"].tolist() for v, _ in S2_PAIRS},
+    }
+    alt = f"""
+        Two panels. Left: held-out expected exact match per seed in four columns, the control, control-verify,
+        whole-line, and anchor-verify, with seed means as larger dots. Over each verification column a shaded band
+        spans the reference mean ± the seed band of the pair, and each verification mean lies inside it:
+        control-verify {mean("control-verify"):.3f} against the control's {H1["ctrl"]:.3f} (band ±
+        {S2["control-verify"]["band"]:.3f}), anchor-verify {mean("anchor-verify"):.3f} against whole-line's
+        {H1["whole"]:.3f} (band ± {S2["anchor-verify"]["band"]:.3f}). Right: verification accuracy per seed for the
+        two verification arms, seed means {S2["control-verify"]["acc"].mean():.2f} and
+        {S2["anchor-verify"]["acc"].mean():.2f}.
+    """
+    return s2_draw(data, alt)
+
+
+@memo
+def s2_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="s2-verify",
+        alt_text=alt_text,
+        caption="""
+            **The verification rule.** Left: held-out expected exact match on completion contexts, small dots for
+            runs and large dots for seed means. Over each verification arm, the shaded band is the mean of the arm
+            without verification lines ± the seed band of the pair, the range the rule allows. Right: verification
+            accuracy on the verification held-out set.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, (a, b) = plt.subplots(1, 2, figsize=(7.2, 3.2), layout="constrained", width_ratios=[2, 1])
+        rng = np.random.default_rng(0)
+        ink = rule_color()
+        cols = list(data["eem"])
+        for i, arm in enumerate(cols):
+            if arm in data["bands"]:
+                m, w = data["bands"][arm]
+                a.fill_between([i - 0.3, i + 0.3], m - w, m + w, color=ink, alpha=0.1, lw=0)
+            dots(a, i, data["eem"][arm], arm_color(arm), rng=rng)
+        for i, arm in enumerate(data["acc"]):
+            dots(b, i, data["acc"][arm], arm_color(arm), rng=rng)
+        a.set_xticks(range(len(cols)), [arm_name(c) for c in cols], fontsize=8)
+        a.set_xlim(-0.6, len(cols) - 0.4)
+        a.set_ylabel("held-out EEM", fontsize=8)
+        b.set_xticks(range(len(data["acc"])), list(data["acc"]), fontsize=8)
+        b.set_xlim(-0.6, len(data["acc"]) - 0.4)
+        b.set_ylim(0.7, 1.0)
+        b.set_ylabel("verification accuracy", fontsize=8)
+        return fig
+
+    return _plot()
+
+
+def s2_table() -> str:
+    rows = [
+        [
+            f"`{v}` vs. `{arm_name(d['ref'])}`",
+            f"{mean(d['ref']):.4f}",
+            f"{mean(v):.4f}",
+            f"{d['diff']:+.4f}",
+            f"{d['band']:.4f}",
+            bold_if(d["within"], "yes" if d["within"] else "no"),
+            f"{d['acc'].mean():.3f}",
+        ]
+        for v, d in S2.items()
+    ]
+    return table_html(
+        ["pair", "without", "with", "difference", "seed band", "within", "verification accuracy"],
+        rows,
+        "**The verification rule.** Seed means of held-out expected exact match on completion contexts, without and "
+        "with verification lines, and the seed band of the pair (three seeds against five); verification accuracy "
+        "has no gate.",
+    )
+
+
+# --- H2 ----------------------------------------------------------------------------------------------------------
+
+LEAN_ARMS = [ex.CONTROL, *(a.name for a in ex.ARMS if a.anchored)]
+LEANS = ("op1", "fragment")
+H2: dict[str, dict[str, Any]] = {
+    lean: {
+        "ctrl": mean(ex.CONTROL, lambda r, k=lean: r["leans"][k]),
+        "whole": mean(ex.PRIMARY, lambda r, k=lean: r["leans"][k]),
+        "band": band(
+            per_seed(ex.PRIMARY, lambda r, k=lean: r["leans"][k]), per_seed(ex.CONTROL, lambda r, k=lean: r["leans"][k])
+        ),
+    }
+    for lean in LEANS
+}
+for v in H2.values():
+    v["within"] = abs(v["whole"] - v["ctrl"]) <= v["band"]
+H2_OUTSIDE = [
+    (a, lean)
+    for a in LEAN_ARMS[1:]
+    for lean in LEANS
+    if abs(mean(a, lambda r, k=lean: r["leans"][k]) - H2[lean]["ctrl"])
+    > band(per_seed(a, lambda r, k=lean: r["leans"][k]), per_seed(ex.CONTROL, lambda r, k=lean: r["leans"][k]))
+]
+
+
+def h2_figure() -> str:
+    data: dict[str, Any] = {
+        lean: {
+            "seeds": {a: per_seed(a, lambda r, k=lean: r["leans"][k]).tolist() for a in LEAN_ARMS},
+            "ctrl": H2[lean]["ctrl"],
+            "band": H2[lean]["band"],
+        }
+        for lean in LEANS
+    }
+    lo = H2["op1"]["ctrl"] - H2["op1"]["band"]
+    below = [a for a in LEAN_ARMS[1:] if np.mean(data["op1"]["seeds"][a]) < lo]
+    alt = f"""
+        Two stacked panels, the first-operand lean above and the trailing-fragment lean below, each with one column
+        per arm: the control, then {", ".join(arm_name(a) for a in LEAN_ARMS[1:])}. Small dots are runs and large
+        dots seed means; a shaded band spans the control mean ± the seed band of the whole-line arm against the
+        control. First-operand lean: control {H2["op1"]["ctrl"]:.3f}, band ± {H2["op1"]["band"]:.3f}; the
+        whole-line mean, {H2["op1"]["whole"]:.3f}, is inside it; {", ".join(arm_name(a) for a in below)} sit below
+        its lower edge. Trailing-fragment lean: control {H2["fragment"]["ctrl"]:.3f}, band ±
+        {H2["fragment"]["band"]:.3f}; the whole-line mean, {H2["fragment"]["whole"]:.3f}, and every other arm sit
+        inside it.
+    """
+    return h2_draw(data, alt)
+
+
+@memo
+def h2_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h2-leans",
+        alt_text=alt_text,
+        caption="""
+            **The two leans, per arm.** Small dots are runs, large dots seed means. The shaded band is the control
+            mean ± the seed band of the whole-line arm against the control (five seeds against five), the band H2
+            scores; an arm at three seeds has a band about a fifth wider.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(2, 1, figsize=(7.6, 4.4), layout="constrained", sharex=True)
+        rng = np.random.default_rng(0)
+        ink = rule_color()
+        labels = {"op1": "first-operand lean", "fragment": "fragment lean"}
+        for ax, (lean, d) in zip(axes, data.items(), strict=True):
+            ax.axhspan(d["ctrl"] - d["band"], d["ctrl"] + d["band"], color=ink, alpha=0.08, lw=0)
+            ax.axhline(0, color=ink, lw=0.3, alpha=0.5)
+            for i, (arm, v) in enumerate(d["seeds"].items()):
+                dots(ax, i, v, arm_color(arm), rng=rng)
+            ax.set_ylabel(labels[lean], fontsize=8)
+        arms = list(data["op1"]["seeds"])
+        axes[-1].set_xticks(range(len(arms)), [arm_name(a) for a in arms], fontsize=7, rotation=30, ha="right")
+        axes[-1].set_xlim(-0.6, len(arms) - 0.4)
+        return fig
+
+    return _plot()
+
+
 rf"""
 # Ex 2.2.21: the in-context grammar pilot, on the reworked recipe
 
@@ -536,7 +1417,7 @@ A second try at round 2 of the D2.2 route, on the recipe ex-2.2.17 to ex-2.2.20 
 
 ## How to read this draft
 
-This is a preregistration: nothing in it has been trained yet. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment, and results will replace the `TODO` boxes in place. The [preview](#what-ex-2216s-anchored-arms-already-show) scores ex-2.2.16's stored runs; it predates this plan and shaped it.
+The runs are done, and their results fill the `TODO` boxes of the result sections; the discussion is still to come. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment. The [preview](#what-ex-2216s-anchored-arms-already-show) scores ex-2.2.16's stored runs; it predates this plan and shaped it.
 
 ## Why this experiment
 
@@ -646,8 +1527,30 @@ We take the control as it stands. Its skill score and calibration KL[^kl] are re
 
 [^kl]: A KL divergence: a non-negative measure, in nats, of how far one probability distribution sits from another, 0 when they match. Here it compares the model's answer distribution with the Bayes predictor's.
 
-/// admonition | TODO
-A figure of held-out expected exact match per seed for the control and the whole-line arm, seed means as bars, with ex-2.2.19's four runs as a reference column; the ceiling and floor as rules and the band of (a) shaded. Beside it, the calibration KL for the same runs. A table with the seed means, the seed band, and the verdict on each criterion.
+{h1_figure()}
+
+{h1_table()}
+
+**What we saw.** The control scores {H1["ctrl"]:.4f}, {H1["a_diff"]:.4f} from ex-2.2.19's {REF19_MEAN:.4f}, so (a) holds. The whole-line arm scores {H1["whole"]:.4f}, {H1["b_short"]:.4f} short of the control against a tolerance of {ex.TASK_COST_TOL:g}, so (b) misses. That shortfall is inside the seed band of the pair, {H1["b_band"]:.3f}: the control has a seed standard deviation of {H1["ctrl_sd"]:.3f}, against {REF19_SD:.3f} over ex-2.2.19's four runs.
+
+The skill score is {SKILL[ex.CONTROL]:.2f} for the control and {SKILL[ex.PRIMARY]:.2f} for the whole-line arm, and the calibration KL is {KL[ex.CONTROL].mean():.2f} and {KL[ex.PRIMARY].mean():.2f} nats ({np.mean(REF19_KLS):.2f} in ex-2.2.19).
+
+<details markdown="1"><summary>Gate arithmetic</summary>
+
+- **(a)** |{H1["ctrl"]:.4f} − {REF19_MEAN:.4f}| = {H1["a_diff"]:.4f} ≤ {ex.REGRESSION_TOL:g}: holds.
+- **(b)** {H1["ctrl"]:.4f} − {H1["whole"]:.4f} = {H1["b_short"]:.4f} > {ex.TASK_COST_TOL:g}: misses.
+- Seed band of (b), five seeds against five: {ex.SEED_BAND_SD:g} × {H1["b_band"] / (ex.SEED_BAND_SD * np.sqrt(2 / 5)):.4f} × √(1/5 + 1/5) = {H1["b_band"]:.4f}, with σ pooled over the control and the whole-line arm.
+
+</details>
+
+The seeds also differ in how fast they learn. This figure was drawn after the results came in, to look at the spread over seeds:
+
+{traj_figure()}
+
+Model seed {ex.SEED_OFFSET + SLOW_SEED} has the lowest held-out EEM in {len(SLOW_LOWEST)} of the {len(ex.ARMS)} arms, and the lowest run of every arm is still rising over the last 20 epochs, by {span(LOWEST_RISE)}.
+
+/// admonition | Partial
+(a) holds: the control is within {H1["a_diff"]:.3f} of ex-2.2.19. (b) misses as written: the whole-line arm falls {H1["b_short"]:.3f} short against a tolerance of {ex.TASK_COST_TOL:g}, a gap inside the seed band of {H1["b_band"]:.3f}.
 ///
 
 ## The label rule (S1)
@@ -658,17 +1561,36 @@ The candidates are `latter`, `prefix`, and `no-emb` (the whole-line label with t
 
 **What we expect.** No variant clears the gate, for the reasons ex-2.2.16 gave: the label share barely moved the margin in ex-2.2.14, and the variants change less than that.
 
-/// admonition | TODO
-A figure with one column per label arm: held-out expected exact match (seeds and seed mean, the whole-line seed band shaded) above, the op margin as a share of the whole-line margin below, with the {ex.MARGIN_KEEP:.0%} line. A table of the same numbers and the verdict.
+{s1_figure()}
+
+{s1_table()}
+
+**What we saw.** No candidate qualifies. Each scores above the whole-line arm, by less than the seed band of the pair: `no-emb` by {S1["anchor-no-emb"]["diff"]:+.3f} against {S1["anchor-no-emb"]["band"]:.3f}, `latter` by {S1["anchor-latter"]["diff"]:+.3f} against {S1["anchor-latter"]["band"]:.3f}, and `prefix` by {S1["anchor-prefix"]["diff"]:+.3f} against {S1["anchor-prefix"]["band"]:.3f}. `no-emb` keeps {S1["anchor-no-emb"]["share"]:.2f} of the whole-line op margin, `prefix` {S1["anchor-prefix"]["share"]:.2f}, and `latter` {S1["anchor-latter"]["share"]:.2f}, below the {ex.MARGIN_KEEP:.0%} floor. `sampled`, not a candidate, scores {S1["anchor-sampled"]["diff"]:+.3f} against the whole-line arm and keeps {S1["anchor-sampled"]["share"]:.2f} of its margin.
+
+<details markdown="1"><summary>Gate arithmetic</summary>
+
+A candidate qualifies if its EEM exceeds the whole-line arm by more than the seed band (three seeds against five, σ pooled over the pair) and its op margin is at least {ex.MARGIN_KEEP:.0%} of the whole-line margin, {WHOLE_MARGIN:.3f}.
+
+{"".join(f"- `{arm_name(a)}`: {S1[a]['diff']:+.4f} against {S1[a]['band']:.4f}, {'clears' if S1[a]['diff'] > S1[a]['band'] else 'does not clear'}; margin share {S1[a]['share']:.2f}, {'keeps' if S1[a]['share'] >= ex.MARGIN_KEEP else 'below'} {ex.MARGIN_KEEP:g}." + chr(10) for a in S1_CANDIDATES)}
+</details>
+
+/// admonition | Pass
+No candidate clears the seed band, so the whole-line label stays the primary.
 ///
 
 ## Where the anchor sits (E1)
 
 Where an edit can work depends on where along the context each anchored arm puts its alignment. E1 measures, per anchored arm, the seed-mean alignment at each position and slice of a held-out context, on `{ex.ANCHORED_OP}` contexts and on the other ops.
 
-/// admonition | TODO
-One stacked figure per anchored arm, as in the preview above: positions across, slices up, the alignment on `{ex.ANCHORED_OP}` contexts and the mean over the other ops as two traces, and the other arms as faint traces. A table of the alignment at the query `?`, the query `=`, the query answer, and the example answers, at the last block, and of the syntax embeddings (`?`, `=`, `,`, and the line break) at the embedding slice.
-///
+{e1_figure()}
+
+{e1_table()}
+
+{syntax_table()}
+
+**What we saw.** At the last block the query `=` holds {span([LAST[a]["query ="][0] for a in OTHER_EQ], ".2f")} on `{ex.ANCHORED_OP}` contexts on every arm but two: `query-eq` at {LAST["anchor-query-eq"]["query ="][0]:.2f} and `every-eq` at {LAST["anchor-every-eq"]["query ="][0]:.2f}, where the other ops hold {LAST["anchor-query-eq"]["query ="][1]:.2f} and {LAST["anchor-every-eq"]["query ="][1]:.2f} at the same position. The whole-line arm holds {LAST[ex.PRIMARY]["query answer"][0]:.2f} at the query answer and {LAST[ex.PRIMARY]["example answers"][0]:.2f} on the example answers; `prompt`, whose pull leaves out the query answer, holds {LAST["anchor-prompt"]["query answer"][0]:.2f} and {LAST["anchor-prompt"]["example answers"][0]:.2f}. The query `?` stays within {max(abs(LAST[a]["query ?"][0]) for a in ANCHORED_ARMS):.2f} of zero on every arm.
+
+At the embedding slice the line-break embedding sits at {span([SYNTAX[a]["⏎"] for a in NL_ARMS], ".2f")} on {", ".join(f"`{arm_name(a)}`" for a in NL_ARMS)}. `no-emb` keeps every syntax embedding within {max(abs(v) for v in SYNTAX["anchor-no-emb"].values()):.2f} of zero. `prompt` lifts `,` to {SYNTAX["anchor-prompt"][","]:.2f} and `?` to {SYNTAX["anchor-prompt"]["?"]:.2f}, and `query-eq` and `every-eq` lift `=` to {SYNTAX["anchor-query-eq"]["="]:.2f} and {SYNTAX["anchor-every-eq"]["="]:.2f}.
 
 ## Editing the op out (E2)
 
@@ -697,9 +1619,21 @@ A flat threshold treats every other op alike, but some are easier to mistake for
 
 On `query-eq` we expect the projection at the query `=` to meet both, which would say that an anchor there can be edited with a dial, if a label could put it there. On `every-eq` we expect the same, more weakly, since a quarter of its pull lands on the query `=`. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
 
-/// admonition | TODO
-One figure per arm, as the preview figure of the suppression pass: the net drop on `{ex.ANCHORED_OP}` and the worst other op against the edit, with the selectivity gate and the halfway level, one panel per site. A table of each operator at the two scored sites on each arm against the two criteria. A figure of the net drop on each other op at full dose against the mean posterior on `{ex.ANCHORED_OP}` in its contexts, one point per op, one panel per arm.
-///
+{e2_figure()}
+
+{e2_table()}
+
+**What we saw.** Of the {len(CRIT)} operators, sites, and arms scored, {len(MEETS)} meet both criteria, both on the hinge arm at every position: the projection, which covers {", ".join(f"{v:.2f}" for v in shares("anchor-hinge", "every position", "projection"))} of the way to the target null over its four doses with the worst other op at most {CRIT[("anchor-hinge", "every position", "projection")]["worst"]:.3f}, and the repulsion, which covers {", ".join(f"{v:.2f}" for v in shares("anchor-hinge", "every position", "repulsion"))} with the worst other op at most {CRIT[("anchor-hinge", "every position", "repulsion")]["worst"]:.3f}. On the whole-line arm the projection at every position grades the same way ({", ".join(f"{v:.2f}" for v in shares(ex.PRIMARY, "every position", "projection"))}), and the worst other op reaches {CRIT[(ex.PRIMARY, "every position", "projection")]["worst"]:.3f} at full dose, over the gate of {ex.SELECTIVITY_GATE:g}.
+
+At the query `=`, no edit on the whole-line, hinge, or `prompt` arm covers more than {max(CRIT[(a, "query =", o)]["share"] for a in (ex.PRIMARY, "anchor-hinge", "anchor-prompt") for o in OPERATORS):.2f} of the way to the null. On `query-eq` and `every-eq` the projection there grades, to {CRIT[("anchor-query-eq", "query =", "projection")]["full"]:.2f} and {CRIT[("anchor-every-eq", "query =", "projection")]["full"]:.2f} at full dose, and the worst other op reaches {CRIT[("anchor-query-eq", "query =", "projection")]["worst"]:.2f} and {CRIT[("anchor-every-eq", "query =", "projection")]["worst"]:.2f}. On `prompt` the projection at every position grades, with the worst other op at {CRIT[("anchor-prompt", "every position", "projection")]["worst"]:.2f}.
+
+At the example answers, the reported site, the full projection covers {", ".join(f"{arm_name(a)} {shares(a, 'example answers', 'projection')[-1]:.2f}" for a in E2_ARMS)} of the way to the null.
+
+The next figure sets the drop on each other op beside how plausible `{ex.ANCHORED_OP}` is in its contexts:
+
+{confusion_figure()}
+
+The mean posterior on `{ex.ANCHORED_OP}` in the contexts of the other six ops runs from {POSTERIOR_OTHER.min():.3f} to {POSTERIOR_OTHER.max():.3f}, so the ops do not spread along the x-axis and the figure cannot show whether the drop follows the posterior.
 
 ## The verification rule (S2)
 
@@ -707,16 +1641,42 @@ One figure per arm, as the preview figure of the suppression pass: the net drop 
 
 **What we expect.** Completion is unchanged on both pairs. The verification arms see {1 - ex.VERIFY_RATE:.0%} of the completion lines the others do. On the old recipe that cost the control nothing measurable; at {ex.EPOCHS} epochs each line is seen more often, so the cost should be smaller still.
 
-/// admonition | TODO
-A figure of held-out expected exact match per seed for the two pairs, with the seed band of each shaded, and verification accuracy beside it. A table of the same and the verdict.
+{s2_figure()}
+
+{s2_table()}
+
+**What we saw.** Both pairs are within their seed band. `control-verify` scores {S2["control-verify"]["diff"]:+.3f} against the control, within {S2["control-verify"]["band"]:.3f}, and `anchor-verify` scores {S2["anchor-verify"]["diff"]:+.3f} against the whole-line arm, within {S2["anchor-verify"]["band"]:.3f}. Verification accuracy is {S2["control-verify"]["acc"].mean():.2f} and {S2["anchor-verify"]["acc"].mean():.2f}, and the op margin of `anchor-verify` is {VERIFY_MARGIN:.3f}, against {WHOLE_MARGIN:.3f} for the whole-line arm.
+
+<details markdown="1"><summary>Gate arithmetic</summary>
+
+The seed band is for three seeds against five, with σ pooled over the pair.
+
+{"".join(f"- `{v}` against `{arm_name(d['ref'])}`: |{d['diff']:+.4f}| {'≤' if d['within'] else '>'} {d['band']:.4f}, {'within' if d['within'] else 'outside'}." + chr(10) for v, d in S2.items())}
+</details>
+
+/// admonition | Pass
+Completion is unchanged on both pairs within the seed band, so verification lines stay in the corpus.
 ///
 
 ## The leans stay with the control (H2)
 
 **What we expect.** On the whole-line arm, the first-operand lean and the trailing-fragment lean stay within the seed band of the control, as ex-2.2.16 defined them. The newline mask now keeps a context from reading the one before it, which should make a cut-off fragment look less like a whole context than it did in ex-2.2.15.
 
-/// admonition | TODO
-A figure of both leans per seed for the control and every anchored arm, with the seed band of the control shaded.
+{h2_figure()}
+
+**What we saw.** On the whole-line arm the first-operand lean is {H2["op1"]["whole"]:.3f} against {H2["op1"]["ctrl"]:.3f} for the control, a difference of {H2["op1"]["whole"] - H2["op1"]["ctrl"]:+.3f} within the seed band of {H2["op1"]["band"]:.3f}. The trailing-fragment lean is {H2["fragment"]["whole"]:.3f} against {H2["fragment"]["ctrl"]:.3f}, {H2["fragment"]["whole"] - H2["fragment"]["ctrl"]:+.3f} within {H2["fragment"]["band"]:.3f}. Among the other anchored arms, compared with the control at their own seed band, only {" and ".join(f"`{arm_name(a)}`" for a, _ in H2_OUTSIDE)} fall outside, both below the control on the first-operand lean.
+
+<details markdown="1"><summary>Gate arithmetic</summary>
+
+Seed band for five seeds against five, σ pooled over the whole-line arm and the control.
+
+- First-operand lean: |{H2["op1"]["whole"]:.4f} − {H2["op1"]["ctrl"]:.4f}| = {abs(H2["op1"]["whole"] - H2["op1"]["ctrl"]):.4f} ≤ {H2["op1"]["band"]:.4f}: within.
+- Trailing-fragment lean: |{H2["fragment"]["whole"]:.4f} − {H2["fragment"]["ctrl"]:.4f}| = {abs(H2["fragment"]["whole"] - H2["fragment"]["ctrl"]):.4f} ≤ {H2["fragment"]["band"]:.4f}: within.
+
+</details>
+
+/// admonition | Pass
+Both leans of the whole-line arm stay within the seed band of the control.
 ///
 
 ## Discussion
@@ -746,6 +1706,8 @@ But the posterior takes few distinct values: {STEP7:.0%} of the contexts in the 
 ### The measurements
 
 Ex-2.2.16's measurements, scored on its held-out sets at the end of training, with the mask on in every arm: expected exact match against the ceiling and floor, the calibration KL, the alignment by position and slice, the alignment against the posterior, the op margin, the two leans, the suppression pass, and verification accuracy. The op margin and the leans are also recorded through training on a fixed probe set. Comparisons are between seed means, with the seed band as the resolution; the seed standard deviation is pooled over the two arms compared.
+
+The verification arms are scored for expected exact match, the op margin, the alignment, and the leans on the main held-out set (the same contexts as every other arm), and for verification accuracy on the verification held-out set.
 
 ### The new variants
 
