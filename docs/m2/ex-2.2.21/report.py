@@ -1490,21 +1490,22 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-A second try at round 2 of the D2.2 route, on the recipe ex-2.2.17 to ex-2.2.20 reworked. We retrain the control and the anchored `{ex.ANCHORED_OP}` arms under the whole-line label and its variants, then score the rules ex-2.2.16 never reached, to decide how round 3 anchors and edits the inferred op.
+A second try at round 2 of the D2.2 route, on the recipe that ex-2.2.17 to ex-2.2.20 reworked. We retrain the control and the anchored `{ex.ANCHORED_OP}` arms under the whole-line label and its variants. Then we score the rules that ex-2.2.16 never reached, to decide how round 3 anchors and edits the inferred op.
+The recipe, the whole-line label, and the verification lines carry forward. Of the edits we scored, only those at every position on the hinge arm take the op out with a dial.
 ///
 
 ## Findings
 
-- [The recipe holds, and the anchor costs nothing (H1)](#the-recipe-holds-and-the-anchor-costs-nothing-h1) —
-- [The label rule (S1)](#the-label-rule-s1) —
-- [Where the anchor sits (E1)](#where-the-anchor-sits-e1) —
-- [Editing the op out (E2)](#editing-the-op-out-e2) —
-- [The verification rule (S2)](#the-verification-rule-s2) —
-- [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) —
+- [The recipe holds, and the anchor costs nothing (H1)](#the-recipe-holds-and-the-anchor-costs-nothing-h1) — partial. The control reproduces ex-2.2.19, to within {H1["a_diff"]:.3f}. The whole-line arm falls {H1["b_short"]:.3f} short of the control, over the tolerance of {ex.TASK_COST_TOL:g} and inside the seed band of {H1["b_band"]:.3f}.
+- [The label rule (S1)](#the-label-rule-s1) — decided: the whole-line label stays. No variant beats it by more than the seed band; the closest, `no-emb`, scores {S1["anchor-no-emb"]["diff"]:+.3f} against a band of {S1["anchor-no-emb"]["band"]:.3f}.
+- [Where the anchor sits (E1)](#where-the-anchor-sits-e1) — on the whole-line arm the anchor sits on the answers: {LAST[ex.PRIMARY]["query answer"][0]:.2f} at the query answer and {LAST[ex.PRIMARY]["example answers"][0]:.2f} on the example answers, against {LAST[ex.PRIMARY]["query ="][0]:.2f} at the query `=`.
+- [Editing the op out (E2)](#editing-the-op-out-e2) — on the hinge arm, the projection and the repulsion at every position both grade and stay selective. The whole-line arm grades but spills {CRIT[(ex.PRIMARY, "every position", "projection")]["worst"]:.3f} onto another op, over the gate of {ex.SELECTIVITY_GATE:g}. No edit at the query `=` works on either candidate.
+- [The verification rule (S2)](#the-verification-rule-s2) — decided: verification lines stay. Both pairs are within their seed band.
+- [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) — pass. Both leans of the whole-line arm are within the seed band of the control.
 
 ## How to read this draft
 
-The runs are done, and their results fill the `TODO` boxes of the result sections; the discussion is still to come. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment. The [preview](#what-ex-2216s-anchored-arms-already-show) scores ex-2.2.16's stored runs; it predates this plan and shaped it.
+The runs are done. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment. The [preview](#what-ex-2216s-anchored-arms-already-show) scores the stored runs of ex-2.2.16; it predates this plan and shaped it.
 
 ## Why this experiment
 
@@ -1714,7 +1715,7 @@ On `query-eq` we expect the projection at the query `=` to meet both, which woul
 
 At the query `=`, no edit on the whole-line, hinge, or `prompt` arm covers more than {max(CRIT[(a, "query =", o)]["share"] for a in (ex.PRIMARY, "anchor-hinge", "anchor-prompt") for o in OPERATORS):.2f} of the way to the null. On `query-eq` and `every-eq` the projection there grades, to {CRIT[("anchor-query-eq", "query =", "projection")]["full"]:.2f} and {CRIT[("anchor-every-eq", "query =", "projection")]["full"]:.2f} at full dose, and the worst other op reaches {CRIT[("anchor-query-eq", "query =", "projection")]["worst"]:.2f} and {CRIT[("anchor-every-eq", "query =", "projection")]["worst"]:.2f}. On `prompt` the projection at every position grades, with the worst other op at {CRIT[("anchor-prompt", "every position", "projection")]["worst"]:.2f}.
 
-At the example answers, the reported site, the full projection covers {", ".join(f"{arm_name(a)} {shares(a, 'example answers', 'projection')[-1]:.2f}" for a in E2_ARMS)} of the way to the null.
+At the example answers, the reported site, the full projection covers {", ".join(f"{arm_name(a)} {shares(a, 'example answers', 'projection')[-1]:.2f}" for a in E2_ARMS)} of the way to the null. So on the whole-line and hinge arms, where the edit at every position works and the one at the query `=` does not, editing the examples alone takes most of the op out: the query seems to take the op from the examples.
 
 The next figure sets the drop on each other op under the full projection beside how plausible `{ex.ANCHORED_OP}` is in its contexts:
 
@@ -1784,9 +1785,15 @@ Both leans of the whole-line arm stay within the seed band of the control.
 
 ## Discussion
 
-/// admonition | TODO
-After the run. What the pilot settles for round 3: the recipe (H1), the label (S1), and the verification lines (S2). What E2 and its references suggest about the site and the operator for round 3, and where an anchor would need to sit to be edited.
-///
+Most of the recipe carries into round 3: the control reproduces ex-2.2.19, and the whole-line label and the verification lines stay. Whether the anchor costs the task anything stays open, since the shortfall misses the tolerance but sits inside the seed band.
+
+One seed lags on most arms and is still climbing at the last epoch, so five seeds at {ex.EPOCHS} epochs can't tell a small cost from a slow start. A longer schedule would let the slow seeds finish, and is the likeliest way to settle it.
+
+For editing, E2 suggests that where the anchor sits matters more than where the edit goes. On the whole-line and hinge arms the op seems to reach the query through the example answers, so an edit at the query `=` has little to act on unless the pull puts the anchor there. The arms that do so also lift the `=` embedding, which every op shares, and that may be why their edits spill onto the other ops.
+
+An edit at every position on the hinge arm is the clearest lead for round 3. The whole-line arm has no cap, grades the same way, and spills just over the gate. So a cap between the {ex.HINGE_CAP:g} of the hinge arm and none may keep the selectivity with more of the alignment.
+
+The `no-emb` arm is the open puzzle: it had the highest task score of any arm, but its anchor edits less selectively. One reading is that leaving the embedding slice out of the pull lets the early blocks hold the axis less cleanly. Another is that the anchor weight was set with the embedding in the pull, and `no-emb` would edit more selectively at a lower weight. This experiment can't separate the two.
 
 ## Method
 

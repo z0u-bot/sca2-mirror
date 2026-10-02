@@ -14,3 +14,5 @@ The reasoning for going further, from the review: an abstract concept like an op
 - both, leaving the middle blocks only.
 
 Run them beside the whole-line arm and the control at more seeds (perhaps eight), at 200 epochs and again at 300 or 400, since the slow path shows up as a plateau that a longer run gives time to leave (ex-2.2.21's training traces). Score the task, the op margin, and the suppression pass, so the answer covers editability too.
+
+Post hoc, the suppression pass found that `no-emb` edits less selectively than the whole-line arm. One reading is that the restriction itself makes the early blocks hold the axis less cleanly. Another, from the review, is that the anchor weight λa was set with the embedding slice in the pull, so a restricted pull may want a lower one. Crossing each restriction with a lower λa (a bracket of two or three levels) would separate the two.
