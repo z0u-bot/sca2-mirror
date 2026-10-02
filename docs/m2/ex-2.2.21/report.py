@@ -536,7 +536,7 @@ A second try at round 2 of the D2.2 route, on the recipe ex-2.2.17 to ex-2.2.20 
 
 ## How to read this draft
 
-This is a preregistration draft: nothing in it has been trained. The rules and predictions will be frozen at a commit quoted here once the plan is agreed, and results will replace the `TODO` boxes in place. The [preview](#what-ex-2216s-anchored-arms-already-show) scores ex-2.2.16's stored runs; it predates this plan and shaped it.
+This is a preregistration: nothing in it has been trained yet. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment, and results will replace the `TODO` boxes in place. The [preview](#what-ex-2216s-anchored-arms-already-show) scores ex-2.2.16's stored runs; it predates this plan and shaped it.
 
 ## Why this experiment
 
