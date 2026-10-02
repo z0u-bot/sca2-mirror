@@ -167,6 +167,11 @@ SUPPRESSION_ARMS: tuple[str, ...] = (*SITE_ARMS, *SITE_REFERENCES, CONTROL)
 """The arms the scoring-only suppression pass runs on: the candidates and references of E2, and the
 control, whose damage under the same edit is subtracted."""
 
+POST_HOC_SUPPRESSION_ARMS: tuple[str, ...] = ("anchor-no-emb",)
+"""Added to the suppression pass after the results were in (post hoc, not a candidate of E2): the whole-line pull
+off the embedding slice gave the best task score of the label arms and kept the anchor, so the report asks whether
+its anchor can be edited as well as the whole-line one."""
+
 
 def arm(name: str) -> Arm:
     return next(a for a in ARMS if a.name == name)
@@ -902,6 +907,7 @@ def design() -> dict[str, Any]:
         "middle_band": list(MIDDLE_BAND),
         "suppression": {
             "arms": list(SUPPRESSION_ARMS),
+            "post_hoc_arms": list(POST_HOC_SUPPRESSION_ARMS),
             "sites": list(EDIT_SITES),
             "scored_sites": list(SCORED_SITES),
             "reported_sites": list(REPORTED_SITES),
@@ -1029,7 +1035,7 @@ def run(
         [r["label"] for r in rows],
         role="eval",
     )
-    sup = [i for i, r in enumerate(rows) if r["arm"] in SUPPRESSION_ARMS]
+    sup = [i for i, r in enumerate(rows) if r["arm"] in SUPPRESSION_ARMS + POST_HOC_SUPPRESSION_ARMS]
     suppressed = ctx.map(
         suppress_one,
         [ckpt[i] for i in sup],
