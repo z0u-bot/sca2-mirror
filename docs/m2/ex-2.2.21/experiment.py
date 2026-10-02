@@ -4,9 +4,9 @@ Ex-2.2.16 stopped at its first rule: the control got a little under halfway from
 its anchored arms were trained and evaluated but never scored. Ex-2.2.17 to ex-2.2.20 reworked the grammar and the
 recipe (the newline mask, a lower peak rate, the seven-op set, 200 epochs), and the control now reaches about nine
 tenths of the way. This pilot trains the anchored arms again on that recipe and scores the rules ex-2.2.16 left
-open, with the changes the report argues for: the corpus rule becomes a regression check, two label variants move
-the pull toward the query `=` as references, and the hinge and operator rules merge into one rule that scores where
-the anchor can be edited.
+open, with the changes the report argues for: the corpus rule becomes a regression check, three label variants move
+the pull toward the query `=` as references, and the hinge and operator rules become one exploratory analysis of
+where the anchor can be edited, which chooses no arm.
 
 This module holds the design constants only, for the preregistration; the DAG lands once the plan is frozen.
 """
@@ -97,7 +97,7 @@ the measurement). Variant (e) leaves the query answer out of the pull, to see wh
 it; variant (f) pulls only the query `=`, a position oracle that shows what an anchor there would allow; variant (g) pulls every `=`, the four positions whose next token is an answer
 and so depends on the op, to see whether an anchor spread over the examples' `=` settles there too. (The first
 example's `=` has no evidence before it, so its pull asks for the op before the context shows it.) All three are
-references for the site rule, and not labels round 3 could adopt as they stand."""
+references for E2, and not labels round 3 could adopt as they stand."""
 
 PRIMARY = "anchor-whole"
 CONTROL = "control"
@@ -145,16 +145,16 @@ N_RUNS = sum(a.seeds for a in ARMS)
 assert N_RUNS == 40
 
 SITE_ARMS: tuple[str, ...] = (PRIMARY, "anchor-hinge")
-"""The candidates of the site rule, in its order of preference: the whole-line label, as the M3-shaped labeller,
-then the same label with the hinge, a training setting M3 could also use."""
+"""The candidates of E2, the arms round 3 could adopt as they stand: the whole-line label, as the M3-shaped labeller,
+then the same label with the hinge, a training setting M3 could also use. E2 describes them and chooses neither."""
 
 SITE_REFERENCES: tuple[str, ...] = ("anchor-prompt", "anchor-query-eq", "anchor-every-eq")
-"""Scored by the site rule beside the candidates, and never chosen: they show where the anchor settles when the pull
+"""Scored by E2 beside the candidates: they show where the anchor settles when the pull
 leaves out the query answer, what an anchor at the query `=` would allow, and whether one spread over every `=`
 lands at the query `=`."""
 
 SUPPRESSION_ARMS: tuple[str, ...] = (*SITE_ARMS, *SITE_REFERENCES, CONTROL)
-"""The arms the scoring-only suppression pass runs on: the candidates and references of the site rule, and the
+"""The arms the scoring-only suppression pass runs on: the candidates and references of E2, and the
 control, whose damage under the same edit is subtracted."""
 
 
@@ -190,11 +190,11 @@ EDIT_SITES: tuple[str, ...] = (*ex2216.EDIT_SITES, "example answers")
 SELECTIVITY_GATE = ex2216.SELECTIVITY_GATE
 GRADING_MIN_DAMAGE = ex2216.GRADING_MIN_DAMAGE
 """The suppression pass and the two criteria of ex-2.2.16's operator rule (e), unchanged: the operators, their dose
-axes, the three sites, a selectivity gate of 0.02 on each other op net of the control, and full-dose damage at least
+axes, ex-2.2.16's three sites, a selectivity gate of 0.02 on each other op net of the control, and full-dose damage at least
 half the way to the target null, net of the control."""
 
 GRADE_DIP = 0.01
-"""S2: the net drop on the anchored op may dip by at most this between adjacent doses and still count as grading, as
+"""E2: the net drop on the anchored op may dip by at most this between adjacent doses and still count as grading, as
 ex-2.2.1 and ex-2.2.2 allowed (they used 0.02, on larger drops). Half the selectivity gate, and about a quarter of a
 dose step of the whole-line projection in ex-2.2.16."""
 
@@ -204,7 +204,7 @@ match. A little wider than the seed band of five seeds against five (about 0.009
 resolves, and narrower than the 0.015 of (a)."""
 
 SCORED_SITES: tuple[str, ...] = ("query =", "every position")
-"""S2 qualifies an operator at either of these sites. Ex-2.2.16 scored only every position; the query `=` is added
+"""E2 scores an operator against its criteria at either of these sites. Ex-2.2.16 scored only every position; the query `=` is added
 because its state predicts the answer, and `query-eq` and `every-eq` put the anchor there."""
 
 REPORTED_SITES: tuple[str, ...] = ("query ?", "example answers")

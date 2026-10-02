@@ -213,7 +213,10 @@ def preview_figure() -> str:
         {min(ex_mid):.2f} to {max(ex_mid):.2f} at block 2, and the query answer climbs from {w[1][Q_ANS]:.2f} at
         block 1 to {w[-1][Q_ANS]:.2f} at the last block, while the query `=` stays below {max(r[Q_EQ] for r in w):.2f}
         at every slice. On the hinge arm the query `=` holds about {h["anchored"][-1][Q_EQ]:.2f} at the last block,
-        and so does the dashed trace for the other ops ({h["other"][-1][Q_EQ]:.2f}).
+        and so does the dashed trace for the other ops ({h["other"][-1][Q_EQ]:.2f}). At the embedding the solid and
+        dashed traces coincide: the whole-line arm lifts `?`, `,`, and the line break to about {w[0][Q_Q]:.2f}, and
+        the hinge arm lifts `=` and `,` to about {h["anchored"][0][Q_EQ]:.2f}. A bar at the bottom right spans an
+        alignment of 0 to 1.
     """
     return preview_draw(data, alt)
 
@@ -230,7 +233,7 @@ def preview_draw(data: dict, alt_text: str) -> str:
             Faint: the `{ex.ANCHORED_OP}` trace of the other two arms. The shaded column is the query `=`, whose state
             predicts the answer; the vertical line marks the start of the query. The labels are the roles: a, b, and
             y for the operands and the answer, numbered by example and bare for the query. Each trace's baseline is a
-            hairline at zero, and the bar at top left is 0.5 of alignment.
+            hairline at zero, and the bar at bottom right spans an alignment of 0 to 1.
         """,
     )
     def _plot() -> plt.Figure:
@@ -250,15 +253,16 @@ def preview_draw(data: dict, alt_text: str) -> str:
                 for other, od in data.items():
                     if other != arm:
                         ax.plot(*_lift(smooth_step(od["anchored"][sl]), base), color=ghost, lw=0.6, alpha=0.6)
-                ax.plot(*_lift(smooth_step(d["other"][sl]), base), "--", color=ink, lw=0.9)
-                ax.plot(*_lift(smooth_step(d["anchored"][sl]), base), color=accent, lw=1.3)
+                ax.plot(*_lift(smooth_step(d["other"][sl], flat=0.8), base), "--", color=ink, lw=0.9)
+                ax.plot(*_lift(smooth_step(d["anchored"][sl], flat=0.8), base), color=accent, lw=1.3)
             ax.set_title(titles[arm], fontsize=9)
             ax.set_xticks(np.arange(len(ROLE_LABELS)), ROLE_LABELS, fontsize=6)
             ax.set_xlim(-0.6, len(ROLE_LABELS) - 0.4)
             ax.text(QUERY_START - 0.3, (n_slices - 0.05) * STACK_GAP, "query", fontsize=6, color=ink, va="top")
-        top = (n_slices - 1) * STACK_GAP
-        axes[0].plot([0.4, 0.4], [top + 0.3, top + 0.8], color=ink, lw=1.2)
-        axes[0].text(0.8, top + 0.55, "0.5", fontsize=6, color=ink, va="center")
+        bar_x = len(ROLE_LABELS) - 0.1
+        axes[-1].plot([bar_x, bar_x], [0, 1], color=ink, lw=1.2, clip_on=False)
+        for v in (0, 1):
+            axes[-1].text(bar_x + 0.35, v, f"{v}", fontsize=6, color=ink, va="center", clip_on=False)
         axes[0].set_yticks([sl * STACK_GAP for sl in range(n_slices)], SLICE_NAMES, fontsize=7)
         axes[0].set_ylim(-0.15, n_slices * STACK_GAP)
         handles = [
@@ -363,6 +367,8 @@ def suppression_draw(data: dict, alt_text: str) -> str:
 PV = {"whole_full": ("projection", 1.0, "every position")}
 WHOLE = profiles("anchor-whole")["anchored"]
 HINGE = profiles("anchor-hinge")
+EX_EQ = [i for i, t in enumerate(ROLE_LABELS[:18]) if t == "="]
+COMMA = ROLE_LABELS.index(",")
 
 # --- The posterior on the seven-op table -------------------------------------------------------------------------
 
@@ -524,8 +530,8 @@ A second try at round 2 of the D2.2 route, on the recipe ex-2.2.17 to ex-2.2.20 
 - [The recipe holds, and the anchor costs nothing (H1)](#the-recipe-holds-and-the-anchor-costs-nothing-h1) —
 - [The label rule (S1)](#the-label-rule-s1) —
 - [Where the anchor sits (E1)](#where-the-anchor-sits-e1) —
-- [The site and operator rule (S2)](#the-site-and-operator-rule-s2) —
-- [The verification rule (S3)](#the-verification-rule-s3) —
+- [Editing the op out (E2)](#editing-the-op-out-e2) —
+- [The verification rule (S2)](#the-verification-rule-s2) —
 - [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) —
 
 ## How to read this draft
@@ -534,13 +540,15 @@ This is a preregistration draft: nothing in it has been trained. The rules and p
 
 ## Why this experiment
 
-[Ex-2.2.16](/docs/m2/ex-2.2.16/report.py) was round 2 of the [D2.2 route](/docs/m2/d2.2/design.md#quick-route). It trained a control and several arms that anchor `{ex.ANCHORED_OP}` on the in-context grammar, and froze rules for how round 3 would anchor and edit: the label, the site, the operator, and whether verification lines stay in the corpus. (Round 3 anchors the inferred op at fresh seeds, then suppresses it.)
+[Ex-2.2.16](/docs/m2/ex-2.2.16/report.py) was round 2 of the [D2.2 route](/docs/m2/d2.2/design.md#quick-route). It trained a control and several arms that anchor `{ex.ANCHORED_OP}` on the in-context grammar, and froze rules to select how round 3 would anchor and edit: the label, the site, the operator, and whether verification lines stay in the corpus. Round 3 would then anchor the inferred op at fresh seeds and suppress it.
 
-Ex-2.2.16 stopped at its first rule. Its control had learned less than half of what the examples allow, {CTRL16_SKILL:.0%} of the way from the floor to the Bayes ceiling. An anchor compared with a model that far from finished would say little about round 3.
+But ex-2.2.16 stopped at its first rule. Its control had learned less than half of what the examples allow, {CTRL16_SKILL:.0%} of the way from the floor to the Bayes ceiling. An anchor compared with a model that far from finished would say little about round 3.
 
 Four reports then worked on the control alone: [ex-2.2.17](/docs/m2/ex-2.2.17/report.py) added the newline mask, a lower peak learning rate, and more steps; [ex-2.2.18](/docs/m2/ex-2.2.18/report.py) dropped four ops whose answers often coincide with another op; [ex-2.2.19](/docs/m2/ex-2.2.19/report.py) settled the length at {ex.EPOCHS} epochs; and [ex-2.2.20](/docs/m2/ex-2.2.20/report.py) kept the plain schedule.
 
-On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe. It keeps the label, verification, and operator rules of ex-2.2.16, changing each only where the stored runs of ex-2.2.16 or the new recipe call for it, and adds three label variants as references. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1 and S1 to S3.
+On the seven-op set the control now scores {REF19_MEAN:.3f} against a ceiling of {REF19_CEIL:.3f}, {REF19_SKILL:.0%} of the way from the floor. This pilot reruns round 2 on that recipe.
+
+It keeps the label, verification, and operator rules of ex-2.2.16, changing each only where the stored runs of ex-2.2.16 or the new recipe call for it, and adds three label variants as references. The [design](/docs/m2/d2.2/design.md#the-pilot) names the rules (a) to (e); here they are H1, S1, and S2, and the site and operator rules become an exploratory analysis, E2.
 
 ## What ex-2.2.16's anchored arms already show
 
@@ -554,7 +562,7 @@ On the whole-line arm the alignment (the cosine of a state with e₁) sits on th
 
 The pooled anchor term asks a labelled context to align somewhere in its span. The answers are where the context has shown the most evidence about its op, so the pull seems to have settled there.
 
-For an edit, the two kinds of answer differ. The state at the query answer comes after the answer is predicted (the model reads left to right) and predicts only the line break, so an edit there cannot change the answer. The query can read the example answers, so an edit there may still reach it.
+For an edit, the two kinds of answer differ. The state at the query answer comes after the answer is predicted (the model reads left to right) and predicts only the line break, so an edit there cannot change the answer. The query can read the example answers through the blocks above them, so an edit there may still reach it, though not an edit at the last slice, which no block reads.
 
 The query `?` stayed clean ({WHOLE[-1][Q_Q]:.2f}). Ex-2.2.16 worried that it would saturate, but the position that came close was the query answer. The hinge arm, which caps the pull, holds {HINGE["anchored"][-1][Q_EQ]:.2f} at the query `=` at the last block, but the other ops hold nearly as much there ({HINGE["other"][-1][Q_EQ]:.2f}), so that alignment says little about `{ex.ANCHORED_OP}`.
 
@@ -564,13 +572,25 @@ The suppression pass agrees:
 
 At the query `=`, an edit on the whole-line arm barely touches the answer, and on the hinge arm it lowers every op about as much as `{ex.ANCHORED_OP}`.
 
-With the edit at every position, the projection on the whole-line arm grows with dose up to γ = 0.75, then levels off {to_null("anchor-whole", PV["whole_full"]):.0%} of the way to the target null; from γ = 0.75 on it spills past the selectivity gate onto other ops. The hinge arm gets {to_null("anchor-hinge", PV["whole_full"]):.0%} of the way and spills more.
+With the edit at every position and every slice, the projection on the whole-line arm grows with dose up to γ = 0.75, then levels off {to_null("anchor-whole", PV["whole_full"]):.0%} of the way to the target null. From γ = 0.75 on, it also spills past the selectivity gate onto other ops. The hinge arm gets {to_null("anchor-hinge", PV["whole_full"]):.0%} of the way and spills more.
 
-The preview changes three things in this plan:
+At the embedding slice the two arms differ. There the solid and dashed traces coincide, because a token embedding is the same whatever the op. Each anchored arm has put a few syntax embeddings partway onto e₁:
 
-- Three new label variants move the pull toward the query `=`, as references rather than candidates. `prompt` leaves the query answer out of the pull, to see where the pooled term settles without it. `query-eq` pulls the query `=` alone: a position oracle,[^oracle] which shows what an anchor there would allow. `every-eq` pulls every `=`, the positions whose next token depends on the op, to see whether a pull spread over the examples settles at the query `=` too.
+- on the whole-line arm, `?` ({WHOLE[0][Q_Q]:.2f}), `,` ({WHOLE[0][COMMA]:.2f}), and the line break;
+- on the hinge arm, `=` ({HINGE["anchored"][0][Q_EQ]:.2f}) and `,`.
+
+On the earlier grammar a leak like this came through the tied readout (the embedding table reused as the readout table), and untying it brought the leak down ([ex-2.2.7](/docs/m2/ex-2.2.7/report.py)). The readout here is already untied. So this leak seems to come from the pull itself: the pull acts on the embedding slice of every position it pulls, and some of those are tokens every context shares.
+
+On the whole-line arm the bump at `,` sits one position after the answers. That makes the alignment look as though it moves back a token with depth, but the two are separate effects.
+
+On the hinge arm the `=` embedding explains why the query `=` holds alignment on every op. It starts at {HINGE["anchored"][0][Q_EQ]:.2f} for every op and keeps about that much to the last block, while the example `=` positions fade to {min(HINGE["anchored"][-1][i] for i in EX_EQ):.2f} to {max(HINGE["anchored"][-1][i] for i in EX_EQ):.2f}. An edit at every position moves these syntax states in every context, which may be part of why it spills onto other ops.
+
+The preview changes four things in this plan:
+
+- Three new label variants move the pull toward the query `=`, as references rather than candidates for round 3. `prompt` leaves the query answer out of the pull, to see where the pooled term settles without it. `query-eq` pulls the query `=` alone: a position oracle,[^oracle] which shows what an anchor there would allow. `every-eq` pulls every `=`, the positions whose next token depends on the op, to see whether a pull spread over the examples settles at the query `=` too.
 - The saturation half of ex-2.2.16's hinge rule goes, since the query `?` did not saturate, though the hinge arm stays a candidate.
-- The suppression pass also edits the example answers, and the operator rule is scored at the query `=` as well as at every position.
+- The site and operator rules become an exploratory analysis that chooses no arm. The suppression pass also edits the example answers, and the edits are scored at the query `=` as well as at every position.
+- E1 reports the syntax embeddings beside the per-position alignment, and the `no-emb` arm, which leaves the embedding slice out of the pull, shows whether they stay clean without it.
 
 [^oracle]: The term from [ex-2.1.8](/docs/m2/ex-2.1.8/report.py): a pull at a position chosen by hand, which no labeller could give. It is a reference for what the right position would allow, and not a strict ceiling.
 
@@ -601,7 +621,7 @@ Every arm trains at the center condition of ex-2.2.16 (three examples, ρ = {ex.
 
 Ex-2.2.16's arms at other corpus conditions, its larger control, and its two newline-mask arms are gone: the condition is settled, the larger control was for a shortfall the recipe has since closed, and the mask is now in every arm.
 
-**The new label variants.** All three keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break. Variant (f), `query-eq`, pulls the query `=` alone. Variant (g), `every-eq`, pulls the `=` of each example and of the query: the four positions that predict an answer, and so the ones whose next token depends on the op. The first example's `=` comes before any evidence, so its pull asks for the op before the context shows it. None of the three is a label round 3 could adopt as it stands, so all three are references for the site rule.
+**The new label variants.** All three keep ex-2.2.16's labeller: a `{ex.ANCHORED_OP}` context draws a label with probability {ex.LABEL_RATE:g}, keyed on the op array beside the corpus. Variant (e), `prompt`, pulls every position of a labelled context up to and including the query `=`, leaving out the query answer and the line break. Variant (f), `query-eq`, pulls the query `=` alone. Variant (g), `every-eq`, pulls the `=` of each example and of the query, the four positions that predict an answer. The first example's `=` comes before any evidence, so its pull asks for the op before the context shows it.
 
 `prompt` keeps the example answers in the pull, because they are part of the evidence. If the pull still settles on them, that is a result about pooling.
 
@@ -618,7 +638,7 @@ The arms differ from ex-2.2.19 only in their seeds and in the anchor, so (a) che
 
 We expect (b) to hold too. Ex-2.2.14 found the anchor costs the task nothing when {ex.LABEL_RATE:.0%} of contexts are labelled, and the stored runs of ex-2.2.16 agree: the whole-line arm scored {EEM16["anchor-whole"]:.3f} against {EEM16["control-k3-r0.3"]:.3f} for the control, and {EEM16["anchor-mask"]:.3f} against {EEM16["control-mask"]:.3f} with the newline mask.
 
-A miss on (b) would mean the anchor and the task compete on this recipe, and would leave the site rule with no candidate, since it asks the same of each.
+A miss on (b) would mean the anchor and the task compete on this recipe, and would leave E2 with no candidate, since it asks the same of each.
 
 This replaces corpus rule (a) of ex-2.2.16, which asked the control to come within 0.03 of the calibrated ceiling. The seven-op control misses that: it sits {REF19_CEIL - REF19_MEAN:.3f} below the ceiling at {ex.EPOCHS} epochs, and still misses at 400. Ex-2.2.17 found the remaining gap on contexts whose examples settle the op, where the model keeps mass on the answers of a similar op.
 
@@ -632,7 +652,7 @@ A figure of held-out expected exact match per seed for the control and the whole
 
 ## The label rule (S1)
 
-**The rule.** Ex-2.2.16's rule (b), unchanged. The whole-line label stays the primary unless a candidate variant (below) clears the task gate: its seed-mean held-out expected exact match beats the whole-line arm by more than the seed band, while it holds the anchor, with an op margin of at least {ex.MARGIN_KEEP:.0%} of the whole-line margin. If several qualify, the one with the higher op margin goes forward.
+**The rule.** Ex-2.2.16's rule (b), unchanged. The whole-line label stays the primary unless a candidate variant (below) beats the whole-line arm on seed-mean held-out expected exact match by more than the seed band, while keeping an op margin of at least {ex.MARGIN_KEEP:.0%} of the whole-line margin. If several qualify, the one with the higher op margin goes forward.
 
 The candidates are `latter`, `prefix`, and `no-emb` (the whole-line label with the embedding slice left out of the pull). Variant (d), `sampled`, trains the grading that round 3 will measure, so it is reported and not promoted.
 
@@ -644,50 +664,44 @@ A figure with one column per label arm: held-out expected exact match (seeds and
 
 ## Where the anchor sits (E1)
 
-The site rule depends on where along the context each anchored arm puts its alignment. E1 measures, per anchored arm, the seed-mean alignment at each position of a held-out context and each slice, on `{ex.ANCHORED_OP}` contexts and on the other ops. The preview figure shows this for ex-2.2.16.
+Where an edit can work depends on where along the context each anchored arm puts its alignment. E1 measures, per anchored arm, the seed-mean alignment at each position and slice of a held-out context, on `{ex.ANCHORED_OP}` contexts and on the other ops.
 
 /// admonition | TODO
-One stacked figure per anchored arm, as in the preview: positions across, slices up, the alignment on `{ex.ANCHORED_OP}` contexts and the mean over the other ops as two traces, and the other arms as faint traces. A table of the alignment at the query `?`, the query `=`, the query answer, and the example answers, at the last block.
+One stacked figure per anchored arm, as in the preview above: positions across, slices up, the alignment on `{ex.ANCHORED_OP}` contexts and the mean over the other ops as two traces, and the other arms as faint traces. A table of the alignment at the query `?`, the query `=`, the query answer, and the example answers, at the last block, and of the syntax embeddings (`?`, `=`, `,`, and the line break) at the embedding slice.
 ///
 
-## The site and operator rule (S2)
+## Editing the op out (E2)
 
-S2 asks whether `{ex.ANCHORED_OP}` can be edited out of an anchored model with a dial: an edit whose effect on `{ex.ANCHORED_OP}` grows with its dose while the other ops stay as they were. It scores each anchored arm at two sites and says which candidate arm and edit come closest. It merges hinge rule (c) and operator rule (e) of ex-2.2.16.
+E2 asks whether `{ex.ANCHORED_OP}` can be edited out of an anchored model with a dial: an edit whose effect on `{ex.ANCHORED_OP}` grows with its dose while the other ops stay as they were. It chooses no arm, so round 3 is designed after this report, and it replaces hinge rule (c) and operator rule (e) of ex-2.2.16.
 
-**The edits.** The suppression pass of ex-2.2.16 runs, scoring only, on the two candidates (`{"`, `".join(ex.SITE_ARMS)}`), the three references (`{"`, `".join(ex.SITE_REFERENCES)}`), and the control. It has three operators, each applied at every slice:
+The candidates (`{"`, `".join(ex.SITE_ARMS)}`) are arms round 3 could adopt as they stand. The references (`{"`, `".join(ex.SITE_REFERENCES)}`) put the pull where no labeller could.
+
+**The edits.** The suppression pass of ex-2.2.16 runs, scoring only, on the candidates, the references, and the control. It has three operators, each applied at every slice at once:
 
 - the projection, which removes a share γ of the component along e₁, for γ in {{{", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)}}};
 - the repulsion, which moves states aligned above {ex.REPULSION_THRESHOLD:g} down to an alignment of {" and then ".join(f"{b:g}" for b in ex.REPULSION_LANDINGS)};
 - the reflection, which flips the component, at one dose.
 
-Each edit is applied at four sites: the query `?`, the query `=`, the example answers, and every position. Every drop below is a net drop: the seed-mean fall in held-out expected exact match, minus the fall the control shows under the same edit, so only the part the anchor caused counts.
+Each edit is applied at one of four sites: the query `?`, the query `=`, the example answers, or every position. Every drop listed below is a net drop: the seed-mean fall in held-out expected exact match, minus the fall the control shows under the same edit, so only the part the anchor caused counts.
 
-**When an edit qualifies.** An operator at a site qualifies on an arm when both of these hold:
+**The two criteria.** Two sites are scored against the criteria below: the query `=`, and every position (the edit that would carry over most readily to another task). At the other two sites the drops are reported without criteria. An operator at a scored site meets the criteria on an arm when both of these hold:
 
 - **It grades.** The net drop on `{ex.ANCHORED_OP}` contexts rises with the dose, allowing a dip between adjacent doses of at most {ex.GRADE_DIP:g}, and at full dose it covers at least {ex.GRADING_MIN_DAMAGE:.0%} of the distance from the clean score to the target null. The reflection has one dose, so it cannot grade.
 - **It is selective.** On each of the other six ops, the net drop is at most {ex.SELECTIVITY_GATE:g} at every dose. This is the threshold [ex-2.2.11](/docs/m2/ex-2.2.11/report.py) set for a change in expected exact match too small to matter for the task. It sits well above the seed band of three seeds against three, because the worst of six ops is the largest of six noisy numbers.
 
-The criteria apply at the query `=` and at every position; the other two sites are reported only. Together the four sites show how the op reaches the answer.
+A flat threshold treats every other op alike, but some are easier to mistake for `{ex.ANCHORED_OP}` than others. So beside it, E2 shows the net drop on each other op against how plausible `{ex.ANCHORED_OP}` is in that op's contexts: the mean posterior on `{ex.ANCHORED_OP}` given the examples. If the drop rises with that posterior, the edit takes out the op as the model infers it, and the cost on other ops follows the confusions the contexts allow.
 
-If the edit at every position works and the one at the query `=` does not, the answer takes the op from somewhere else, and the edit at the example answers shows whether that is the examples. This is a first look at the bypass test of the design, which round 3 runs in full.
+**Where the op comes from.** The bypass test in the design for round 3 edits at different positions and slices, looking for a route by which the op reaches the answer around the edit. E2 is a first look at it, varying the position only. If the edit at every position works and the one at the query `=` does not, the answer must take the op from somewhere else, and the edit at the example answers shows whether that is the examples.
 
-**The outcome.** A candidate with a qualifying edit goes forward to round 3, with that edit. The whole-line arm wins over the hinge if both have one, since M3 would have to justify the cap. On one arm, the query `=` wins over every position, being the narrower edit; at the same site, the projection wins over the repulsion.
+**What we expect.** Neither candidate meets both criteria. On the whole-line arm the projection at every position levels off about a third of the way to the null, as in the preview, and on the hinge arm the edit at every position spills onto other ops.
 
-If neither candidate has a qualifying edit, the report says which criterion failed where, and the references show whether an anchor at the query `=` would have changed that.
-
-**What we expect.** Neither candidate qualifies. On the whole-line arm the projection at every position levels off about a third of the way to the null, as in the preview, and on the hinge arm the edit at every position spills onto other ops.
-
-On `query-eq` we expect the projection at the query `=` to qualify, which would say that an anchor there can be edited with a dial, if a label could put it there. On `every-eq` we expect the same, more weakly, since a quarter of its pull lands on the query `=`. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
-
-/// admonition | Open decision
-Whether S2 stays a rule. With the expectation above, it most likely ends with nothing going forward, and round 3 would then be designed after this report. The alternative is to make it exploratory: the same edits, sites, and criteria, scored as a description of each arm, with no arm chosen.
-///
+On `query-eq` we expect the projection at the query `=` to meet both, which would say that an anchor there can be edited with a dial, if a label could put it there. On `every-eq` we expect the same, more weakly, since a quarter of its pull lands on the query `=`. We are unsure about `prompt`: its pull may settle on the example answers, which E1 will show.
 
 /// admonition | TODO
-One figure per arm, as the preview figure of the suppression pass: the net drop on `{ex.ANCHORED_OP}` and the worst other op against the edit, with the selectivity gate and the halfway rule, one panel per site. A table of each operator and site on each arm against the two criteria, and the verdict.
+One figure per arm, as the preview figure of the suppression pass: the net drop on `{ex.ANCHORED_OP}` and the worst other op against the edit, with the selectivity gate and the halfway level, one panel per site. A table of each operator at the two scored sites on each arm against the two criteria. A figure of the net drop on each other op at full dose against the mean posterior on `{ex.ANCHORED_OP}` in its contexts, one point per op, one panel per arm.
 ///
 
-## The verification rule (S3)
+## The verification rule (S2)
 
 **The rule.** Ex-2.2.16's rule (d), unchanged. Verification lines stay in the corpus from round 3 on if they leave completion unchanged: the seed-mean held-out expected exact match on completion contexts is within the seed band of the arm without them, on both pairs (`control-verify` against `{ex.CONTROL}`, `anchor-verify` against `{ex.PRIMARY}`). The verification accuracy and the op margin of `anchor-verify` are reported with no gate.
 
@@ -708,7 +722,7 @@ A figure of both leans per seed for the control and every anchored arm, with the
 ## Discussion
 
 /// admonition | TODO
-After the run. What the pilot settles for round 3: the recipe (H1), the label (S1), and the verification lines (S3). It may leave the site and the operator open; if so, what the references suggest about where an anchor would need to sit to be edited.
+After the run. What the pilot settles for round 3: the recipe (H1), the label (S1), and the verification lines (S2). What E2 and its references suggest about the site and the operator for round 3, and where an anchor would need to sit to be edited.
 ///
 
 ## Method
@@ -735,9 +749,11 @@ Ex-2.2.16's measurements, scored on its held-out sets at the end of training, wi
 
 ### The new variants
 
-`prompt`, `query-eq`, and `every-eq` are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it. On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where. On `every-eq` the pool has four positions, so the query `=` gets a quarter of that.
+`prompt`, `query-eq`, and `every-eq` are masks, by role within the context, on the positions a labelled context pulls (roles as listed under [Conditions](#conditions)). They run through the same pooled term as every other variant, which gives each labelled context the same total pull however many positions share it.
 
-S2 scores `query-eq` and `every-eq` without separating the two changes; E1 shows the alignment it reaches at the query `=` beside the other arms.
+On `query-eq` the pool has one position, so the whole pull lands on the query `=`: the variant changes how hard that position is pulled as well as where. On `every-eq` the pool has four positions, so the query `=` gets a quarter of that.
+
+E2 scores `query-eq` and `every-eq` without separating the two changes; E1 shows the alignment it reaches at the query `=` beside the other arms.
 
 ### Budget
 
