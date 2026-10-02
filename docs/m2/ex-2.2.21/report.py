@@ -688,7 +688,7 @@ def h1_draw(data: dict, alt_text: str) -> str:
         caption=f"""
             **The control against ex-2.2.19, and the whole-line arm against the control.** Left: held-out expected
             exact match, one small dot per run and the seed mean on top; the right axis gives the same scale as skill,
-            from the floor (0) to the Bayes ceiling (1, the dashed rule at the top). The shaded band is criterion
+            from the floor (0, the bottom of the axis) to the Bayes ceiling (1, the dashed rule at the top). The shaded band is criterion
             **(a)**, ex-2.2.19's mean ±{ex.REGRESSION_TOL:g}. Over the whole-line column, the dashed rule is criterion
             **(b)**, the control mean less {ex.TASK_COST_TOL:g}, with the failing side hatched; the dotted rule is the
             control mean less the seed band of five seeds against five. Right: calibration KL for the same runs.
@@ -704,7 +704,7 @@ def h1_draw(data: dict, alt_text: str) -> str:
         for i, arm in enumerate(cols):
             dots(a, i, data["eem"][arm], arm_color(arm), rng=rng)
             dots(b, i, data["kl"][arm], arm_color(arm), rng=rng)
-        a.set_ylim(0.4, data["ceiling"] + 0.02)
+        a.set_ylim(data["floor"], data["ceiling"] + 0.02)
         i = cols.index(ex.PRIMARY)
         a.plot([i - 0.3, i + 0.3], [data["ctrl"] - data["band"]] * 2, ":", color=ink, lw=0.9)
         gate_line(a, data["ctrl"] - ex.TASK_COST_TOL, fail="below", xs=(i - 0.3, i + 0.3))
@@ -977,8 +977,37 @@ NL_ARMS = [a for a in ANCHORED_ARMS if SYNTAX[a]["⏎"] > 0.5]
 OTHER_EQ = [a for a in ANCHORED_ARMS if a not in ("anchor-query-eq", "anchor-every-eq")]
 
 
+def unpulled(arm: str) -> list[list[int]]:
+    """The (slice, position) pairs *arm* never pulls on a labelled context, for the E1 hatching. `prefix` pulls a
+    position once the posterior given the tokens before it clears its threshold, which varies by context, so only
+    the first example (no evidence before it) is certain to be left out; `sampled` and the hinge can pull anywhere.
+    """
+    n_pos, n_slices = len(ROLE_LABELS), len(SLICE_NAMES)
+    label = ex.arm(arm).label
+    if label == "no-emb":
+        return [[0, p] for p in range(n_pos)]
+    pulled = {
+        "latter": range(n_pos // 2, n_pos),
+        "prefix": range(ex.example_answer_roles(ex.K)[0] + 1, n_pos),
+        **ex.ROLE_PULLS,
+    }.get(label, range(n_pos))
+    return [[sl, p] for sl in range(n_slices) for p in range(n_pos) if p not in pulled]
+
+
+def hatch_unpulled(ax: Axes, cells: list[list[int]]) -> None:
+    from matplotlib.patches import Rectangle
+
+    for sl, p in cells:
+        ax.add_patch(
+            Rectangle(
+                (p - 0.5, sl * STACK_GAP - 0.05), 1, STACK_GAP, hatch="////", fill=False, lw=0,
+                edgecolor=light_dark("#000", "#fff"), alpha=0.18, zorder=0,
+            )
+        )  # fmt: skip
+
+
 def e1_figure() -> str:
-    data = {a: profiles21(a) for a in ANCHORED_ARMS}
+    data = {a: profiles21(a) | {"unpulled": unpulled(a)} for a in ANCHORED_ARMS}
     alt = f"""
         A grid of {len(ANCHORED_ARMS)} panels, three per row, one per anchored arm
         ({", ".join(arm_name(a) for a in ANCHORED_ARMS)}). Each stacks five step-shaped traces, one per slice from
@@ -1002,8 +1031,9 @@ def e1_draw(data: dict, alt_text: str) -> str:
             **Where each anchored arm puts the anchor.** As the preview figure: alignment with e₁ by position, one
             trace per slice from the embedding (bottom) to the last block (top); seed means on held-out contexts.
             Solid: `{ex.ANCHORED_OP}` contexts. Dashed: the mean over the other six ops. The shaded column is the
-            query `=`; the vertical line marks the start of the query. The bar at the right of each row spans an
-            alignment of 0 to 1.
+            query `=`; the vertical line marks the start of the query. Hatched: the positions and slices the arm
+            never pulls (for prefix, the first example, which has no evidence before it; elsewhere in prefix the pull
+            depends on the context). The bar at the right of each row spans an alignment of 0 to 1.
         """,
     )
     def _plot() -> plt.Figure:
@@ -1014,6 +1044,7 @@ def e1_draw(data: dict, alt_text: str) -> str:
         for i, (arm, d) in enumerate(data.items()):
             ax = axes[i // 3, i % 3]
             stack_panel(ax, d, [])
+            hatch_unpulled(ax, d["unpulled"])
             ax.set_title(arm_name(arm), fontsize=9)
         for r in range(n_rows):
             stack_frame(axes[r, 0], axes[r, -1], n_slices)
@@ -1573,7 +1604,7 @@ A candidate qualifies if its EEM exceeds the whole-line arm by more than the see
 {"".join(f"- `{arm_name(a)}`: {S1[a]['diff']:+.4f} against {S1[a]['band']:.4f}, {'clears' if S1[a]['diff'] > S1[a]['band'] else 'does not clear'}; margin share {S1[a]['share']:.2f}, {'keeps' if S1[a]['share'] >= ex.MARGIN_KEEP else 'below'} {ex.MARGIN_KEEP:g}." + chr(10) for a in S1_CANDIDATES)}
 </details>
 
-/// admonition | Pass
+/// admonition | Decided
 No candidate clears the seed band, so the whole-line label stays the primary.
 ///
 
@@ -1628,7 +1659,7 @@ At the query `=`, no edit on the whole-line, hinge, or `prompt` arm covers more 
 
 At the example answers, the reported site, the full projection covers {", ".join(f"{arm_name(a)} {shares(a, 'example answers', 'projection')[-1]:.2f}" for a in E2_ARMS)} of the way to the null.
 
-The next figure sets the drop on each other op beside how plausible `{ex.ANCHORED_OP}` is in its contexts:
+The next figure sets the drop on each other op under the full projection beside how plausible `{ex.ANCHORED_OP}` is in its contexts:
 
 {confusion_figure()}
 
@@ -1653,7 +1684,7 @@ The seed band is for three seeds against five, with σ pooled over the pair.
 {"".join(f"- `{v}` against `{arm_name(d['ref'])}`: |{d['diff']:+.4f}| {'≤' if d['within'] else '>'} {d['band']:.4f}, {'within' if d['within'] else 'outside'}." + chr(10) for v, d in S2.items())}
 </details>
 
-/// admonition | Pass
+/// admonition | Decided
 Completion is unchanged on both pairs within the seed band, so verification lines stay in the corpus.
 ///
 
