@@ -209,7 +209,7 @@ Ex-2.2.15 carried a `knowable` oracle, which pulled a whole labelled line only w
 
 <!-- REVIEW: the crop policy and the mask arms come from ex-2.2.15's outcome. Its rule chose `half`; the review chose `whole`, because a whole context always shows its evidence (its report, "The rule for the pilot"). The mask arms and the `knowable` oracle (dropped above) are the review's asks recorded in todo/science/newline-mask-with-each-crop-policy.md. Verify: ex-2.2.15's report and that item. -->
 
-The pilot is [ex-2.2.16](/docs/m2/ex-2.2.16/report.py).
+The pilot is [ex-2.2.16](/docs/m2/ex-2.2.16/report.py). It stopped at rule (a), and after ex-2.2.17 to ex-2.2.20 reworked the recipe, [ex-2.2.21](/docs/m2/ex-2.2.21/report.py) runs it again, with rule (a) replaced by a regression check against the new recipe and rules (c) and (e) merged into one rule for where round 3 anchors and how it edits.
 
 Beside the control and anchoring measurements, the pilot runs a scoring-only suppression pass on its own checkpoints: the projection, the reflection, and a repulsion, each at the query `?`, the query `=`, and every position.
 
@@ -224,7 +224,7 @@ The rules take this shape, with their margins set in the plan:
 
 The center of D2.2.
 
-The headline claim is selective removal: suppress *difference* without suppressing *multiply*. The ops may share a common component that means *this is an operation*, with the specific op only one part of the state; the group contrast from [anchor one operation](#anchor-one-operation) says how large that shared part is, and the removal claim covers the op-specific part.
+The headline claim is selective removal: suppress *difference* without suppressing the other ops. The ops may share a common component that means *this is an operation*, with the specific op only one part of the state; the group contrast from [anchor one operation](#anchor-one-operation) says how large that shared part is, and the removal claim covers the op-specific part.
 
 The dose axis is intervention strength, with the posterior on `difference` as the graded stimulus beside it. Ex-2.2.8 found that a threshold on alignment costs more than projecting everything, so the dose scales the edit itself: the projection keeps a fraction $1-γ$ of the component as $γ$ runs from 0 to 1, and a [repulsion](/todo/science/repulsion-onto-the-fallback.md) sets the alignment the state ends at. Ex-2.2.14 showed that the scaled projection has no partial dose on a state that is almost all concept (below), so the pilot picks between them on data. Prediction: damage to the anchored op rises monotonically with the dose, and the other ops stay within gate along the whole curve.
 
