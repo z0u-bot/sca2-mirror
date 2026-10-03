@@ -388,7 +388,7 @@ def suppression_draw(data: dict, alt_text: str, name: str, caption: str, figsize
                 for g in groups:
                     ax.plot(x[g], d["sites"][site]["anchored"][g], "-o", color=accent, lw=1.3, ms=3)
                     ax.plot(x[g], d["sites"][site]["worst"][g], "--o", color=ink, lw=0.9, ms=2.5, mfc="none")
-                if site in d["meets"]:
+                if site in d.get("meets", ()):
                     for spine in ax.spines.values():
                         spine.set(color=accent, linewidth=2.2, visible=True)
                 if r == 0:
