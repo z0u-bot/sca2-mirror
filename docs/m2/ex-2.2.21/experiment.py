@@ -11,7 +11,8 @@ where the anchor can be edited, which chooses no arm.
 The design constants above the DAG were frozen with the report at commit 2d84d2b. The DAG below them prepares the
 seven-op corpus condition (the corpus, held-out set, and probe set ex-2.2.18 built and ex-2.2.19 trained on, plus
 the arrays the label variants read) and a verification corpus beside it; trains every arm on ex-2.2.19's recipe;
-then evaluates every run and runs the suppression pass on `SUPPRESSION_ARMS`.
+then evaluates every run and runs the suppression pass on `SUPPRESSION_ARMS`. After the results were in, a confusion
+pass on the same runs was added (post hoc): what the model answers in place of the anchored op once it is edited out.
 
     bin/mini run docs/m2/ex-2.2.21/experiment.py --app modal --max-containers 12 --budget 4h
     bin/mini status ex-2.2.21
@@ -290,6 +291,7 @@ EVAL_REF = PREFIX + "/eval"
 EVAL_ARRAYS_REF = PREFIX + "/eval-arrays/{label}"
 SUPPRESSION_REF = PREFIX + "/suppression"
 SUPPRESSION_ARRAYS_REF = PREFIX + "/suppression-arrays/{label}"
+CONFUSION_REF = PREFIX + "/confusion"
 
 
 def prepare_condition(
@@ -877,6 +879,62 @@ def suppress_one(checkpoint, holdout, ops: tuple[str, ...], k: int, label: str) 
     }
 
 
+def _answered_as(table, ctx, p: np.ndarray) -> np.ndarray:
+    """`(n, n_ops)`: per context, the mass of *p* on the answers each op gives on the query pair, weighted as
+    `_match` weights the true op. Ops that share an answer on a pair both take its mass, so a row can sum past 1.
+    """
+    from dataclasses import replace
+
+    return np.stack(
+        [ex2216._match(table, replace(ctx, true_op=np.full_like(ctx.true_op, o)), p) for o in range(table.n_ops)],
+        axis=1,
+    )
+
+
+def confuse_one(checkpoint, holdout, ops: tuple[str, ...], k: int, label: str) -> dict:
+    """Post hoc, added after the results were in: what the model answers in place of the anchored op once it is
+    edited out. The full projection at each scored site, beside the clean pass and the two Bayes references (the
+    posterior, and the target null with the anchored op removed). Each is returned as a matrix over the held-out
+    completion contexts: row i, column j is the mean mass on the answers of op j in the contexts of op i.
+    """
+    from sca.intervention import Subspace, logits_at
+    from mini.store import get
+
+    n_ops = len(ops)
+    workdir = get_data_dir() / "confuse" / label
+    model, _, color_ids, tok2color = ex2216._load_run(checkpoint, workdir)
+    P = ex2216._get_posterior()
+    table = P.build_table(ex2218.table_of(ops))
+    ho = ex2216.load_holdout(get(holdout, workdir / "holdout.npz"), k)
+    a_id = ops.index(ANCHORED_OP)
+    ctx = ex2216._post_queries(P, ho, k, tok2color)
+    eq_role = ex2216.query_role(k, ex2216.QUERY_EQ)
+    sub = Subspace.axis(model.transformer.wte.shape[1])
+    every = tuple(range(len(model.transformer.blocks) + 1))
+    full = next(e for o, g, e in ex2216.suppression_edits(sub) if o == "projection" and g == max(DOSE_GAMMAS))
+
+    def matrix(p: np.ndarray) -> list[list[float]]:
+        m = _answered_as(table, ctx, p)
+        return [m[ho.op_ids == o].mean(axis=0).tolist() for o in range(n_ops)]
+
+    null_post = ex2216._target_null(P, table, ctx, ho.posterior, a_id)
+    return {
+        "label": label,
+        "ops": list(ops),
+        "bayes": matrix(P.predictive(table, ctx, ho.posterior)),
+        "null": matrix(P.predictive(table, ctx, null_post)),
+        "clean": matrix(ex2216._color_probs(logits_at(model, ho.tokens, full, (), eq_role), color_ids)),
+        "edits": {
+            site: matrix(
+                ex2216._color_probs(
+                    logits_at(model, ho.tokens, full, every, eq_role, site_positions(site, k)), color_ids
+                )
+            )
+            for site in SCORED_SITES
+        },
+    }
+
+
 # --- Publishing ------------------------------------------------------------------------------
 
 
@@ -931,9 +989,16 @@ def design() -> dict[str, Any]:
     }
 
 
-def publish(rows: list[dict], preps: dict[str, dict], trained: list[dict], evaled: list[dict], suppressed: list[dict]):
-    """Every ref the report reads: the metrics (design and corpus statistics), the trajectories, the eval and the
-    suppression pass (JSON, one record per run with its arm and seed), every per-context array, every checkpoint,
+def publish(
+    rows: list[dict],
+    preps: dict[str, dict],
+    trained: list[dict],
+    evaled: list[dict],
+    suppressed: list[dict],
+    confused: list[dict],
+):
+    """Every ref the report reads: the metrics (design and corpus statistics), the trajectories, the eval, the
+    suppression pass, and the post hoc confusion pass (JSON, one record per run with its arm and seed), every per-context array, every checkpoint,
     and every corpus condition's corpus, labels, held-out set, and probes.
     """
     import json
@@ -964,6 +1029,8 @@ def publish(rows: list[dict], preps: dict[str, dict], trained: list[dict], evale
     set_ref(EVAL_REF, put(json.dumps(body).encode(), name="ex-2.2.21-eval.json"))
     body = {"design": design(), "runs": [slim(r) for r in suppressed]}
     set_ref(SUPPRESSION_REF, put(json.dumps(body).encode(), name="ex-2.2.21-suppression.json"))
+    body = {"runs": [slim(r) for r in confused]}
+    set_ref(CONFUSION_REF, put(json.dumps(body).encode(), name="ex-2.2.21-confusion.json"))
     return {
         "n_runs": len(trained),
         "n_suppressed": len(suppressed),
@@ -1045,8 +1112,17 @@ def run(
         [rows[i]["label"] for i in sup],
         role="suppress",
     )
+    confused = ctx.map(
+        confuse_one,
+        [ckpt[i] for i in sup],
+        [main_prep["holdout"]] * len(sup),
+        [OP_NAMES] * len(sup),
+        [K] * len(sup),
+        [rows[i]["label"] for i in sup],
+        role="suppress",
+    )
     slim_rows = [{k: v for k, v in r.items() if k not in ("config", "anchor", "anti")} for r in rows]
-    return ctx.run(publish, slim_rows, preps, trained, evaled, suppressed, role="prep")
+    return ctx.run(publish, slim_rows, preps, trained, evaled, suppressed, confused, role="prep")
 
 
 def main(ctx: Ctx) -> dict:

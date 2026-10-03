@@ -388,6 +388,9 @@ def suppression_draw(data: dict, alt_text: str, name: str, caption: str, figsize
                 for g in groups:
                     ax.plot(x[g], d["sites"][site]["anchored"][g], "-o", color=accent, lw=1.3, ms=3)
                     ax.plot(x[g], d["sites"][site]["worst"][g], "--o", color=ink, lw=0.9, ms=2.5, mfc="none")
+                if d["sites"][site].get("meets"):
+                    for spine in ax.spines.values():
+                        spine.set(color=accent, linewidth=2.2, visible=True)
                 if r == 0:
                     ax.set_title(f"at {site}", fontsize=9)
                 if c == 0:
@@ -1140,6 +1143,7 @@ def e2_figure() -> str:
                 site: {
                     "anchored": [float(drop21(arm, (o, g, site))[D]) for o, g, _ in SUPP_EDITS],
                     "worst": [float(np.delete(drop21(arm, (o, g, site)), D).max()) for o, g, _ in SUPP_EDITS],
+                    "meets": any(k[:2] == (arm, site) for k in MEETS),
                 }
                 for site in E2_SITES
             },
@@ -1154,7 +1158,8 @@ def e2_figure() -> str:
         ({", ".join(E2_SITES)}). Each panel plots the net drop in expected exact match against the edit (the
         projection at four doses, the repulsion at two, the reflection), solid for `{ex.ANCHORED_OP}` contexts and
         dashed for the worst other op, with a dotted rule at the selectivity gate of {ex.SELECTIVITY_GATE:g} and a
-        dash-dot rule halfway to the target null, about {data[ex.PRIMARY]["half"]:.2f}. At the query `?` every arm
+        dash-dot rule halfway to the target null, about {data[ex.PRIMARY]["half"]:.2f}. The hinge panel at every
+        position has a heavy red border: the only panel where an operator meets both criteria. At the query `?` every arm
         stays near zero except prompt, which reaches {data["anchor-prompt"]["sites"]["query ?"]["anchored"][3]:.2f}
         under the full projection. On whole-line and hinge, the query `=` stays near zero too, while every position and the
         example answers rise with the projection dose past the halfway rule; on hinge at every position the dashed
@@ -1172,7 +1177,7 @@ def e2_figure() -> str:
         edit. Solid: on `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other six ops. The dotted rule is the
         selectivity gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is {ex.GRADING_MIN_DAMAGE:.0%} of the way
         from the clean score on `{ex.ANCHORED_OP}` to the target null. The query `=` and every position are the
-        scored sites.
+        scored sites; a heavy border marks a panel where an operator meets both criteria.
     """
     return suppression_draw(data, alt, "e2-suppression", caption, (8.4, 9.0))
 
@@ -1307,6 +1312,102 @@ def confusion_draw(data: dict, alt_text: str) -> str:
             ax.set_xlabel(f"posterior on {ex.ANCHORED_OP}", fontsize=7)
         axes[0].set_ylabel("net drop", fontsize=8)
         fig.legend(*axes[0].get_legend_handles_labels(), loc="outside upper center", ncols=6, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- Post hoc: what the model answers instead ----------------------------------------------------------------------
+
+CONF = fetch_jsons(ex.CONFUSION_REF)[0]["runs"]
+CONF_ARMS = [ex.CONTROL, *E2_ARMS, *ex.POST_HOC_SUPPRESSION_ARMS]
+
+
+def conf_mean(arm: str, key: str) -> np.ndarray:
+    """Seed mean of one matrix of the confusion pass: row i, column j is the mass on the answers of op j in the
+    contexts of op i. *key* is `bayes`, `null`, `clean`, or a scored site (the full projection there).
+    """
+    rs = [r for r in CONF if r["arm"] == arm]
+    return np.mean([r["edits"][key] if key in r["edits"] else r[key] for r in rs], axis=0)
+
+
+NULL_CONF = conf_mean(ex.CONTROL, "null")
+CONF_CLEAN = {a: conf_mean(a, "clean") for a in CONF_ARMS}
+CONF_EDIT = {a: conf_mean(a, "every position") for a in CONF_ARMS}
+
+
+def other_diag(m: np.ndarray) -> float:
+    """The mean mass on the true op over the contexts of the six other ops."""
+    return float(np.delete(np.diag(m), D).mean())
+
+
+def _spill_op(arm: str) -> int:
+    """The other op whose mass on its own answer the full projection lowers most, net of the control."""
+    net = np.diag(CONF_CLEAN[arm] - CONF_EDIT[arm]) - np.diag(CONF_CLEAN[ex.CONTROL] - CONF_EDIT[ex.CONTROL])
+    net[D] = -np.inf
+    return int(np.argmax(net))
+
+
+NO_EMB_SPILL_I = _spill_op(ex.POST_HOC_SUPPRESSION_ARMS[0])
+NO_EMB_SPILL = OPS[NO_EMB_SPILL_I]
+
+
+def answers_figure() -> str:
+    panels = {f"Bayes, {ex.ANCHORED_OP} removed": NULL_CONF} | {arm_name(a): CONF_EDIT[a] for a in CONF_ARMS}
+    rows = {k: [f"{v:.2f}" for v in m[D]] for k, m in panels.items()}
+    alt = f"""
+        A grid of {len(panels)} heatmaps, each seven by seven, rows the true op of a context and columns the op whose
+        answers the model gives, with the value printed in each cell. The first panel is the Bayes predictor with
+        `{ex.ANCHORED_OP}` removed; the rest are the arms under the full projection at every position. In the
+        `{ex.ANCHORED_OP}` row the Bayes panel reads {", ".join(rows[next(iter(panels))])};
+        {"; ".join(f"{k} reads {', '.join(v)}" for k, v in list(rows.items())[1:])}. On control, whole-line, hinge,
+        and no-emb the diagonal of the other ops stays bright; on query-eq and every-eq every cell is dark.
+    """
+    caption = f"""
+        **What the model answers in place of `{ex.ANCHORED_OP}`.** Post hoc. Each panel is a matrix over held-out
+        contexts: row *i*, column *j* is the mean mass on the answers of op *j* in the contexts of op *i*, seed
+        mean. Ops that share an answer on a pair both take its mass, so a row can sum past 1. First panel: the Bayes
+        predictor with `{ex.ANCHORED_OP}` removed from the posterior, the answer a model should give once it no
+        longer knows the op. Others: each arm under the full projection at every position.
+    """
+    return answers_draw({k: m.tolist() for k, m in panels.items()}, alt, caption)
+
+
+@memo
+def answers_draw(panels: dict, alt_text: str, caption: str) -> str:
+    @themed(name="e2-answers", alt_text=alt_text, caption=caption)
+    def _plot() -> plt.Figure:
+        cols = 4
+        nrows = -(-len(panels) // cols)
+        fig, axes = plt.subplots(nrows, cols, figsize=(8.4, 2.3 * nrows + 0.4), layout="constrained")
+        cmap = plt.get_cmap(light_dark("Blues", "magma"))
+        vmax = 0.8
+        n = len(OPS)
+        im = None
+        for ax, (title, m) in zip(axes.flat, panels.items(), strict=False):
+            m = np.asarray(m)
+            # The diagonal stays on the color scale: the mass on the true op is what the prose compares.
+            im = ax.imshow(m, cmap=cmap, vmin=0, vmax=vmax)
+            for i, j in np.ndindex(n, n):
+                dark_cell = (m[i, j] / vmax > 0.55) == (light_dark(0, 1) == 0)
+                ax.text(
+                    j,
+                    i,
+                    f"{m[i, j]:.2f}".lstrip("0"),
+                    ha="center",
+                    va="center",
+                    fontsize=5,
+                    color="#fff" if dark_cell else "#000",
+                )
+            ax.set_title(title, fontsize=8)
+            ax.set_xticks(range(n), OPS, rotation=90, fontsize=6)
+            ax.set_yticks(range(n), OPS, fontsize=6)
+        for ax in axes.flat[len(panels) :]:
+            ax.set_visible(False)
+        fig.supxlabel("answers of this op", fontsize=8)
+        fig.supylabel("true op", fontsize=8)
+        assert im is not None
+        fig.colorbar(im, ax=axes, shrink=0.5, label="mass")
         return fig
 
     return _plot()
@@ -1490,22 +1591,23 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-A second try at round 2 of the D2.2 route, on the recipe that ex-2.2.17 to ex-2.2.20 reworked. We retrain the control and the anchored `{ex.ANCHORED_OP}` arms under the whole-line label and its variants. Then we score the rules that ex-2.2.16 never reached, to decide how round 3 anchors and edits the inferred op.
-The recipe, the whole-line label, and the verification lines carry forward. Of the edits we scored, only those at every position on the hinge arm take the op out with a dial.
+We trained the anchored arms of round 2 again on the reworked recipe. The recipe holds, and on the hinge arm an edit applied at every position at once takes the op out gradually, without touching the other ops.
 ///
+
+A second try at round 2 of the D2.2 route, on the recipe that ex-2.2.17 to ex-2.2.20 reworked. We retrain the control and the arms that anchor `{ex.ANCHORED_OP}` under the whole-line label and its variants, then score the rules that ex-2.2.16 never reached, to decide how round 3 anchors and edits the inferred op.
 
 ## Findings
 
-- [The recipe holds, and the anchor costs nothing (H1)](#the-recipe-holds-and-the-anchor-costs-nothing-h1) — partial. The control reproduces ex-2.2.19, to within {H1["a_diff"]:.3f}. The whole-line arm falls {H1["b_short"]:.3f} short of the control, over the tolerance of {ex.TASK_COST_TOL:g} and inside the seed band of {H1["b_band"]:.3f}.
-- [The label rule (S1)](#the-label-rule-s1) — decided: the whole-line label stays. No variant beats it by more than the seed band; the closest, `no-emb`, scores {S1["anchor-no-emb"]["diff"]:+.3f} against a band of {S1["anchor-no-emb"]["band"]:.3f}.
-- [Where the anchor sits (E1)](#where-the-anchor-sits-e1) — on the whole-line arm the anchor sits on the answers: {LAST[ex.PRIMARY]["query answer"][0]:.2f} at the query answer and {LAST[ex.PRIMARY]["example answers"][0]:.2f} on the example answers, against {LAST[ex.PRIMARY]["query ="][0]:.2f} at the query `=`.
-- [Editing the op out (E2)](#editing-the-op-out-e2) — on the hinge arm, the projection and the repulsion at every position both grade and stay selective. The whole-line arm grades but spills {CRIT[(ex.PRIMARY, "every position", "projection")]["worst"]:.3f} onto another op, over the gate of {ex.SELECTIVITY_GATE:g}. No edit at the query `=` works on either candidate.
-- [The verification rule (S2)](#the-verification-rule-s2) — decided: verification lines stay. Both pairs are within their seed band.
-- [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) — pass. Both leans of the whole-line arm are within the seed band of the control.
+- [The recipe holds, and the anchor costs nothing (H1)](#the-recipe-holds-and-the-anchor-costs-nothing-h1) — partial. The control reproduces ex-2.2.19. The whole-line arm falls short of the control by more than the tolerance, but by less than the seeds vary.
+- [The label rule (S1)](#the-label-rule-s1) — decided: the whole-line label stays. No variant beats it by more than the seeds vary.
+- [Where the anchor sits (E1)](#where-the-anchor-sits-e1) — on the answers, where the context shows the most evidence about its op, and hardly at all at the query `=`.
+- [Editing the op out (E2)](#editing-the-op-out-e2) — on the hinge arm, an edit at every position takes the op out gradually and leaves the other ops alone. On the whole-line arm the same edit spills just past the gate onto another op. No edit at the query `=` meets both criteria on any arm.
+- [The verification rule (S2)](#the-verification-rule-s2) — decided: verification lines stay, since they leave completion unchanged.
+- [The leans stay with the control (H2)](#the-leans-stay-with-the-control-h2) — pass. The anchor adds no lean toward itself.
 
 ## How to read this draft
 
-The runs are done. The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment. The [preview](#what-ex-2216s-anchored-arms-already-show) scores the stored runs of ex-2.2.16; it predates this plan and shaped it.
+The rules and predictions were frozen at commit `2d84d2b`, before any run of this experiment. The [preview](#what-ex-2216s-anchored-arms-already-show) scores the stored runs of ex-2.2.16; it predates this plan and shaped it.
 
 ## Why this experiment
 
@@ -1717,21 +1819,37 @@ At the query `=`, no edit on the whole-line, hinge, or `prompt` arm covers more 
 
 At the example answers, the reported site, the full projection covers {", ".join(f"{arm_name(a)} {shares(a, 'example answers', 'projection')[-1]:.2f}" for a in E2_ARMS)} of the way to the null. So on the whole-line and hinge arms, where the edit at every position works and the one at the query `=` does not, editing the examples alone takes most of the op out: the query seems to take the op from the examples.
 
-The next figure sets the drop on each other op under the full projection beside how plausible `{ex.ANCHORED_OP}` is in its contexts:
+<details markdown="1"><summary>The drop on each other op against the posterior (preregistered)</summary>
+
+The figure plots the drop on each other op under the full projection against the mean posterior on `{ex.ANCHORED_OP}` in the contexts of that op. Over the six other ops that posterior runs only from {POSTERIOR_OTHER.min():.3f} to {POSTERIOR_OTHER.max():.3f}, so the ops bunch on the x-axis and the figure cannot show whether the drop follows it. The next section asks the same question another way.
 
 {confusion_figure()}
 
-The mean posterior on `{ex.ANCHORED_OP}` in the contexts of the other six ops runs from {POSTERIOR_OTHER.min():.3f} to {POSTERIOR_OTHER.max():.3f}, so the ops do not spread along the x-axis and the figure cannot show whether the drop follows the posterior.
+</details>
+
+### Post hoc: what the model answers instead
+
+The net drop says how much of `{ex.ANCHORED_OP}` an edit takes out, not what the model answers in its place. A pass over the same runs, added after the results were in, measures that: for each held-out context, the probability the model puts on the answer of each op, on the clean model and under the full projection at every position. Beside it is the Bayes predictor with `{ex.ANCHORED_OP}` removed from the posterior, which is what a model should answer once it no longer knows the op.
+
+{answers_figure()}
+
+On the whole-line and hinge arms, the edited model answers `{ex.ANCHORED_OP}` contexts much as that predictor does. The mass on the `{ex.ANCHORED_OP}` answer falls from {CONF_CLEAN[ex.PRIMARY][D, D]:.2f} to {CONF_EDIT[ex.PRIMARY][D, D]:.2f} on the whole-line arm and from {CONF_CLEAN["anchor-hinge"][D, D]:.2f} to {CONF_EDIT["anchor-hinge"][D, D]:.2f} on the hinge arm, and moves to the other ops in about the proportions of the predictor.
+
+The other contexts hardly change: their mass on the true op moves from {other_diag(CONF_CLEAN[ex.PRIMARY]):.2f} to {other_diag(CONF_EDIT[ex.PRIMARY]):.2f} on the whole-line arm and from {other_diag(CONF_CLEAN["anchor-hinge"]):.2f} to {other_diag(CONF_EDIT["anchor-hinge"]):.2f} on the hinge arm, against {other_diag(CONF_CLEAN[ex.CONTROL]):.2f} to {other_diag(CONF_EDIT[ex.CONTROL]):.2f} on the control. So on these arms the edit seems to remove the op from the inference and leave the rest in place.
+
+On `query-eq` and `every-eq` the same edit takes out every op: no cell of either matrix holds more than {max(CONF_EDIT["anchor-query-eq"].max(), CONF_EDIT["anchor-every-eq"].max()):.2f}, so the model stops giving an answer that any op would give. `prompt` sits between: its `{ex.ANCHORED_OP}` row spreads like the predictor, and the other contexts keep {other_diag(CONF_EDIT["anchor-prompt"]):.2f} on the true op, against {other_diag(CONF_CLEAN["anchor-prompt"]):.2f} clean.
 
 ### Post hoc: editing the no-emb arm
 
-The `no-emb` arm (the whole-line pull with the embedding slice left out) had the highest task score of any arm in S1, and it kept the anchor. After the results were in, we added its three runs to the suppression pass, to see whether its anchor edits as well as the candidates. Nothing here was predicted, and no criterion was set for it in advance; the figure applies the E2 criteria for comparison.
+`no-emb` had the highest task score of any arm in S1 and kept the anchor. After the results were in, we added its three runs to the suppression pass, to see whether its anchor edits as well as the candidates. Nothing here was predicted or given a criterion in advance; the figure applies the E2 criteria for comparison.
 
 {no_emb_figure()}
 
-The edit takes `{ex.ANCHORED_OP}` out of `no-emb` faster than out of the candidates, and takes more of the other ops with it. At every position the projection covers {", ".join(f"{v:.2f}" for v in shares(NO_EMB, "every position", "projection"))} of the way to the target null over its four doses, against {", ".join(f"{v:.2f}" for v in shares(ex.PRIMARY, "every position", "projection"))} on the whole-line arm. It grades, but the drop on the worst other op reaches {CRIT_PH[(NO_EMB, "every position", "projection")]["worst"]:.3f} under the projection and {CRIT_PH[(NO_EMB, "every position", "repulsion")]["worst"]:.3f} under the repulsion, several times the gate of {ex.SELECTIVITY_GATE:g}.
+The edit takes `{ex.ANCHORED_OP}` out of `no-emb` faster than out of the candidates, and takes more of the other ops with it. At every position the projection covers {", ".join(f"{v:.2f}" for v in shares(NO_EMB, "every position", "projection"))} of the way to the target null over its four doses, against {", ".join(f"{v:.2f}" for v in shares(ex.PRIMARY, "every position", "projection"))} on the whole-line arm. It grades, but the worst other op reaches {CRIT_PH[(NO_EMB, "every position", "projection")]["worst"]:.3f} under the projection and {CRIT_PH[(NO_EMB, "every position", "repulsion")]["worst"]:.3f} under the repulsion, several times the gate of {ex.SELECTIVITY_GATE:g}.
 
 The edit stays selective up to the half dose, where the projection covers {selective_max(NO_EMB, "projection")[0]:.2f} of the way to the null. On the candidates, a selective projection gets as far as {selective_max(ex.PRIMARY, "projection")[0]:.2f} on the whole-line arm (γ {selective_max(ex.PRIMARY, "projection")[1]:g}) and {selective_max("anchor-hinge", "projection")[0]:.2f} on the hinge arm (γ {selective_max("anchor-hinge", "projection")[1]:g}). So leaving out the embedding slice buys no edit the candidates lack.
+
+In the matrices above, `no-emb` answers `{ex.ANCHORED_OP}` contexts much as the whole-line arm does once edited. Most of its spill is on `{NO_EMB_SPILL}` contexts, whose mass on their own answer falls from {CONF_CLEAN[NO_EMB][NO_EMB_SPILL_I, NO_EMB_SPILL_I]:.2f} to {CONF_EDIT[NO_EMB][NO_EMB_SPILL_I, NO_EMB_SPILL_I]:.2f}, against {CONF_CLEAN[ex.CONTROL][NO_EMB_SPILL_I, NO_EMB_SPILL_I]:.2f} to {CONF_EDIT[ex.CONTROL][NO_EMB_SPILL_I, NO_EMB_SPILL_I]:.2f} on the control.
 
 The E1 alignment suggests why. At the example answers in blocks 1 and 2, the other ops sit higher on e₁ on `no-emb` ({", ".join(f"{v:.2f}" for v in other_at_examples(NO_EMB)[1:3])}) than on the whole-line arm ({", ".join(f"{v:.2f}" for v in other_at_examples(ex.PRIMARY)[1:3])}), so an edit there removes more of what the other ops use. Leaving the embedding slice out of the pull seems to make the early blocks hold the axis less selectively.
 
@@ -1785,15 +1903,19 @@ Both leans of the whole-line arm stay within the seed band of the control.
 
 ## Discussion
 
-Most of the recipe carries into round 3: the control reproduces ex-2.2.19, and the whole-line label and the verification lines stay. Whether the anchor costs the task anything stays open, since the shortfall misses the tolerance but sits inside the seed band.
+Most of the recipe goes forward to round 3: the control reproduces ex-2.2.19, and the whole-line label and the verification lines stay. Whether the anchor costs the task anything stays open, since the shortfall misses the tolerance but sits inside the seed band.
 
 One seed lags on most arms and is still climbing at the last epoch, so five seeds at {ex.EPOCHS} epochs can't tell a small cost from a slow start. A longer schedule would let the slow seeds finish, and is the likeliest way to settle it.
 
-For editing, E2 suggests that where the anchor sits matters more than where the edit goes. On the whole-line and hinge arms the op seems to reach the query through the example answers, so an edit at the query `=` has little to act on unless the pull puts the anchor there. The arms that do so also lift the `=` embedding, which every op shares, and that may be why their edits spill onto the other ops.
+On the whole-line and hinge arms the anchor sits on the example answers. These come before the query `=`, where the answer is predicted, so the op seems to be anchored upstream of the point we score. The edit works when applied everywhere, examples included; an edit at the query `=` alone has little to act on.
 
-An edit at every position on the hinge arm is the clearest lead for round 3. The whole-line arm has no cap, grades the same way, and spills just over the gate. So a cap between the {ex.HINGE_CAP:g} of the hinge arm and none may keep the selectivity with more of the alignment.
+Where the edit works, the post hoc answer matrices suggest that the model answers as if it no longer knew the op but still weighed the other ops.
 
-The `no-emb` arm is the open puzzle: it had the highest task score of any arm, but its anchor edits less selectively. One reading is that leaving the embedding slice out of the pull lets the early blocks hold the axis less cleanly. Another is that the anchor weight was set with the embedding in the pull, and `no-emb` would edit more selectively at a lower weight. This experiment can't separate the two.
+The arms that pull the anchor onto the query `=` also lift the `=` embedding, which every op shares. That may be why their edits spill onto the other ops.
+
+An edit at every position on the hinge arm is the clearest lead for round 3. On the whole-line arm, whose pull is uncapped, the edit grades as well, but it spills just over the gate. So a cap on the alignment in [{ex.HINGE_CAP:g}, 1), where 1 would be no cap, may keep the selectivity with more of the alignment.
+
+The `no-emb` arm is the open puzzle: it had the highest task score of any arm, but its anchor edits less selectively. Perhaps leaving the embedding slice out of the pull makes the early blocks overcompensate, holding the axis for the other ops too. Or the anchor weight was set with the embedding in the pull, and `no-emb` would edit more selectively at a lower weight. This experiment can't separate the two.
 
 ## Method
 
