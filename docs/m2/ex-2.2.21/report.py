@@ -388,7 +388,7 @@ def suppression_draw(data: dict, alt_text: str, name: str, caption: str, figsize
                 for g in groups:
                     ax.plot(x[g], d["sites"][site]["anchored"][g], "-o", color=accent, lw=1.3, ms=3)
                     ax.plot(x[g], d["sites"][site]["worst"][g], "--o", color=ink, lw=0.9, ms=2.5, mfc="none")
-                if d["sites"][site].get("meets"):
+                if site in d["meets"]:
                     for spine in ax.spines.values():
                         spine.set(color=accent, linewidth=2.2, visible=True)
                 if r == 0:
@@ -1139,11 +1139,11 @@ def e2_figure() -> str:
     data = {
         arm: {
             "half": ex.GRADING_MIN_DAMAGE * gap21(arm),
+            "meets": [site for site in E2_SITES if any(k[:2] == (arm, site) for k in MEETS)],
             "sites": {
                 site: {
                     "anchored": [float(drop21(arm, (o, g, site))[D]) for o, g, _ in SUPP_EDITS],
                     "worst": [float(np.delete(drop21(arm, (o, g, site)), D).max()) for o, g, _ in SUPP_EDITS],
-                    "meets": any(k[:2] == (arm, site) for k in MEETS),
                 }
                 for site in E2_SITES
             },
@@ -1160,7 +1160,7 @@ def e2_figure() -> str:
         dashed for the worst other op, with a dotted rule at the selectivity gate of {ex.SELECTIVITY_GATE:g} and a
         dash-dot rule halfway to the target null, about {data[ex.PRIMARY]["half"]:.2f}. The hinge panel at every
         position has a heavy red border: the only panel where an operator meets both criteria. At the query `?` every arm
-        stays near zero except prompt, which reaches {data["anchor-prompt"]["sites"]["query ?"]["anchored"][3]:.2f}
+        stays near zero except prompt, which reaches {float(drop21("anchor-prompt", ("projection", 1.0, "query ?"))[D]):.2f}
         under the full projection. On whole-line and hinge, the query `=` stays near zero too, while every position and the
         example answers rise with the projection dose past the halfway rule; on hinge at every position the dashed
         trace stays at the gate or below (worst {hp["worst"]:.3f}), and on whole-line it reaches {wp["worst"]:.3f}
