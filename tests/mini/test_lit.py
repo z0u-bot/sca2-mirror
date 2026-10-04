@@ -677,6 +677,46 @@ class TestServe:
             conn.close()
             server.shutdown()
 
+    def test_a_late_partial_never_replaces_the_final_page(self, tmp_path, monkeypatch):
+        """A partial whose timer fires as the build ends either lands first or not at all.
+
+        The partial is held at its publish (as if descheduled there) while the build finishes, so the two meet in the window between the partial checking that the build is still running and writing its page.
+        """
+        import threading
+        from types import SimpleNamespace
+
+        from mini.lit import serve
+
+        at_publish, final_done = threading.Event(), threading.Event()
+
+        def fake_render(doc, *, partial, **_):
+            partial(SimpleNamespace(name="partial", running=None))
+            assert at_publish.wait(2)
+            return SimpleNamespace(runner=None, woven=SimpleNamespace(name="final", markdown=""))
+
+        monkeypatch.setattr(serve, "PARTIAL_AFTER", 0)
+        monkeypatch.setattr(serve, "render", fake_render)
+        monkeypatch.setattr(serve, "compose", lambda woven, extra_body: (f"<p>{woven.name}</p>",))
+        monkeypatch.setattr(serve, "_report", lambda r: None)
+
+        site = serve._Site(tmp_path)
+        publish = site.publish
+
+        def held_publish(html_for, markdown=None):
+            if "partial" in html_for(""):
+                at_publish.set()
+                final_done.wait(0.5)  # gives the final page every chance to land first
+            publish(html_for, markdown)
+            if "final" in html_for(""):
+                final_done.set()
+
+        monkeypatch.setattr(site, "publish", held_publish)
+        builder = serve._Builder(tmp_path / "doc.py", site)
+        builder.build()
+        assert builder._timer is not None
+        builder._timer.join()
+        assert (tmp_path / "index.html").read_text() == "<p>final</p>"
+
 
 class TestLazyNpz:
     @pytest.fixture(autouse=True)
