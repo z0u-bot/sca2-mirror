@@ -54,7 +54,10 @@ _RELOAD = """
     try {
       const r = await fetch(`/__version?after=${v}`, {cache: "no-store"});
       const n = Number(await r.text());
-      if (n !== v) location.reload();
+      // Stop polling once a reload is asked for. Otherwise the next poll answers at once
+      // (this page's v is stale now) and reloads again, cancelling the navigation in
+      // flight; the tiny poll outruns the page, so the page lands only by luck.
+      if (n !== v) { location.reload(); return; }
     } catch (e) { await new Promise(r => setTimeout(r, 1000)); }
   }
 })();
@@ -250,7 +253,7 @@ def serve(
     out = (out_dir or output_dir(doc, live=True)).resolve()
     out.mkdir(parents=True, exist_ok=True)
     site = _Site(out)
-    placeholder = f"<!doctype html><title>{html.escape(doc.name)}</title><p>Rendering {html.escape(doc.name)}…</p>"
+    placeholder = f"<!doctype html><meta charset=utf-8><title>{html.escape(doc.name)}</title><p>Rendering {html.escape(doc.name)}…</p>"
     site.publish(lambda reload: placeholder + reload)
     threading.Thread(target=_watch, args=(doc, _Builder(doc, site), poll), daemon=True).start()
     handler = type("Handler", (_Handler,), {"site": site})
