@@ -156,7 +156,7 @@ HSV_HALF = 0.5
 
 
 def hsv_rise(label: str) -> tuple[float, float]:
-    """The first logged epoch at which the mean HSV-channel skill passes *HSV_HALF*, and the learning rate there."""
+    """The first logged epoch at which the mean HSV skill passes *HSV_HALF*, and the learning rate there."""
     curve = traj_skill(label)[[1 + OPS.index(op) for op in HSV_CHANNEL]].mean(0)
     i = int(np.argmax(curve >= HSV_HALF))
     assert curve[i] >= HSV_HALF, f"{label} never passes {HSV_HALF}"
@@ -173,11 +173,12 @@ def hsv_best(label: str) -> float:
     return float(traj_skill(label)[[1 + OPS.index(op) for op in HSV_CHANNEL]].mean(0).max())
 
 
-# The short scout runs of ex-2.2.19 annealed to their floor without the HSV-channel ops passing HSV_HALF.
+# The short scout runs of ex-2.2.19 annealed to their floor without the HSV ops passing HSV_HALF.
 SHORT_BEST = max(hsv_best(X19.label_of(e, lr, 0)) for e in (HS, 2 * HS) for lr in (ex.LO_LR, ex.HI_LR))
 assert SHORT_BEST < HSV_HALF
 LONGER_AT_50 = [skill_near(plain(e, s), HS) for e in (E, REF_E) for s in ex.SEEDS]
 assert traj_skill(HI50)[0, -1] > max(LONGER_AT_50), "the Why section says the head start is ahead at epoch 50"
+assert RISE_HI200[0] > max(r for r, _ in RISE_200.values()), "H3 says the high-rate run passed later than any plain run"
 
 # --- The schedules ------------------------------------------------------------------------------------------
 
@@ -200,14 +201,6 @@ def schedule_curve(epochs: int, peak: float, sheet: str | None = None) -> tuple[
     )
     steps = np.arange(0, epochs * EPOCH_LENGTH + 1, EPOCH_LENGTH // 8)
     return steps / EPOCH_LENGTH, np.asarray(configure_schedule(config, peak, EPOCH_LENGTH)(steps))
-
-
-# Where the first cosine falls below every rate at which a plain run learned the HSV-channel ops.
-_ep, _lr = schedule_curve(E, ex.HI_LR, ex.lr_sheet())
-_falling = (_ep > ex.WARMUP_EPOCHS) & (_ep < HS)
-FIRST_PASS = float(
-    _ep[_falling][np.argmax(_lr[_falling] <= min(r for _, r in [*RISE_200.values(), *RISE_400.values()]))]
-)
 
 
 @memo
@@ -281,6 +274,12 @@ ADOPTED = max(ADOPTABLE, key=lambda p: np.mean([eem(HEAD[p][s]) for s in GATE]),
 
 RISE = {p: {s: hsv_rise(HEAD[p][s])[0] for s in ex.SEEDS} for p in ex.SECOND_PEAKS}
 SOONER = {p: [RISE_200[s][0] - RISE[p][s] for s in GATE] for p in ex.SECOND_PEAKS}
+assert all(sum(d < 0 for d in SOONER[p]) == 2 and sum(d > 0 for d in SOONER[p]) == 1 for p in ex.SECOND_PEAKS), (
+    "H3 and E4 say both head starts came later in two seeds and earlier in the third"
+)
+assert np.mean(PLAIN_SHORT) > ex.SHORTFALL_TOL, "the Why section says the plain runs fell short of the gate"
+assert H1[BAND]["mean"] > H1[LO]["mean"] > PLAIN_H1, "H1 and E4 order the shortfalls"
+assert H2[BAND]["wins"] == 0, "E4 says the lower-peak head start scores lower in all three seeds"
 
 
 def kl(label: str) -> float:
@@ -313,10 +312,11 @@ E1_AT = {
 }
 E1_HEAD, E1_BAND, E1_PLAIN = E1_AT.values()
 assert E1_HEAD["skill"][1] < E1_PLAIN["skill"][1] + 0.02, "E1 says the lead is gone by the end of the second warmup"
-SEED0_SHORT = short(HEAD[LO][0], 0)
-KL_HEAD = [kl(HEAD[LO][s]) for s in GATE]
-KL_PLAIN = [kl(plain(E, s)) for s in GATE]
-KL_BAND = [kl(HEAD[BAND][s]) for s in GATE]
+assert short(HEAD[LO][0], 0) < 0, "H1 says seed 600 scored above its 400-epoch run"
+_kl_plain = [kl(plain(E, s)) for s in GATE]
+for _p in ex.SECOND_PEAKS:
+    _kl_head = [kl(HEAD[_p][s]) for s in GATE]
+    assert min(_kl_head) < max(_kl_plain) and min(_kl_plain) < max(_kl_head), "E2 says the KL ranges overlap"
 
 
 # --- Op confusion (E3) ----------------------------------------------------------------------------------------
@@ -383,6 +383,12 @@ OTHER_OPS = tuple(op for op in OPS if op not in HSV_CHANNEL)
 def row_off(name: str, ops: Sequence[str]) -> float:
     """The mean over the rows of *ops* of the mass off the diagonal, for the schedule *name*."""
     return float(np.mean([CONFUSION[name][OPS.index(op)][OFF_DIAGONAL[OPS.index(op)]].sum() for op in ops]))
+
+
+_hsv_off = [row_off(n, HSV_CHANNEL) for n in CONFUSION]
+assert _hsv_off[1] > _hsv_off[0] > _hsv_off[2] > _hsv_off[3], "E3 orders the schedules by mass off the diagonal"
+_other_off = [row_off(n, OTHER_OPS) for n in CONFUSION]
+assert max(_other_off) - min(_other_off) < 0.015, "E3 says the other rows are about the same"
 
 
 # --- Figures ------------------------------------------------------------------------------------------------
@@ -591,28 +597,28 @@ rf"""
 
 /// tip |
 <!-- tl;dr -->
-We train the seven-op set for 200 epochs on a schedule of two cycles: a short one at a high learning rate, then the recipe schedule for the rest of the run, or the same with a lower second peak. Does that keep more of the skill of the 400-epoch recipe than a plain 200-epoch run? Neither schedule did, so we keep the plain one.
+We train the seven-op set for 200 epochs on a schedule of two cycles: a short one at a high learning rate, then the recipe schedule for the rest of the run. A second condition lowers the peak of the second cycle. Does either keep more of the skill of the 400-epoch recipe than a plain 200-epoch run? Neither did, so we keep the plain schedule.
 ///
 
 ## Findings
 
-- [The head start keeps most of the skill (H1)](#the-head-start-keeps-most-of-the-skill-h1) — miss. The head-start runs fall short of the {REF_E}-epoch runs, inside the partial band, but all three HSV-channel ops fall short by more than their tolerance.
-- [The head start beats the plain schedule (H2)](#the-head-start-beats-the-plain-schedule-h2) — miss. The head start scores above the plain {E}-epoch run at {H2[LO]["wins"]} of the three seeds, but below it on average. We keep the plain schedule.
-- [The HSV-channel ops come sooner (H3)](#the-hsv-channel-ops-come-sooner-h3) — miss. They came later than in the plain run at two out of three seeds.
-- [Where the first cycle leaves off (E1)](#where-the-first-cycle-leaves-off-e1) — the head start leads the plain run at epoch {HS}, and the second warmup takes the lead away within {ex.WARMUP_EPOCHS:g} epochs.
+- [The head start keeps most of the skill (H1)](#the-head-start-keeps-most-of-the-skill-h1) — **miss**. The head-start runs fall short of the {REF_E}-epoch runs, inside the partial band, but all three HSV ops fall short by more than their tolerance.
+- [The head start beats the plain schedule (H2)](#the-head-start-beats-the-plain-schedule-h2) — **miss**. The head start scores above the plain {E}-epoch run in {H2[LO]["wins"]} of the three seeds, but below it on average. We keep the plain schedule.
+- [The HSV ops come earlier (H3)](#the-hsv-ops-come-earlier-h3) — **miss**. They came later than in the plain run in two of the three seeds.
+- [Where the first cycle leaves off (E1)](#where-the-first-cycle-leaves-off-e1) — the head start leads the plain run at epoch {HS}, but the second warmup takes the lead away within {ex.WARMUP_EPOCHS:g} epochs.
 - [Calibration (E2)](#calibration-e2) — the head start is about as well calibrated as the plain {E}-epoch run.
-- [Op confusion (E3)](#op-confusion-e3) — the head start puts more mass off the diagonal in the HSV-channel rows than the plain {E}-epoch run does.
+- [Op confusion (E3)](#op-confusion-e3) — the head start puts more mass off the diagonal in the HSV rows than the plain {E}-epoch run does.
 - [A lower second peak (E4)](#a-lower-second-peak-e4) — misses both rules by a wider margin.
 
 /// admonition | How to read this report
 This report was preregistered: the hypotheses, their gates, and the adoption rule were frozen at commit `2ea0b76`, before any run of this experiment. Each section opens with what we expect, and the results replaced the placeholders in place.
 ///
 
-## Why
+## Why this experiment
 
-Ex-2.2.19 adopted 200 epochs for the seven-op set (`no-four`), half the length of the recipe, as a partial pass. On three fresh seeds the 200-epoch runs fell short of the 400-epoch runs by {np.mean(PLAIN_SHORT):.4f} on average, against a gate of {ex.SHORTFALL_TOL}, and nearly all of the shortfall was in the three HSV-channel ops.
+Ex-2.2.19 adopted 200 epochs for the seven-op set (`no-four`), half the length of the recipe, as a partial pass. On three fresh seeds the 200-epoch runs fell short of the 400-epoch runs by a little more than we would like, and nearly all of the shortfall was in the three HSV ops.
 
-A short run at a high rate gets a long way quickly. The 50-epoch run of ex-2.2.19 at a peak learning rate of {ex.HI_LR:g} ended at a skill of {traj_skill(HI50)[0, -1]:.2f}, where the 200- and 400-epoch runs had reached between {min(LONGER_AT_50):.2f} and {max(LONGER_AT_50):.2f} by epoch {HS}. But it ends before the HSV-channel ops are learned, which in the 200-epoch runs happened between epochs {span([r[0] for r in RISE_200.values()], ".0f")}.
+A short run at a high rate gets a long way quickly. The 50-epoch run of ex-2.2.19 at a high peak learning rate ended with more skill than any of the 200- and 400-epoch runs had at epoch {HS}. But it ends before the HSV ops are learned, which in the 200-epoch runs happened later in the run.
 
 So we try both in one run: {HS} epochs on the schedule of that short run, then {E - HS} epochs on the recipe schedule from where it leaves off. If the second cycle builds on the first, the run should end closer to the 400-epoch runs than a plain 200-epoch run does, at the same cost.
 
@@ -620,11 +626,11 @@ So we try both in one run: {HS} epochs on the schedule of that short run, then {
 
 Each run follows the {E}-epoch recipe of ex-2.2.19 with a different learning-rate schedule. The first cycle warms up over {ex.WARMUP_EPOCHS:g} epochs to {ex.HI_LR:g} and follows a cosine down to 1% of {ex.LO_LR:g} at epoch {HS}. The second warms up from there over {ex.WARMUP_EPOCHS:g} epochs to {ex.LO_LR:g}, and follows a cosine down to 1% of that at epoch {E}.
 
-The second cycle is the recipe schedule of a {E - HS}-epoch run, step for step.[^sheet] The first cycle is the schedule of the ex-2.2.19 run at {ex.HI_LR:g}, except that it ends where the second warmup starts. The optimizer state carries over between cycles, though resetting it should make no measurable difference.[^adam]
+The second cycle is the recipe schedule of a {E - HS}-epoch run, step for step.[^sheet] The first cycle is the schedule of the ex-2.2.19 run at {ex.HI_LR:g}, except that it ends where the second warmup starts. The optimizer state is kept from one cycle to the next, though resetting it should make no measurable difference.[^adam]
 
-The schedule differs from the plain one in three ways at once: a higher peak for the first {HS} epochs, a restart, and a final anneal {E - HS} epochs long instead of {E}. A result would say whether the schedule helps, and leave open which of the three did it.
+The schedule differs from the plain one: it has a higher peak for the first {HS} epochs, a second warmup, and a final anneal {E - HS} epochs long instead of {E}. These runs test the three together, so they cannot tell which of them made a difference.
 
-A second head-start condition is the same, except that its second cycle peaks at {BAND:g}, about the highest rate at which a plain {E}-epoch run of ex-2.2.19 learned the HSV-channel ops (H3). So it spends longer near those rates, and less time above them, than the first head start. From about epoch 80 on, its rate is close to that of the plain {E}-epoch run, so the two differ mostly in the first 80 epochs.
+A second head-start condition peaks at {BAND:g} in the second cycle, about the highest rate at which a plain {E}-epoch run of ex-2.2.19 learned the HSV ops (see H3, below). So it spends longer near those rates, and less time above them, than the first head start. From about epoch 80 on, its rate is close to that of the plain {E}-epoch run, so the two differ mostly in the first 80 epochs.
 
 [^sheet]: The schedule is a dopesheet: keyframes at the start and peak of each warmup and at the end of each cosine, joined by straight lines going up and half cosines going down. At {EPOCH_LENGTH} steps an epoch, the second cycle matches the recipe schedule of a {E - HS}-epoch run to within {CHECK["second"]:.0e} of its peak.
 
@@ -639,14 +645,13 @@ schedule_draw(
         head-start schedule rises to {ex.HI_LR:g}, falls to near zero by epoch {HS}, rises again to {ex.LO_LR:g} by
         epoch {HS + ex.WARMUP_EPOCHS:g}, and falls to near zero by {E}. The second head-start schedule is the same, with a
         second peak of {BAND:g}. A dot on each recipe curve marks, for each
-        seed, where the HSV-channel ops were learned: on the {E}-epoch curve between epochs
+        seed, where the HSV ops were learned: on the {E}-epoch curve between epochs
         {span([r[0] for r in RISE_200.values()], ".0f")}, and on the {REF_E}-epoch curve between epochs
         {span([r[0] for r in RISE_400.values()], ".0f")}, where its rate is higher.
     """,
     f"""
-        **The four schedules.** Learning rate against epoch, as the training code computes it. Each dot is the point
-        at which the HSV-channel skill of a plain run of ex-2.2.19 first passed {HSV_HALF:g}, one per seed; seeds
-        that passed at the same epoch overlap.
+        **The four schedules.** Learning rate against epoch. Each dot is the point at which the HSV skill of a plain
+        run of ex-2.2.19 first passed {HSV_HALF:g}.
     """,
 )
 
@@ -686,11 +691,11 @@ A run *falls short* of another by how much lower its EEM is, compared between ru
 
 ## The head start keeps most of the skill (H1)
 
-**What we expect.** The head-start runs fall short of the {REF_E}-epoch runs by at most {ex.SHORTFALL_TOL} on average, and no op falls short by more than its tolerance on average. That is a pass. A shortfall between {ex.SHORTFALL_TOL} and {ex.PARTIAL_TOL} is a partial pass, and one beyond {ex.PARTIAL_TOL}, or an op beyond its tolerance, is a miss. This is the H1 rule of ex-2.2.19, with the same tolerances.
+**What we expect.** The head-start runs would fall short of the {REF_E}-epoch runs by at most {ex.SHORTFALL_TOL} on average, and no op would fall short by more than its tolerance on average. That would be a pass. A shortfall between {ex.SHORTFALL_TOL} and {ex.PARTIAL_TOL} would be a partial pass, and one beyond {ex.PARTIAL_TOL}, or an op beyond its tolerance, would be a miss. This is the H1 rule of ex-2.2.19, with the same tolerances.
 
-**What we saw.** The head-start runs fell short of the {REF_E}-epoch runs by {H1[LO]["mean"]:.4f} on average. That is inside the partial band, and a little more than the shortfall of the plain {E}-epoch runs ({PLAIN_H1:.4f}). The shortfall is in the HSV-channel ops: each of the three falls short by more than its tolerance of {OP_TOL["hue-hsv"]:.2f}, where none did in the plain runs.
+**What we saw.** The head-start runs fell short of the {REF_E}-epoch runs by a little more than the plain {E}-epoch runs did, inside the partial band. The shortfall is in the HSV ops: each of the three falls short by more than its tolerance, where none did in the plain runs.
 
-Seed {ex.SEED_OFFSET} scored {-SEED0_SHORT:.4f} above its {REF_E}-epoch run, so it did flatter the head start.
+At seed {ex.SEED_OFFSET} the head start scored above the {REF_E}-epoch run, so this seed did flatter the head start.
 
 """
 
@@ -702,7 +707,7 @@ shortfall_draw(
         the mean. Over all ops the plain runs average {PLAIN_H1:.3f}, the head start {H1[LO]["mean"]:.3f}, and the
         lower-peak head start {H1[BAND]["mean"]:.3f}, against a dashed gate at {ex.SHORTFALL_TOL} and a dotted
         partial level at {ex.PARTIAL_TOL}. In the per-op panel a black bar marks each tolerance; both head starts
-        go above it in all three HSV-channel ops, and the plain runs stay below it.
+        go above it in all three HSV ops, and the plain runs stay below it.
     """,
     f"""
         **Shortfall from the {REF_E}-epoch runs.** Seeds 601–603; a dash marks the seed mean. Left: all ops, with
@@ -735,13 +740,13 @@ The head start falls short by {H1[LO]["mean"]:.4f} on average, inside the partia
 
 ## The head start beats the plain schedule (H2)
 
-**What we expect.** The head-start run scores a higher EEM than the plain {E}-epoch run at each of the three seeds, and so on average. That is a pass. A higher mean with a lower EEM at one or two seeds is a partial pass, and a mean gain at or below zero is a miss.
+**What we expect.** The head-start run would score a higher EEM than the plain {E}-epoch run in each of the three seeds, and so on average. That would be a pass. A higher mean with a lower EEM in one or two seeds would be a partial pass, and a mean gain at or below zero would be a miss.
 
 A miss would mean the second cycle kept nothing of the first, or lost it in the second warmup. H2 checks only the direction of the gain: the whole gap to the {REF_E}-epoch runs is small, so H1 covers its size.
 
 **Which schedule we adopt.** H1 and H2 score the head start with the recipe peak, and E4 scores the one with a second peak of {BAND:g} by the same rules. If both hypotheses pass for either schedule, the {E}-epoch runs that follow will use that schedule. If both schedules pass, we take the one with the higher mean EEM over seeds {ex.SEED_OFFSET + min(ex.GATE_SEEDS)}–{ex.SEED_OFFSET + max(ex.GATE_SEEDS)}. Otherwise we keep the plain schedule.
 
-**What we saw.** The head start scored above the plain {E}-epoch run at {H2[LO]["wins"]} of the three seeds, and {-H2[LO]["mean"]:.4f} below it on average. The ops that lose most are the HSV-channel ops again.
+**What we saw.** The head start scored above the plain {E}-epoch run in {H2[LO]["wins"]} of the three seeds, and below it on average. The ops that lose most are the HSV ops again.
 
 """
 
@@ -751,8 +756,8 @@ gain_draw(
         op, with the two head-start schedules side by side in each, one dot per seed at seeds 601–603 and a dash for
         the mean. Over all ops the head start has gains of
         {", ".join(f"{g:+.3f}" for g in H2[LO]["gains"])}, and the head start with a second peak of {BAND:g} has
-        {", ".join(f"{g:+.3f}" for g in H2[BAND]["gains"])}. The means are near or above zero for the four ops
-        outside the HSV channel and below zero for the three HSV-channel ops, lowest for the lower-peak head start.
+        {", ".join(f"{g:+.3f}" for g in H2[BAND]["gains"])}. The means are near or above zero for the four other
+        ops and below zero for the three HSV ops, lowest for the lower-peak head start.
     """,
     f"""
         **Gain over the plain {E}-epoch run.** Seeds 601–603; a dash marks the seed mean. Above the line, the head
@@ -763,22 +768,22 @@ gain_draw(
 rf"""
 
 /// admonition | Miss
-The head start scores below the plain {E}-epoch run on average ({H2[LO]["mean"]:+.4f}), above it at {H2[LO]["wins"]} of three seeds.
+The head start scores below the plain {E}-epoch run on average ({H2[LO]["mean"]:+.4f}), above it in {H2[LO]["wins"]} of three seeds.
 ///
 
-## The HSV-channel ops come sooner (H3)
+## The HSV ops come earlier (H3)
 
-**What we expect.** In the plain {E}-epoch runs, the mean skill of the HSV-channel ops first passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_200.values()], ".0f")}. We expect the head-start runs to pass it about 25 epochs sooner, paired by seed (a gap estimated from the skill curves of ex-2.2.19).
+**What we expect.** In the plain {E}-epoch runs, the mean skill of the HSV ops first passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_200.values()], ".0f")}. We expect the head-start runs to pass it about 25 epochs earlier, paired by seed (a gap estimated from the skill curves of ex-2.2.19).
 
-The runs of ex-2.2.19 already suggest these ops do not wait for the learning rate to fall to some level. The {REF_E}-epoch runs passed {HSV_HALF:g} between epochs {span([r[0] for r in RISE_400.values()], ".0f")}, close to the {E}-epoch runs of the same seeds, but at rates between {span([r[1] for r in RISE_400.values()], ".4f")}, higher than any rate at which a {E}-epoch run passed it.
+The runs of ex-2.2.19 already suggest these ops do not wait for the learning rate to fall to some level. The {REF_E}-epoch runs passed {HSV_HALF:g} at about the same epochs as the {E}-epoch runs of the same seeds, but at learning rates higher than any rate at which a {E}-epoch run passed it.
 
-The {HS}- and {2 * HS}-epoch runs fell through those rates to their floor, and their HSV-channel skill stayed at or below {SHORT_BEST:.2f}. That includes the {HS}-epoch run at {ex.HI_LR:g}, the first cycle of the head-start schedule, which falls through all of those rates by about epoch {FIRST_PASS:.0f}.
+The {HS}- and {2 * HS}-epoch runs fell through those rates to their floor, and their HSV skill never passed {HSV_HALF:g}. That includes the {HS}-epoch run at the higher peak rate, which is the first cycle of the head-start schedule.
 
-So this schedule can separate elapsed time from learning progress. A rise at about the same epoch as in the plain run would say these ops wait for a number of epochs, whatever the model has learned by then. A sooner rise, as we expect, would say the progress of the first cycle carries over to them.
+So this schedule can separate elapsed time from learning progress. A rise at about the same epoch as in the plain run would say these ops wait for a number of epochs, whatever the model has learned by then. An earlier rise, as we expect, would say they build on the progress of the first cycle.
 
-A later rise is possible too: the {E}-epoch run of ex-2.2.19 at {ex.HI_LR:g} passed {HSV_HALF:g} only at epoch {RISE_HI200[0]:.0f}, so a high rate early may hold these ops back. The outcomes lie further apart than the {E // ex.ex2218.N_TRAJ_POINTS}-epoch logging interval. There is no gate, since no decision hangs on it.
+A later rise is possible too: the {E}-epoch run of ex-2.2.19 at the higher peak rate passed {HSV_HALF:g} later than any {E}-epoch run at the recipe peak, so a high early rate may hold these ops back. The predicted gap is several times the logging interval of {E // ex.ex2218.N_TRAJ_POINTS} epochs, so the logged curves can tell these outcomes apart. There is no gate, since no decision hangs on it.
 
-**What we saw.** The HSV-channel ops came later in the head-start runs at two of the three seeds, by {-SOONER[LO][0]:.0f} and {-SOONER[LO][1]:.0f} epochs, and {SOONER[LO][2]:.0f} epochs sooner at the third. The curves show the first cycle lifting the other ops well above the plain run by epoch {HS}, with the HSV-channel ops still near zero.
+**What we saw.** The HSV ops came later in the head-start runs in two of the three seeds, and earlier in the third. The curves show the first cycle lifting the other ops well above the plain run by epoch {HS}, with the HSV ops still near zero.
 
 """
 
@@ -788,14 +793,14 @@ curves_draw(
         Each has three lines per schedule, one per seed at seeds 601–603: the plain {E}-epoch run, the head start,
         and the head start with a second peak of {BAND:g}. A vertical line marks epoch {HS}. In the all-ops panel
         both head starts climb to about {E1_HEAD["skill"][0]:.2f} by epoch {HS}, against about
-        {E1_PLAIN["skill"][0]:.2f} for the plain run, then drop at the restart and rejoin the plain curves. Two of the
+        {E1_PLAIN["skill"][0]:.2f} for the plain run, then drop in the second warmup and rejoin the plain curves. Two of the
         head-start runs end lower than the rest. The other ops climb early in all schedules, and the head starts
-        lift them to about 0.8 by epoch {HS} before the restart pulls them back. In the three HSV-channel panels
+        lift them to about 0.8 by epoch {HS} before the second warmup pulls them back. In the three HSV panels
         every run stays below about 0.15 until epoch 60 or later, then rises at seed-dependent epochs up to about
         140.
     """,
     """
-        **Skill against epoch.** Seeds 601–603, one line per run. The vertical line marks the end of the first
+        **Skill trajectories.** Seeds 601–603, one line per run. The vertical line marks the end of the first
         cycle.
     """,
 )
@@ -807,21 +812,21 @@ table_html(
         [f"{ex.SEED_OFFSET + s}", f"{RISE_200[s][0]:.0f}", f"{RISE[LO][s]:.0f}", f"{RISE[BAND][s]:.0f}"]
         for s in ex.SEEDS
     ],
-    f"**The epoch at which the HSV-channel skill first passes {HSV_HALF:g}**, logged every {E // ex.ex2218.N_TRAJ_POINTS} epochs.",
+    f"**The epoch at which the HSV skill first passes {HSV_HALF:g}**, logged every {E // ex.ex2218.N_TRAJ_POINTS} epochs.",
     text_cols=1,
 )
 
 rf"""
 
 /// admonition | Miss
-The HSV-channel ops came later at two of three seeds and sooner at one. The progress of the first cycle did not carry over to them.
+The HSV ops came later in two of three seeds and earlier in one. They did not build on the progress of the first cycle.
 ///
 
 ## Where the first cycle leaves off (E1)
 
-Exploratory, with no prediction: how much of a head start the second cycle receives, and how much of it remains after the second warmup. We show the skill of the head-start runs at epoch {HS}, overall and per op, beside the plain runs at the same epoch and the {HS}-epoch ex-2.2.19 run at {ex.HI_LR:g} (seed {ex.SEED_OFFSET} only).
+Exploratory, with no prediction: how much of a head start the second cycle receives, and how much of it remains after the second warmup. We show the skill of the head-start runs at epoch {HS}, overall and per op, beside the plain runs at the same epoch and the {HS}-epoch ex-2.2.19 run at the higher peak rate (seed {ex.SEED_OFFSET} only).
 
-The head start leads the plain run at epoch {HS} over all ops, while the HSV-channel skill is still low in both. The second warmup takes the lead away by epoch {HS + ex.WARMUP_EPOCHS:g}. The head start with a second peak of {BAND:g} keeps more of its lead, but ends lower all the same (E4).
+The head start leads the plain run at epoch {HS} over all ops, while the HSV skill is still low in both. The second warmup takes the lead away by epoch {HS + ex.WARMUP_EPOCHS:g}. The head start with a second peak of {BAND:g} keeps more of its lead, but ends lower all the same (E4).
 
 """
 
@@ -835,7 +840,7 @@ table_html(
     ],
     [[name, *(f"{v:.2f}" for v in (*row["skill"], *row["hsv"]))] for name, row in E1_AT.items()],
     """
-        **Skill at the end of the first cycle and of the second warmup**, over all ops and over the HSV-channel ops,
+        **Skill at the end of the first cycle and of the second warmup**, over all ops and over the HSV ops,
         mean over seeds 601–603. The curves are in the H3 figure.
     """,
 )
@@ -848,7 +853,7 @@ Exploratory, with no prediction. We show the calibration KL of each run beside i
 
 [^kl]: A measure of how far one probability distribution is from another; it is zero when they match.
 
-The head-start runs have a calibration KL between {span(KL_HEAD, ".3f")}, and the plain {E}-epoch runs between {span(KL_PLAIN, ".3f")}, at seeds 601–603. The head start with a second peak of {BAND:g} is between {span(KL_BAND, ".3f")}. Among the {E}-epoch runs, KL falls as EEM rises, so the runs that score lower are also less well calibrated.
+The calibration KL of both head starts overlaps that of the plain {E}-epoch runs. Among the {E}-epoch runs, KL falls as EEM rises, so the runs that score lower are also less well calibrated.
 
 """
 
@@ -869,9 +874,9 @@ rf"""
 
 Exploratory, with no prediction. We show the op confusion matrix of each schedule, as in ex-2.2.19. For confident contexts of each true op, it gives the probability mass the model puts on the answers of each op, averaged over seeds {ex.SEED_OFFSET + min(ex.GATE_SEEDS)}–{ex.SEED_OFFSET + max(ex.GATE_SEEDS)}.
 
-In ex-2.2.19 the {E}-epoch runs put more mass off the diagonal than the {REF_E}-epoch runs, mostly in the HSV-channel rows. This shows whether the head start moves that mass back.
+In ex-2.2.19 the {E}-epoch runs put more mass off the diagonal than the {REF_E}-epoch runs, mostly in the HSV rows. This shows whether the head start moves that mass back.
 
-The head start moves more of that mass off the diagonal, in the same rows. In the HSV-channel rows it puts {row_off(f"head start, second peak {LO:g}", HSV_CHANNEL):.3f} of the mass off the diagonal on average, and the head start with a second peak of {BAND:g} puts {row_off(f"head start, second peak {BAND:g}", HSV_CHANNEL):.3f}, against {row_off(f"plain {E} epochs", HSV_CHANNEL):.3f} for the plain {E}-epoch run and {row_off(f"plain {REF_E} epochs", HSV_CHANNEL):.3f} at {REF_E} epochs. In the other rows all four are between {span([row_off(n, OTHER_OPS) for n in CONFUSION], ".3f")}.
+The head start puts more of that mass off the diagonal in the HSV rows than the plain {E}-epoch run, and the head start with a second peak of {BAND:g} puts more still. In the other rows the four schedules are about the same.
 
 """
 
@@ -893,23 +898,23 @@ rf"""
 
 ## A lower second peak (E4)
 
-Exploratory, with no prediction. We score the head start with a second peak of {BAND:g} by the rules of H1 and H2. As in H3, we also show the epoch at which its HSV-channel skill first passes {HSV_HALF:g}, beside the same epoch for the other head start.
+Exploratory, with no prediction. We score the head start with a second peak of {BAND:g} by the rules of H1 and H2. As in H3, we also show the epoch at which its HSV skill first passes {HSV_HALF:g}, beside the same epoch for the other head start.
 
-Its results sit beside the other head start in the H1, H2, and H3 figures and tables. It misses both H1 and H2. It falls short of the {REF_E}-epoch runs by {H1[BAND]["mean"]:.4f} on average, at the edge of the partial band, with the three HSV-channel ops each beyond their tolerance. It scores below the plain {E}-epoch run at all three seeds, by {-H2[BAND]["mean"]:.4f} on average.
+Its results sit beside the other head start in the H1, H2, and H3 figures and tables. It misses both H1 and H2. It falls short of the {REF_E}-epoch runs by more than the other head start, at the edge of the partial band ({H1[BAND]["mean"]:.4f}), with the three HSV ops each beyond their tolerance. It scores below the plain {E}-epoch run in all three seeds.
 
-Its HSV-channel ops came {-SOONER[BAND][0]:.0f} and {-SOONER[BAND][1]:.0f} epochs later than in the plain run at two seeds, and {SOONER[BAND][2]:.0f} sooner at the third.
+Its HSV ops came later than in the plain run in two seeds, and earlier in the third.
 
-## What it means for what follows
+## Discussion
 
-The {E}-epoch runs that follow keep the plain schedule, as ex-2.2.19 adopted it.
+It seems we should keep the plain schedule from ex-2.2.19.
 
-The head start does what the {HS}-epoch run of ex-2.2.19 suggested, while it lasts: by the end of the first cycle the model has learned most ops outside the HSV channel. The second warmup then takes the lead away (E1). The second cycle seems to relearn those ops rather than build on the first.
+The head start does what the {HS}-epoch run of ex-2.2.19 suggested, while it lasts: by the end of the first cycle the model has learned most ops except the HSV ones. The second warmup then takes the lead away (E1). The second cycle seems to relearn those ops rather than build on the first.
 
-The HSV-channel ops, which the first cycle had not learned, came no sooner (H3), and the head-start runs ended with more of their probability mass on the answers of the wrong op (E3).
+The HSV ops came no earlier (H3), and the head-start runs ended with more of their probability mass on the answers of the wrong op (E3).
 
-The lower second peak was meant to give those ops more time at the rates where the plain runs learned them, yet it ended furthest short (E4). So time near those rates does not seem to be what the HSV-channel ops wait for. We hold this loosely: the schedule changes three things at once, and the three seeds disagree about the timing.
+The lower second peak was meant to give those ops more time at the rates where the plain runs learned them, yet it ended furthest short (E4). So time near those rates does not seem to be what the HSV ops wait for, although the schedule changes three things at once and the three seeds disagree about the timing.
 
-One question stays open: does the restart itself cost the lead? A schedule that hands over from the first cycle without a second warmup would answer it.
+We don't know whether the second warmup itself costs the lead. A schedule that hands over from the first cycle without a second warmup may answer that, although we did already try schedules with plateaus in ex-2.2.17.
 
 ## Method
 

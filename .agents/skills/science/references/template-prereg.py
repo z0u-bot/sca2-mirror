@@ -4,7 +4,6 @@
 # A fill-in skeleton for a preregistered report: copy it to docs/<milestone>/<ex>/report.py and replace each <...>.
 # The prose is in r-strings so the placeholders render as written; switch a string to rf once it has template
 # expressions. The register to aim for is ex-2.2.18 (see exemplar-ex-2.2.18.md beside this file).
-import experiment as ex  # noqa: F401
 
 r"""
 # Ex 2.N.M: <what we try, in a few plain words>
