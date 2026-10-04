@@ -4,6 +4,8 @@ A plan for the second deliverable of M2, laid out several ways: the claims we wa
 
 *Note, 2026-09-25.* The [pivot](pivot.md) is adopted: after ex-2.2.14, D2.2 anchors an op the model infers from solved examples in its context, with no word to name it. The prep sections below record the work that led there. The plan from [anchor an inferred operation](#anchor-an-inferred-operation) on is written for the new grammar, and the [quick route](#quick-route) puts it in order.
 
+*Note, 2026-10-04.* [Ex-2.2.21](../ex-2.2.21/report.py) ran round 2 again on the reworked recipe, and it changes the plan for round 3 in four places. The anchor sits on the example answers and hardly at all at the query `=`, so the edit that works acts at every position, and an edit at the query `=` that fails is now the expected result (see the [bypass test](#suppress-the-operation-and-the-operands)). The hinge arm is the lead, and its cap of 0.8 was never searched. The posterior takes about three distinct values, so the graded stimulus needs a wider spread (see [anchor an inferred operation](#anchor-an-inferred-operation)). And the fallback term was written for *red* on one-equation lines, so it needs a version for the in-context grammar before round 3 can have a fallback condition (see [deps](#deps)).
+
 Inputs: the D2.1 close-out ([ex-2.1.11](../ex-2.1.11/report.py), [ex-2.1.12](../ex-2.1.12/report.py), and the [post](/references/d2.1-anchored-transformer.md)), the first D2.2 result ([ex-2.2.1](../ex-2.2.1/report.py)), the anchored-op smoke test ([ex-2.2.14](../ex-2.2.14/report.py)), the D2.2-tagged backlog (`./go todo --tag D2.2`), the D2.1 kickoff lessons carried over from the autoencoders, and the [related-work delta](/references/related-work-delta-2026.md).
 
 ## What we want to be able to say
@@ -26,10 +28,12 @@ The route had four rounds for D2.2. The first was dropped, so it now starts at r
 
 1. **Suppress the op word on ex-2.2.14: dropped.** Ex-2.2.14 put the op word on e₁ and little else, so an edit there would most likely do what masking the word does, which the geometry already shows. The in-context grammar has no op word, so the result would not carry over (see [suppress the operation](#suppress-the-operation-and-the-operands)).
 2. **Pilot the in-context grammar**, with the control and the anchored arms in one experiment at a few seeds each. It replaces four rounds the old plan would have needed: the posterior scouting report, a new-grammar control, an anchoring smoke test, and a label pilot. Its method section computes the posterior and the Bayes ceiling from the op table, which is the [scouting report](/todo/science/scout-posterior-in-context-grammar.md) folded in. It also runs a scoring-only suppression pass on its own checkpoints, so the prereg takes its operator and dose axis from the same round. The arms are listed under [the pilot](#the-pilot).
-3. **Anchor and suppress the inferred op**, the preregistered experiment, at fresh seeds. It has the equivalence read, the graded stimulus, suppression with and without the fallback, the bypass test, and the intervention side of the [layer sweep](#layer-sweep), which needs no training of its own.
+3. **Anchor and suppress the inferred op**, the preregistered experiment, at fresh seeds. It has the equivalence read, the graded stimulus, suppression with and without the fallback, the bypass test, and the intervention side of the [layer sweep](#layer-sweep), which needs no training of its own. The seeds go where a decision needs them. Whether the anchor costs the task anything is the comparison ex-2.2.21 could not settle at five seeds, so the control and the chosen arm get the most, and arms that only need to show a direction can have fewer.
 4. **The anchor side of the layer sweep, and the SGTM baseline**, as one experiment. Both are training conditions compared with the recipe and control that round 3 froze, so they can share a round and the control seeds.
 
 The first read of D2.3 comes after round 3. If verification lines are in the corpus from the pilot on, that read is scoring only on round 3's checkpoints; otherwise it is a fine-tuning stage on them. The pilot therefore has a verification arm, and the prereg adopts verification by a frozen rule if it leaves completion unchanged (see [the pilot](#the-pilot)).
+
+A scout on which slices the pull reaches may come between rounds 2 and 3. In ex-2.2.21 the `no-emb` arm, which leaves the embedding slice out of the pull, had the highest task score of any arm, but its edit was less selective. An inferred op probably sits in the middle of the stack, so restricting the pull there (no embedding slice, no last slice, or both), crossed with a lower anchor weight, could change what round 3 anchors. That would be the anchor side of the [layer sweep](#layer-sweep) moved earlier, at a small scale; the [slice-restriction item](/todo/science/pull-slice-restrictions-at-more-seeds.md) has the arms.
 
 When a result raises a question the route does not cover, the question goes first to the stored checkpoints, and a new training round is for the questions they cannot answer.
 
@@ -192,6 +196,8 @@ The measurements from [anchor one operation](#anchor-one-operation) stay, with f
 **(c)** the task gate as the distance of each model from the ceiling, with the ceiling for a model told the op beside it;
 **(d)** calibration: whether the answer distribution of the model matches the one weighted by the posterior.
 
+Ex-2.2.21 found that at three examples and ρ = 0.3 the posterior takes about three distinct values, so measurement (b) needs a wider spread. Contexts with more or fewer examples would give one, since each example splits the levels of the posterior further. In the held-out set alone, they would also ask the model to handle context lengths it never trained on, which could confound the grading; in training, they change the recipe and give each count its own ceiling. The anchor sits on the example answers, so (b) is measured there, against the posterior over the examples seen so far. The [grading item](/todo/science/anchor-grades-with-the-posterior.md) has the details.
+
 The label stays binary on the whole context, since an M3 labeller would likely give that form. The [label variants](/todo/science/label-variants-in-context-op.md) and the options for a [saturated query `?`](/todo/science/query-symbol-saturation.md) are arms of the pilot.
 
 #### The pilot
@@ -242,6 +248,8 @@ Two observations from planning the pass are recorded here as open questions, not
 
 The **bypass test** the D1.3 post left open: suppress at the query `?`, at the query `=`, and at every position, at one slice and at every slice, in the blocks only and with the embedding. Where suppression fails to take effect, the model is reading the op from somewhere the axis does not reach. That is a finding about anchoring, and it feeds the [layer sweep](#layer-sweep). The inferred op makes the test sharper than the op word did: the evidence is spread over the examples, so an edit at the query that fails would point to the examples as the route around it.
 
+Ex-2.2.21 found the anchor on the example answers, before the query `=`, and no edit at the query `=` met both suppression criteria on any arm. So a failed edit at the query `=` is expected, and says little about a route around the edit. The more informative form of the test keeps the edit at every position and varies the slices it acts on, and whether it includes the embedding.
+
 Nice to have: a sweep over all ops, to see whether they can all be suppressed equally well.
 
 ### Layer sweep
@@ -275,6 +283,7 @@ The D2.2 post.
 **(g)** a hinge cap on the anchor term;
 **(h)** verification lines: the `|` marker, the `TRUE` and `FALSE` verdicts, the language-model loss masked on the candidate answer of a `FALSE` line, and a verdict score.
 An attention mask that resets at `\n` is optional, since the model would likely learn to ignore the previous lines without it.
+- **The fallback on the in-context grammar.** [`sca.fallback`](/src/sca/fallback.py) was written for *red* on one-equation lines: its mask reads the redness of an operand, its target is one token at a fixed offset from op1, and it reflects the state at one slice. Round 3 needs the target null as soft labels at the query answer, a mask on the contexts of `difference`, and a rehearsed edit that matches the one round 3 scores, which acts at every position.
 - **The eval contract and operator library.** Landed with [ex-2.2.1](../ex-2.2.1/report.py) as [`sca.intervention`](/src/sca/intervention.py): the triple, the three operators, and the post-hoc fitters. Every method produces a triple of `(model, subspace, intervention operator)`, and one scorer takes that triple. The operators are axis projection with a strength γ (γ = 2 is reflection), the shaped suppression from M1, and weight ablation. Every training experiment from [fallback control](#fallback-control) on scores its checkpoints through the contract, so adding an operator or a row is a change to one module.
 
   The contract also pins where operators act and what they do to the norm. The hook point is the between-block stream, meaning the slices that `residual_stream()` returns, which are the same states the anchor term reads. The stream is unit-norm (nGPT), so axis projection composes with a re-projection back onto the sphere. The state lands on the great subsphere where zero-concept states live, and the surviving components pick up a per-position gain of $1/\sqrt{1-x_1^2}$. That gain is computable beforehand, so it belongs inside the bound. Weight ablation declares its order against the `normalize_weights` constraint, which rescales a matrix once entries are zeroed.
@@ -323,7 +332,7 @@ Only what the plan above already commits to; everything else stays open until an
 | The anchor picks up a shortcut | Alignment does not grade with the posterior on `difference` across the middle band | [The pilot](#the-pilot), then the prereg at fresh seeds |
 | The label asks for the op before the context shows it | A task cost or a shortcut under the whole-line label that a label variant avoids | [The pilot](#the-pilot), with the [label variants](/todo/science/label-variants-in-context-op.md) as arms |
 | The query `?` saturates | Alignment near 1 at `?`, with no partial dose there | [The pilot](#the-pilot), with a hinge-capped arm |
-| Bypass through attention or the residual | Suppression works only when applied at every site | [suppress operation](#suppress-the-operation-and-the-operands), [layer sweep](#layer-sweep) |
+| Bypass through attention or the residual | Suppression works only when applied at every site | Position side seen at [ex-2.2.21](../ex-2.2.21/report.py): the anchor sits on the example answers, and only the edit at every position works. The slice side is for [suppress operation](#suppress-the-operation-and-the-operands) and the [layer sweep](#layer-sweep) |
 
 The first experiments each changed one thing from D2.1, so a negative there was interpretable. The pilot changes the grammar and the anchored concept together, so its control arms do the regression check that ex-2.2.3 did alone.
 
