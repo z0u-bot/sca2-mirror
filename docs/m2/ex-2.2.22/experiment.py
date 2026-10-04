@@ -1,12 +1,12 @@
-"""Ex-2.2.22: where the pull acts, how far it goes, and contexts of varying length — a scout before round 3.
+"""Ex-2.2.22: localized by depth, various pull caps, and contexts of varying length — a scout.
 
-Ex-2.2.21 (round 2 of the D2.2 route) left three questions about how round 3 should anchor the inferred op. The
-`no-emb` arm, which leaves the embedding slice out of the pull, had the best task score but edited less selectively.
-The hinge arm, whose pull stops at an alignment of 0.8, edited selectively, and the uncapped arm just missed the
-gate, so a cap between the two may hold more of the anchor and keep the selectivity. And the posterior on the op takes
-about three distinct values at three examples, too few for round 3 to test whether the anchor grades with it. This
-scout trains new arms for each question, scores them as ex-2.2.21 did, and reuses ex-2.2.21's runs as references,
-paired by model seed.
+Ex-2.2.21 left three questions about how to anchor the inferred op. The `no-emb` condition, which leaves the
+embedding slice out of the pull, had the best task score but edited less selectively. The hinge condition, whose
+pull stops at an alignment of 0.8, edited selectively, and the uncapped condition just missed the gate, so a cap
+between the two may hold more of the anchor and keep the selectivity. And the posterior on the op takes about three
+distinct values at three examples, too few to test whether the anchor grades with it. The hinge condition is the best
+recipe so far, so every new condition here changes one setting from it (or from a new condition of this scout), and
+ex-2.2.21's runs are reused as references, paired by model seed.
 
 Design only for now: the constants below are frozen with the report skeleton. The DAG reuses ex-2.2.21's (the
 corpus prep, `cells`, the training step, the eval, and the suppression pass), with two additions: a corpus whose
@@ -53,13 +53,13 @@ N_SLICES = N_LAYER + 1
 
 EPOCHS = ex2221.EPOCHS
 CENTRE = ex2221.CENTRE
-"""Three examples at ρ = 0.3: the corpus of every arm but the two count arms, and of every reference."""
+"""Three examples at ρ = 0.3: the corpus of every condition but `mixed`, and of every reference."""
 K, RHO = CENTRE
 LABEL_RATE = ex2221.LABEL_RATE
 HINGE_SOFTNESS = ex2221.HINGE_SOFTNESS
 VERIFY = False
-"""No verification lines, so every new arm pairs with its ex-2.2.21 reference in one setting alone. Ex-2.2.21 (S2)
-found they leave completion unchanged, and round 3 adds them back."""
+"""No verification lines, as in the hinge condition of ex-2.2.21. Ex-2.2.21 (S2) found they leave
+completion unchanged."""
 
 SEED_BAND_SD = ex2221.SEED_BAND_SD
 REGRESSION_TOL = ex2221.REGRESSION_TOL
@@ -73,7 +73,7 @@ axis of the projection), unchanged."""
 LAMBDA_A = 0.1
 """The anchor weight of the recipe (ex-2.2.14), before its anneal to a floor over the last tenth of training."""
 
-# --- The arms ----------------------------------------------------------------------------------------------
+# --- The conditions ----------------------------------------------------------------------------------------
 
 SLICE_SETS: dict[str, tuple[int, ...]] = {
     "all": tuple(range(N_SLICES)),
@@ -86,72 +86,83 @@ input to the readout. `middle` leaves out both."""
 
 
 def per_slice_weight(slices: str) -> float:
-    """The anchor weight that keeps the pull on each slice what it is with every slice pulled. Both terms average
-    over the slices they act on, so dropping slices at a fixed weight pulls each remaining slice harder, by
+    """The anchor weight that keeps the effective pull what it is with every slice pulled. Both terms average over
+    the slices they act on, so dropping slices at a fixed weight pulls each remaining slice harder, by
     `N_SLICES / len(slices)`: by a quarter for `no-emb` and `no-last`, and by two thirds for `middle`.
     """
     return LAMBDA_A * len(SLICE_SETS[slices]) / N_SLICES
 
 
+HINGE_CAP = ex2221.HINGE_CAP
+"""The cap of ex-2.2.21's hinge condition, the base recipe here."""
+
+
 @dataclass(frozen=True)
-class Arm:
-    """One arm: the one thing it changes from its reference, and the question it serves."""
+class Condition:
+    """One condition: its settings, and the condition it differs from in one of them."""
 
     name: str
-    group: str
-    """`slices`, `cap`, or `counts`."""
     reference: str
-    """The arm this one differs from in one setting, paired by model seed: an ex-2.2.21 arm, or a new arm of this
-    scout for the `-matched` twins of `no-last` and `middle`."""
+    """The condition this one differs from in one setting, paired by model seed: an ex-2.2.21 condition, or a new
+    condition of this scout for the `-matched` twins."""
     anchored: bool = True
     slices: str = "all"
     weight: float = LAMBDA_A
     """The anchor weight before its anneal. The anneal floor and the anti-subspace schedule scale with it."""
-    cap: float | None = None
+    cap: float | None = HINGE_CAP
     counts: tuple[int, ...] = (K,)
-    note: str = ""
 
 
 MIXED_COUNTS: tuple[int, ...] = (1, 2, 3, 4, 5)
-"""The example counts of the two count arms, one drawn uniformly per context. The mean is three, so the corpus has
+"""The example counts of the `mixed` condition, one drawn uniformly per context. The mean is three, so the corpus has
 the same number of tokens on average as the fixed-count corpus, and an epoch the same number of steps. Each count
 adds levels to the posterior on `difference` that the others lack (the report has the figure). Two whole contexts at
 five examples fit in the window of 96 tokens."""
 
-ARMS: tuple[Arm, ...] = (
-    Arm("no-last", "slices", "anchor-whole", slices="no-last", note="the last slice left out of the pull"),
-    Arm("middle", "slices", "anchor-whole", slices="middle", note="the embedding and the last slice left out"),
-    *(
-        Arm(
-            f"{s}-matched",
-            "slices",
-            f"anchor-{s}" if s == "no-emb" else s,
-            slices=s,
-            weight=per_slice_weight(s),
-            note=f"`{s}` at the weight that keeps the pull on each slice as it is with every slice pulled",
-        )
-        for s in ("no-emb", "no-last", "middle")
-    ),
-    Arm("cap-0.9", "cap", "anchor-hinge", cap=0.9, note="the whole-line pull, capped at 0.9"),
-    Arm("cap-0.95", "cap", "anchor-hinge", cap=0.95, note="the whole-line pull, capped at 0.95"),
-    Arm("control-mixed", "counts", "control", anchored=False, counts=MIXED_COUNTS, note="the control, mixed counts"),
-    Arm("cap-0.8-mixed", "counts", "anchor-hinge", cap=0.8, counts=MIXED_COUNTS, note="the hinge arm, mixed counts"),
-)
-"""Every new arm changes one setting from an ex-2.2.21 arm, except the `-matched` arms of `no-last` and `middle`,
-which change the weight from a new arm of this scout."""
+BASE = "anchor-hinge"
 
-REFERENCES: tuple[str, ...] = ("control", "anchor-whole", "anchor-no-emb", "anchor-hinge")
-"""The ex-2.2.21 runs this scout reuses, at the seeds below. The control and the whole-line arm had five seeds there;
-only the first three pair with this scout."""
+REFERENCES: tuple[Condition, ...] = (
+    Condition("control", "", anchored=False, cap=None),
+    Condition(BASE, ""),
+    Condition("anchor-whole", "", cap=None),
+    Condition("anchor-no-emb", "", slices="no-emb", cap=None),
+)
+"""The ex-2.2.21 runs this scout reuses, at the seeds below. `anchor-hinge` is the base of every new condition;
+`anchor-whole` is the uncapped end of the cap ladder, and `anchor-no-emb` the uncapped twin of `no-emb`. The control
+and `anchor-whole` had five seeds there; only the first three pair with this scout."""
+
+CONDITIONS: tuple[Condition, ...] = (
+    *(Condition(s, BASE, slices=s) for s in ("no-emb", "no-last", "middle")),
+    *(Condition(f"{s}-matched", s, slices=s, weight=per_slice_weight(s)) for s in ("no-emb", "no-last", "middle")),
+    Condition("cap-0.9", BASE, cap=0.9),
+    Condition("cap-0.95", BASE, cap=0.95),
+    Condition("mixed", BASE, counts=MIXED_COUNTS),
+)
+"""Every new condition is the hinge condition of ex-2.2.21 with one setting changed, except the `-matched` twins,
+which change the weight from a slice condition of this scout."""
 
 SEEDS = 3
 SEED_OFFSET = ex2221.SEED_OFFSET
-"""The model seeds of ex-2.2.21's three-seed arms, 700 to 702, so each new run pairs with its reference by seed.
-Seed 702 took the slow path through training on most anchored arms there, so the pairing also shows whether a
-setting changes that."""
+"""The model seeds of ex-2.2.21's three-seed conditions, 700 to 702, so each new run pairs with its reference by
+seed. Seed 702 took the slow path through training on most anchored conditions there, so the pairing also shows
+whether a setting changes that."""
 
-N_RUNS = SEEDS * len(ARMS)
+N_RUNS = SEEDS * len(CONDITIONS)
 assert N_RUNS == 27
+
+
+def settings(c: Condition) -> dict[str, object]:
+    """The settings a design table compares between a condition and its reference."""
+    return {"slices": c.slices, "weight": c.weight, "cap": c.cap, "counts": c.counts}
+
+
+def by_name(name: str) -> Condition:
+    return next(c for c in (*REFERENCES, *CONDITIONS) if c.name == name)
+
+
+for _c in CONDITIONS:
+    _diff = [k for k, v in settings(_c).items() if settings(by_name(_c.reference))[k] != v]
+    assert len(_diff) == 1, (_c.name, _diff)
 
 # --- The measurements --------------------------------------------------------------------------------------
 

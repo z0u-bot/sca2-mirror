@@ -343,9 +343,9 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `intervention`</span>
 
     <!-- mini:figures ./m2/ex-2.2.21/report.py -->
-- [2.2.22. Where the pull acts, how far it goes, and contexts of varying length](./m2/ex-2.2.22/report.py) (preregistration draft)
+- [2.2.22. Localized by depth, various pull caps, and contexts of varying length](./m2/ex-2.2.22/report.py) (preregistration draft)
 
-    A scout before round 3 of the D2.2 route, with three questions from ex-2.2.21. It retrains anchored `difference` with the pull kept off the embedding slice, the last slice, or both, each at the recipe weight and at the weight that keeps the pull on each slice as it was; with the hinge cap raised to 0.9 and 0.95; and, for the control and the hinge arm, on a corpus whose contexts have from one to five examples. It also asks whether the edit of ex-2.2.21 lands the model on the answers of an ideal predictor that no longer knows the op, which would let round 3 do without a trained fallback.
+    A scout with three questions from ex-2.2.21, each a change to the hinge condition, the best recipe so far. It retrains anchored `difference` with the pull kept off the embedding slice, the last slice, or both, each at the recipe weight and at the weight that keeps the effective pull as it was; with the cap raised to 0.9 and 0.95; and on a corpus whose contexts have from one to five examples. It also asks whether the edit of ex-2.2.21 lands the model on the answers of an ideal predictor that no longer knows the op, which would let us do without a trained fallback.
 
     <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
