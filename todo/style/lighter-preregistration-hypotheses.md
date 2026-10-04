@@ -1,5 +1,5 @@
 ---
-status: partial
+status: done
 tags: [methodology, reports, skills]
 opened: 2026-09-10
 ---
@@ -27,3 +27,5 @@ So the remaining half of this item is the cheap one: the science skill's example
 2. Give each prediction an outcome for a result outside the plan, with `Unresolved` as its verdict. The example is H3 of ex-2.2.20. Its prediction named three outcomes (the HSV-channel ops rise sooner, at the same epoch, or later), and the seeds split: later at two, sooner at one. It was scored as a miss, with the verdict "The progress of the first cycle did not carry over to them", which is more than mixed seeds support. One more line in the prediction ("if the seeds disagree about the direction, the result is outside the plan") would have produced an `Unresolved` verdict that names both readings, and the badge in the heading would have shown the uncertainty that the closing section already states.
 
 The science skill, both reviewer specs, and the skill example block (the long form, still marked outdated) change together. A scout before the preregistration (as in ex-2.2.17 to ex-2.2.19) is part of the pattern too, since it lets a prediction be written with the shape of the results already known.
+
+**2026-10-04, Claude (report-workflow PR #241)** — Done. The science skill now asks for predictions in the conditional, each with an outside-the-plan outcome scored `Unresolved`; decisions are made after the results against preregistered criteria and recorded in a `The decision` section, with hard gates kept for task cost and risk rows; and a scout before the preregistration is part of the pattern. The long-form example block is gone, replaced by ex-2.2.20 H3 rewritten with the new clause, and `references/template-prereg.py` is the skeleton to copy. Both reviewer specs check the same things. The first preregistration written from the template is the real trial.
