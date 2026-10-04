@@ -55,7 +55,7 @@ Fix what you're confident about directly, editing the report and/or the experime
 
 If you made prose edits, hand the file to the `prose-simplifier` agent, passing only the path and line range, and no other context.
 
-This is one of several rounds, and earlier rounds left their reasoning in the report as `REVIEW` notes. Grep for them first, and read the ones near anything you are about to change. They are part of the artifact, so this costs you no independence. Follow the same convention when you change a claim yourself: see the `science` skill for the format and for what to do when you find yourself wanting to reverse a recorded decision (short version: don't — report it, name both readings, and let the human resolve it).
+This is one of several rounds, and earlier rounds left their reasoning in the report as `REVIEW` notes, and the choices still waiting on the human as `Open decision` boxes. Comment on an open decision in your report, but leave the box for the human. Grep for them first, and read the ones near anything you are about to change. They are part of the artifact, so this costs you no independence. Follow the same convention when you change a claim yourself: see the `science` skill for the format and for what to do when you find yourself wanting to reverse a recorded decision (short version: don't — report it, name both readings, and let the human resolve it).
 
 Stage your changes rather than committing them.
 

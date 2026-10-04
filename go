@@ -40,10 +40,11 @@ show_help() {
 		                       outside check, run monthly by a routine: dead
 		  links   [...paths]:  relative doc links and #anchors that no longer resolve
 		                       (default: every .md we author)
-		  deps    [--audit] [--actions] [--updates]:
-		                       dependency review (default: all three) — advisories from
+		  deps    [--audit] [--actions] [--features] [--updates]:
+		                       dependency review (default: all four) — advisories from
 		                       uv audit and npm audit, Action pins against their newest
-		                       upstream tag, and upgrades available to packages we declare.
+		                       upstream tag, dev container features against the registry,
+		                       and upgrades available to packages we declare.
 		                       Read-only; the upgrade check is a --dry-run
 		  render  <report> -o FILE [-o FILE ...] [--since REF]:
 		                       weave a report (mini.lit: a .py with string prose between
