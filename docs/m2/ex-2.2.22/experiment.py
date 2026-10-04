@@ -101,7 +101,8 @@ class Arm:
     group: str
     """`slices`, `cap`, or `counts`."""
     reference: str
-    """The ex-2.2.21 arm this one differs from in one setting, paired by model seed."""
+    """The arm this one differs from in one setting, paired by model seed: an ex-2.2.21 arm, or a new arm of this
+    scout for the `-matched` twins of `no-last` and `middle`."""
     anchored: bool = True
     slices: str = "all"
     weight: float = LAMBDA_A

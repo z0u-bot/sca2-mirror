@@ -185,7 +185,7 @@ First, which slices the pull acts on. A *slice* is one of the points along the r
 
 Second, how hard the pull is. The hinge arm stops pulling once a state reaches an alignment of 0.8 with e₁, and its edit stayed within the selectivity gate; the uncapped arm just missed it. The cap of 0.8 was never searched, so two caps between 0.8 and no cap ask whether the selectivity falls off gradually.
 
-Third, how many examples a context has. Round 3 plans to test whether the anchor grades with the evidence: whether a context whose examples only partly fit `{ex.ANCHORED_OP}` sits less far along e₁ than one that fits it plainly. At three examples the posterior on `{ex.ANCHORED_OP}` takes only a few distinct values, so there is little to grade against. Varying the count from one context to the next spreads it, and training on the mix lets the model learn that contexts vary in length. That changes the recipe, so the control has to show it still gets near its ceiling.
+Third, how many examples a context has. Round 3 may test whether the anchor grades with the evidence: whether a context whose examples only partly fit `{ex.ANCHORED_OP}` sits less far along e₁ than one that fits it plainly. At three examples the posterior on `{ex.ANCHORED_OP}` takes only a few distinct values, so there is little to grade against. Varying the count from one context to the next spreads it, and training on the mix lets the model learn that contexts vary in length. That changes the recipe, so the control has to show it still gets near its ceiling.
 """
 
 # %%
@@ -197,7 +197,7 @@ Every new arm changes one setting from an ex-2.2.21 arm. The recipe is ex-2.2.21
 
 {arms_table()}
 
-**The slice arms.** `no-last` leaves out the last slice, the input to the readout. `middle` leaves out the embedding slice and the last slice, so only the three slices between them are pulled. The anchor term and the anti-subspace term both average over the slices they act on, so at a fixed weight, pulling fewer slices pulls each one harder: by a quarter for `no-emb` and `no-last`, and by two thirds for `middle`. Each `-matched` arm scales the weight down by that factor. So the plain arm and its matched twin bracket the two readings of a restriction: a change in where the anchor is, and a change in how strongly each slice is pulled. Leaving a slice out also drops the anti-subspace term there, so the states of other ops at that slice are free to sit on e₁.
+**The slice arms.** `no-last` leaves out the last slice, the input to the readout. `middle` leaves out the embedding slice and the last slice, so only the three slices between them are pulled. The anchor term and the anti-subspace term both average over the slices they act on, so at a fixed weight, pulling fewer slices pulls each one harder: by a quarter for `no-emb` and `no-last`, and by two thirds for `middle`. Each `-matched` arm scales the weight down by that factor. So the plain arm and its matched twin bracket the two readings of a restriction: a change in where the anchor is, and a change in how strongly each slice is pulled. Leaving a slice out also drops the anti-subspace term there, so the states of other ops at that slice are free to sit on e₁. No arm separates that from the anchor term, so E1 compares the two terms left out together.
 
 **The cap arms.** The whole-line pull with the hinge at a cap of 0.9 and of 0.95. With ex-2.2.21's hinge arm at 0.8 and its whole-line arm uncapped, that makes four levels.
 
@@ -205,7 +205,7 @@ Every new arm changes one setting from an ex-2.2.21 arm. The recipe is ex-2.2.21
 
 {counts_figure()}
 
-At three examples, {MID_FIXED:.0%} of `{ex.ANCHORED_OP}` contexts sit in the middle band; with the counts mixed, {MID_MIXED:.0%} do. More useful than the share is the number of distinct steps: one example puts most contexts near 0.7, two near 0.4 and 0.97, three near 0.9 and 1, and four near 0.86 and 0.99.
+At three examples, {MID_FIXED:.0%} of `{ex.ANCHORED_OP}` contexts sit in the middle band; with the counts mixed, {MID_MIXED:.0%} do. More useful than the share is the number of distinct steps: one example puts most contexts near 0.7, two near 0.4 and 0.97, three near 0.9 and 1, four near 0.86 and 0.99, and five mostly near 1.
 
 **The seeds.** The model seeds of ex-2.2.21's three-seed arms, {ex.SEED_OFFSET} to {ex.SEED_OFFSET + ex.SEEDS - 1}, so every comparison is paired by seed. In ex-2.2.21 the last of these took a slow path through training on most anchored arms, so the pairing also shows whether a setting changes that.
 """
@@ -219,14 +219,14 @@ The measurements are ex-2.2.21's, with two additions.
 
 **Task score.** Expected exact match (EEM) on held-out contexts: the probability the model puts on the right answer under the true op. Each run is compared with the control at the same seed. For the count arms it is reported at each count, beside the Bayes ceiling at that count (the score of an ideal predictor that weighs every op by how well it fits the examples).
 
-**Where the anchor sits.** The alignment of the state with e₁ (their cosine) by role and slice, on `{ex.ANCHORED_OP}` contexts and on the others, and the op margin: how far `{ex.ANCHORED_OP}` contexts sit along e₁ beyond the rest. The anchor term asks for this, so it checks that the pull landed and tests nothing.
+**Where the anchor sits.** The alignment of the state with e₁ (their cosine) by role and slice, on `{ex.ANCHORED_OP}` contexts and on the others, and the op margin: how far `{ex.ANCHORED_OP}` contexts sit along e₁ beyond the rest. Ex-2.2.21 measured the margin at the last slice, which `no-last` and `middle` leave unpulled, so here it is measured at every slice and summarized as the mean over all five, for every arm alike. The anchor term asks for this, so it checks that the pull landed and tests nothing.
 
 **The edit.** The projection at every position, at doses γ = {", ".join(f"{g:g}" for g in ex.DOSE_GAMMAS)} (the share of the e₁ component removed). Ex-2.2.21 (E2) set two criteria: the drop on `{ex.ANCHORED_OP}` grows with the dose and reaches at least {ex.GRADING_MIN_DAMAGE:.0%} of the way to the target null at full dose, and no other op drops by more than {ex.SELECTIVITY_GATE:g} at any dose (net of the control under the same edit). Beside the two criteria, the *selective reach*: how far toward the target null the strongest dose that stays within the gate goes.
 
 **Landing (new).** The *target null* is the answer distribution of an ideal predictor that has lost `{ex.ANCHORED_OP}` and nothing else: it weighs the other ops by how well they fit the examples. For each held-out `{ex.ANCHORED_OP}` context, we take the KL divergence KL(target null ‖ model) of the model's answer distribution from the target null, on the clean model and under the full edit. (KL divergence measures how much one probability distribution differs from another; it is zero when they match.) Only this direction is finite: the target null puts no weight on colors that no remaining op gives, and the model puts some weight on every color.
-<!-- REVIEW: fixed the KL direction to KL(null ‖ model); the target null (sca.data.incontext.target_null) has sparse support over colors, so the reverse direction is infinite for almost every context. Verify: if the null is smoothed in the implementation, either direction is defined and this can be revisited. --> The share of the clean gap the edit closes is the landing. We also compare runs with one another: the Jensen-Shannon divergence between the answer distributions of each pair of seeds, a symmetric version of the KL divergence, under the edit and on the clean model.
+The landing is the share of the clean gap the edit closes, taken as a ratio of means over contexts: one less the mean edited divergence over the mean clean divergence. A mean of per-context shares would be dominated by the contexts the clean model already answers like the target null. We also compare runs with one another: the Jensen-Shannon divergence between the answer distributions of each pair of seeds, a symmetric version of the KL divergence, under the edit and on the clean model.
 
-**Grading (new).** At the answer of each example in a `{ex.ANCHORED_OP}` context, the alignment against the posterior on `{ex.ANCHORED_OP}` given the examples up to and including that answer. Every context gives several points this way, one per example, so even the fixed-count corpus has some spread; the mixed counts add more.
+**Grading (new).** At the answer of each example in a `{ex.ANCHORED_OP}` context, the alignment against the posterior on `{ex.ANCHORED_OP}` given the examples up to and including that answer (an answer is one color token). Every context gives several points this way, one per example, so even the fixed-count corpus has some spread; the mixed counts add more.
 """
 
 # %%
@@ -246,7 +246,7 @@ A table of the four measures for each slice arm and its reference, seed means wi
 r"""
 ## How far the pull goes (E2)
 
-The same four measures over the four caps: 0.8 (ex-2.2.21's hinge arm), 0.9, 0.95, and no cap (ex-2.2.21's whole-line arm). If the selectivity falls off gradually with the cap, a cap near where it crosses the gate gives the most anchor that still edits cleanly. If it drops at one cap, the step is where to stop.
+The same four measures over the four caps: 0.8 (ex-2.2.21's hinge arm), 0.9, 0.95, and no cap (ex-2.2.21's whole-line arm). If the selectivity falls off gradually with the cap, a cap near where it crosses the gate gives the most anchor that still edits cleanly. If it drops at one cap, the step is where to stop. At three seeds a gradual fall smaller than the seed range would look flat, and the uncapped arm only just missed the gate in ex-2.2.21, so a flat result would say the cap matters less than the seeds vary.
 
 /// admonition | TODO
 The worst other op at full dose, the selective reach, the op margin, and the task score net of the control, each against the cap, with seeds as points and the seed mean as a line.
@@ -284,16 +284,22 @@ The seed-mean alignment at the example answers against the posterior on `differe
 rf"""
 ## The edit lands on the target null (H2)
 
-**What we expect.** In ex-2.2.21, after the fact, the edited hinge arm answered `{ex.ANCHORED_OP}` contexts about as the target null does. If that holds, round 3 can skip training a designed fallback, since the anchor alone gives the edit a predictable destination. We score it on the hinge arm, three seeds from ex-2.2.21's stored runs, since it is the arm round 3 is most likely to build on, and report every other arm beside it.
+**What we expect.** In ex-2.2.21, after the fact, the edited hinge arm answered `{ex.ANCHORED_OP}` contexts about as the target null does. If that holds, round 3 would not need to train a designed fallback, since the anchor alone gives the edit a predictable destination. We score it on the hinge arm, three seeds from ex-2.2.21's stored runs, since it is the arm round 3 is most likely to build on, and report every other arm beside it.
 
 Two criteria, both at full dose with the edit at every position, on held-out `{ex.ANCHORED_OP}` contexts:
-**(a)** the edit closes at least {ex.LANDING_FRACTION:.0%} of the KL divergence from the target null that the clean model has, on average over contexts, in every seed;
+**(a)** the edit closes at least {ex.LANDING_FRACTION:.0%} of the KL divergence from the target null that the clean model has, as a ratio of means over contexts, in every seed;
 **(b)** the edited runs agree with one another about as well as the clean runs do: their mean pairwise Jensen-Shannon divergence is at most {ex.SEED_AGREEMENT_RATIO:g} times that of the clean runs.
 
-Both would be a pass, one a partial pass, and neither a miss. If (a) holds in some seeds and not others, the result would be outside the plan, and the verdict would be Unresolved.
+Both would be a pass, one a partial pass, and neither a miss, where (a) holds only if it holds in every seed and fails only if it fails in every seed. If it holds in some seeds and not others, the result would be outside the plan, and the verdict would be Unresolved.
 
 /// admonition | Open decision
-The two thresholds are first guesses. The {ex.LANDING_FRACTION:.0%} in (a) is stricter than ex-2.2.21's criterion of half the way, measured in EEM, since this one is about where the answers land and not only how much of the op is gone. The alternative is to measure (a) in EEM as well, at a higher bar. To check: whether ex-2.2.21's post hoc matrices for the hinge arm suggest a KL closure near either value.
+Three things to settle before the freeze.
+
+**Which runs H2 scores.** The prediction came from looking at ex-2.2.21's hinge runs, and scoring those same runs would show little. Three more hinge runs at fresh seeds (about $0.40) would give H2 runs it has never seen; the cap and mixed-count arms each change one setting, so they are less clean as a test. Proposed: add the replicate and score H2 on it, with the stored runs beside it.
+
+**Criterion (b).** The clean runs sit near the Bayes ceiling, so they agree closely, and a ratio over a divergence near zero can fail on tiny absolute differences, or swing from one pair of seeds to the next (three seeds make three pairs). Options: add an absolute floor below which (b) passes whatever the ratio; or drop (b), since (a) already says how close each run lands to one shared destination.
+
+**The thresholds.** {ex.LANDING_FRACTION:.0%} in (a) is stricter than ex-2.2.21's half the way in EEM, since this criterion is about where the answers land and not only how much of the op is gone. To check: whether ex-2.2.21's post hoc matrices for the hinge arm suggest a closure near that value.
 ///
 
 /// admonition | TODO
