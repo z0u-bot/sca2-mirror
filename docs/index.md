@@ -343,6 +343,11 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `intervention`</span>
 
     <!-- mini:figures ./m2/ex-2.2.21/report.py -->
+- [2.2.22. Where the pull acts, how far it goes, and contexts of varying length](./m2/ex-2.2.22/report.py) (preregistration draft)
+
+    A scout before round 3 of the D2.2 route, with three questions from ex-2.2.21. It retrains anchored `difference` with the pull kept off the embedding slice, the last slice, or both, each at the recipe weight and at the weight that keeps the pull on each slice as it was; with the hinge cap raised to 0.9 and 0.95; and, for the control and the hinge arm, on a corpus whose contexts have from one to five examples. It also asks whether the edit of ex-2.2.21 lands the model on the answers of an ideal predictor that no longer knows the op, which would let round 3 do without a trained fallback.
+
+    <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
 - [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
 
     A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
