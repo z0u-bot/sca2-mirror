@@ -72,7 +72,8 @@ class _Site:
         self.out = out
         self.version = 0
         self.changed = threading.Condition()
-        self.lock = threading.Lock()
+        # Reentrant, so a caller can hold it across a check and the publish that depends on it.
+        self.lock = threading.RLock()
 
     def publish(self, html_for: Callable[[str], str], markdown: str | None = None) -> None:
         """Write the page *html_for* builds around the reload script for the next version, then bump."""
@@ -193,11 +194,14 @@ class _Builder:
         self._timer.start()
 
     def _publish_partial(self, woven: Woven) -> None:
+        # Check and publish under one hold of the lock: released in between, the build
+        # could finish and publish the final page in the gap, and this partial would then
+        # replace it.
         with self.site.lock:
             if not self._live:  # the build finished first
                 return
+            self.site.publish(lambda reload: compose(woven, extra_body=reload)[0])
         cell = woven.running
-        self.site.publish(lambda reload: compose(woven, extra_body=reload)[0])
         print(
             f"{self.doc.name}: running the cell at line {cell.line if cell else '?'}, page shows the rest", flush=True
         )
