@@ -1,8 +1,6 @@
 # Exemplar: an explanation
 
-From the companion notes written for Sandy during ex-2.2.21, answering questions from the margins of a preview draft. Sandy singled out these two pages as the register reports should have: "I wish our reports read more like this." Sandy's own margin notes on them were "Interesting", "Nice, that fits my understanding", and, beside the paragraph about where an edit can work, "most transferable to other domains".
-
-It is a reply to a reader and not a report, so it has no verdicts or figures. What carries over is how it explains. The notes after each passage name the moves.
+From the companion notes written during ex-2.2.21, answering questions from the margins of a preview draft. It is a reply to a reader and not a report, so it has no verdicts or figures.
 
 ## The text
 

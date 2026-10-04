@@ -8,7 +8,7 @@ description: |
 
 Design the experiment with the human, and draft the report skeleton before writing any experiment code. The skeleton doubles as the analysis plan: writing it before the data exists lets a later "we predicted X and found Y" carry weight, because the prediction is verifiably older than the result.
 
-The skeleton is usually a text-only report, copied from [references/template-prereg.py](references/template-prereg.py). Findings come first and method last, so a reader meets evidence early and nothing is stated twice. It runs: the tl;dr; `Findings`, an index of the hypotheses with the verdicts blank; a "How to read this report" note; `Why this experiment`, which starts from a picture of what the model does and lets the question follow from it, recapping earlier experiments by what they showed and without their numbers (about 250 words); the runs and the measurements, which are all a reader needs to parse a result; one section per hypothesis, each opening with its frozen prediction and followed by a placeholder for its evidence and verdict; one section per planned exploratory analysis (E1, E2, ...), placed among the hypotheses in reading order; `The decision`, if the experiment chooses something; `Discussion`; and then the method.
+The skeleton is usually a text-only report, copied from [references/template-prereg.py](references/template-prereg.py). Findings come first and method last, so a reader meets evidence early and nothing is stated twice. It runs: the lede; `Findings`, an index of the hypotheses with the verdicts blank; a "How to read this report" note; `Why this experiment`, which starts from a picture of what the model does and lets the question follow from it, recapping earlier experiments by what they showed and without their numbers (about 250 words); the runs and the measurements, which are all a reader needs to parse a result; one section per hypothesis, each opening with its frozen prediction and followed by a placeholder for its evidence and verdict; one section per planned exploratory analysis (E1, E2, ...), placed among the hypotheses in reading order; `Decision`, if the experiment chooses something; `Discussion`; and then the method.
 
 For the register, read [references/exemplar-ex-2.2.18.md](references/exemplar-ex-2.2.18.md) (a scout report, with notes on what review changed) and [references/exemplar-explanation.md](references/exemplar-explanation.md) (how to explain a mechanism) before drafting.
 
@@ -18,7 +18,7 @@ Conventions:
 - Almost always, tabular data should be accompanied by a figure. Tables look like a wall of text to a human; charts are easier to interpret.
 - Hypotheses are falsifiable and plainly worded. Each is an expectation a colleague could restate from memory: what we expect to see, the one number we will look at, and what would change our mind. Write it in the conditional ("a shortfall under 0.015 would be a pass"), since it describes outcomes that haven't happened yet. Precision in the wording does not buy correctness in the design, and the trial-protocol register has cost days per experiment without catching the misses that mattered.
 - Each prediction says what result would fall outside its plan, and that such a result gets the verdict `Unresolved`. The usual case is seeds that disagree about the direction. Ex-2.2.20 H3 predicted the HSV ops would rise sooner, and the seeds split (later at two, sooner at one); without that clause it was scored a miss, with a verdict stronger than mixed seeds support. An `Unresolved` verdict names both readings.
-- Preregister the predictions and the criteria a decision will weigh, and make the decision after the results, with the human. Record it in `The decision` as a choice, with every criterion reported for every candidate, and confirm what it adopts at fresh seeds before quoting it as a result (the winner's curse; see Surveys). Frozen rules that adopted a point on their own have had to be broken or amended after the fact in ex-2.2.3, ex-2.2.8, ex-2.2.11, and ex-2.2.19. Hard gates stay where a "no" has to hold whatever the data look like: task cost and risk rows.
+- Preregister the predictions and the criteria a decision will weigh, and make the decision after the results, with the human. Record it in `Decision` as a choice, with every criterion reported for every candidate, and confirm what it adopts at fresh seeds before quoting it as a result (the winner's curse; see Surveys). Frozen rules that adopted a point on their own have had to be broken or amended after the fact in ex-2.2.3, ex-2.2.8, ex-2.2.11, and ex-2.2.19. Hard gates stay where a "no" has to hold whatever the data look like: task cost and risk rows.
 - A scout before the preregistration (as ex-2.2.18 was before ex-2.2.20) lets a prediction be written with the shape of the results already known. Use [references/template-scout.py](references/template-scout.py); its findings are Observations, with no gate.
 - A result section reads as expectation, then what we saw, then what we make of it. Label the two openings `**What we expect.**` and `**What we saw.**`, so a frozen prediction is never mistaken for an outcome, and close the section with a verdict admonition (`/// admonition | Pass`, or `Miss`, `Partial`, `Unresolved`; `Decided` for an S section, whose rule picks among options rather than passing or missing) carrying the one-line verdict: the site hoists that title into the heading as a badge, so a reader meets the outcome with the question. The gate arithmetic goes in a `details` block or the method.
 - Sections carry a short label in their heading, and `Findings` and cross-references use it: H*n* for a hypothesis, S*n* for a preregistered procedure with no prediction of its own (a scout whose frozen rule picks what a later stage confirms), and E*n* for an exploratory analysis, usually post hoc.
@@ -75,7 +75,7 @@ Same skeleton, with three differences.
 - The search plan is one `## Search plan` block, where a scored report's first result section would sit, since there are no hypotheses to spread over sections.
 - `### Conditions` becomes the space specification plus the full trial table. This is the convention that has to bend: elsewhere the report imports hand-justified condition dicts and renders them as prose, which is why there's no generic grid builder, and a hundred trials can't each carry a docstring. So the justification attaches to the dimension rather than the level, and the trial table is generated from stored results.
 
-Say "survey" in the first clause of the tl;dr and label it the same way in `docs/index.md`. Numbering stays in the `ex-2.1.N` sequence.
+Say "survey" in the first clause of the lede and label it the same way in `docs/index.md`. Numbering stays in the `ex-2.1.N` sequence.
 
 `docs/ngpt-scaling/report.py` is the closest existing example — a width × depth grid, no hypotheses, and a conclusion about whether the region is safe to build on. A survey is that plus the frozen search plan, which a 3 × 3 didn't need.
 
@@ -103,7 +103,7 @@ Neither pass will make a report much shorter. Length comes off at the structural
 
 The publishing mechanics — exporting the report as a bundle, wiring result refs, verifying the render — are a separate concern, covered by the `mi-ni` skill.
 
-### The tl;dr
+### The lede (tl;dr)
 
 A report opens with one, directly under the title and above the intro prose:
 
@@ -111,18 +111,18 @@ A report opens with one, directly under the title and above the intro prose:
 # Ex 2.2.18: dropping ops with similar answers
 
 /// tip |
-<!-- tl;dr -->
+<!-- lede -->
 Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs, and it left the ceiling where it was and narrowed the gap by less.
 ///
 ```
 
 Two or three sentences: what we tried, and which way it came out, with the verdict sentence inside the box. It orients someone deciding whether to read on, so keep numbers, hypothesis IDs, thresholds, and caveats out of it. Whatever else the opening has to say (what moved, what did not, where the recipe lands) goes in a normal paragraph directly under the box, and the analysis sections and the discussion carry the full accounting. Left to itself this box grows into a second conclusion; if a sentence in it would also belong in the discussion, cut it.
 
-The title is empty (`/// tip |`) so the box reads as a lede rather than a labelled aside, and the `<!-- tl;dr -->` comment keeps the marker greppable. In a preregistration draft, write the "what we tried" half and leave the outcome line for later.
+The title is empty (`/// tip |`) so the box reads as a lede rather than a labelled aside, and the `<!-- lede -->` comment keeps the marker greppable (older reports have `<!-- tl;dr -->`). In a preregistration draft, write the "what we tried" half and leave the outcome line for later.
 
 ### Findings
 
-Directly under the tl;dr, and above the intro prose. Every preregistered hypothesis and its verdict, in bold, with a sentence on what happened. Give the deciding number only where a word can't say it. Under 200 words:
+Directly under the lede, and above the intro prose. Every preregistered hypothesis and its verdict, in bold, with a sentence on what happened. Give the deciding number only where a word can't say it. Under 200 words:
 
 ```md
 ## Findings
@@ -131,7 +131,7 @@ Directly under the tl;dr, and above the intro prose. Every preregistered hypothe
 - [The head start beats the plain schedule (H2)](#the-head-start-beats-the-plain-schedule-h2) — **miss**. The head start scores above the plain 200-epoch run in one of the three seeds, but below it on average.
 ```
 
-The tl;dr says which way it came out; this says what happened, in words that could be read aloud to a colleague. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
+The lede says which way it came out; this says what happened, in words that could be read aloud to a colleague. A reader who stops here should be able to tell that three of four hypotheses missed, without reading a discussion to find out. Without it, a reader gets nothing until they have read the whole report.
 
 Verdicts only. Interpretation, mechanism, and whether an outcome was named in advance belong to the analysis sections. Link each line to its section, so this doubles as the report's index. In a preregistration draft it is only that: one line per hypothesis, ID and short name linking to the section, verdict blank. That is where a reviewer sees every prediction in one place, and writing the verdicts in is the first thing to do when results land.
 

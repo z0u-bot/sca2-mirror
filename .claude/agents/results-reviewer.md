@@ -15,7 +15,7 @@ Whether the experiment was worth running is settled; don't reopen it. The questi
 
 ## Do the results answer the preregistered question
 
-- Where the experiment chose something (an operating point, a schedule), `The decision` reports every preregistered criterion for every candidate, records the choice as made with the human, and does not quote the chosen value as a confirmed result before fresh seeds confirm it.
+- Where the experiment chose something (an operating point, a schedule), `Decision` reports every preregistered criterion for every candidate, records the choice as made with the human, and does not quote the chosen value as a confirmed result before fresh seeds confirm it.
 - Every hypothesis in scope is scored, with the measured number, its threshold, and an explicit verdict. A hypothesis that quietly went missing — no analysis section, no verdict, and no acknowledgement that it is still open — is the most common and most serious problem here.
 - The verdict follows from the number, including the partial and the boring cases. Watch for a threshold that moved after the data arrived, a "directional support" reading of a result that missed its bar, or a hypothesis restated more weakly than it was frozen. A result the prediction named as outside its plan (seeds that disagree about the direction, say) is `Unresolved` and names both readings; scoring it as a miss claims more than the data show.
 - Anything conceived after seeing the data sits under "Exploratory analyses" and is marked post hoc. A post-hoc reading presented in the primary analysis section spends credibility the preregistration earned.

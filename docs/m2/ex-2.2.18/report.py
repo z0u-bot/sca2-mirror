@@ -392,11 +392,11 @@ def names(sets: Sequence[str]) -> str:
 
 
 rf"""
-# Ex 2.2.18: dropping ops with similar answers
+# Ex 2.2.18: Dropping ops with similar answers
 
 /// tip |
-<!-- tl;dr -->
-Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs, and it left the ceiling where it was and narrowed the gap by less.
+<!-- lede -->
+Dropping `screen`, `multiply`, `hsvmix`, and `exclusion` together made the in-context grammar easier to solve, and the model got closer to what is solvable than in any run so far. Most of that came from dropping ops whose answers round at random. Dropping `lighten` and `darken` in place of `screen` and `multiply` breaks the same pairs; it left the ceiling where it was but narrowed the gap by less.
 ///
 
 In ex-2.2.17, the center control kept part of its probability mass on the answers of a similar op, even on contexts where the examples should have made the op unambiguous. Four pairs of ops stood out: `lighten` with `screen`, `darken` with `multiply`, `mix` with `hsvmix`, and `difference` with `exclusion`. This scout drops one op from each pair, first one at a time and then all four together. A second round drops the other op of the first two pairs: `lighten` alone, `darken` alone, and both of them in place of `screen` and `multiply` in the four-op drop. Each op set trains with the ex-2.2.17 recipe once (a single seed).
@@ -407,10 +407,10 @@ Dropping ops changes the task, so every op set has its own Bayes ceiling and flo
 
 Each item below is a measurement on the runs of this scout, with no gate.
 
-- **E1.** [Scores against each ceiling](#scores-against-each-ceiling-e1): dropping `lighten` or `darken` lowered the ceiling, and dropping any of the other four raised it. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far. The second four-op drop came within {gap(LD):.3f}.
-- **E2.** [The HSV ops](#the-hsv-ops-e2): {WORDS[len(HSV_SHORT)]} of the {WORDS[len(SINGLES)]} single drops fell short on the three HSV ops, and the {WORDS[len(NO_HSVMIX)]} runs without `hsvmix` learned those ops earlier than the others did.
-- **E3.** [The leak onto a dropped op](#the-leak-onto-a-dropped-op-e3): on contexts of a partner op, the mass the model put on the answers of the dropped op mostly went away with it.
-- **E4.** [Training time](#training-time-e4): every run reached 95% of its final skill by {max(steps_to(s, 0.95) for s in SETS) / STEPS:.0%} of the way through training, and the last fifth of training added little.
+- [Scores against each ceiling (E1)](#scores-against-each-ceiling-e1): dropping `lighten` or `darken` lowered the ceiling, and dropping any of the other four raised it. Without `screen`, `multiply`, `hsvmix`, and `exclusion`, the model came within {gap(FOUR):.3f} of its ceiling, closer than any run so far. The second four-op drop came within {gap(LD):.3f}.
+- [The HSV ops (E2)](#the-hsv-ops-e2): {WORDS[len(HSV_SHORT)]} of the {WORDS[len(SINGLES)]} single drops fell short on the three HSV ops, and the {WORDS[len(NO_HSVMIX)]} runs without `hsvmix` learned those ops earlier than the others did.
+- [The leak onto a dropped op (E3)](#the-leak-onto-a-dropped-op-e3): on contexts of a partner op, the mass the model put on the answers of the dropped op mostly went away with it.
+- [Training time (E4)](#training-time-e4): every run reached 95% of its final skill by {max(steps_to(s, 0.95) for s in SETS) / STEPS:.0%} of the way through training, and the last fifth of training added little.
 
 ## Scope
 
@@ -422,7 +422,7 @@ The in-context grammar asks the model to infer the op from three examples, and s
 
 It may matter which op of a pair is dropped, too. `lighten`, `darken`, and `difference` give one answer for each pair of operands, while their partners round each channel at random between grid levels, so their answers are spread over a few colors. Dropping an op with spread-out answers raises the ceiling whether or not similarity matters. Dropping its partner instead breaks up the same pair without raising the ceiling, so comparing the two tells the effect of similarity apart from the effect of rounding.
 
-## The runs
+## Parameters
 
 Every run uses the recipe that ex-2.2.17 settled on: the unanchored d64-L4 model with an untied readout and the newline mask, a cosine schedule at a peak learning rate of {ex.PEAK_LR:g} after a warm-up of {ex.WARMUP_EPOCHS:g} epochs, for {ex.EPOCHS} epochs ({STEPS:,.0f} steps). The corpus condition is `k3-r0.3`, three examples and a replacement rate of 0.3, with {ex.ex2216.N_LINES:,} contexts. Each op set gets its own corpus, holdout, and probe set, drawn from its own ops.
 
@@ -448,7 +448,7 @@ table_html(
 
 r"""
 
-## The measurements
+## Measurements
 
 Held-out *expected exact match* (EEM) is the probability that an answer drawn from the distribution of the model at the query `=` is a correct answer of the true op. The *Bayes ceiling* is the same score for an ideal predictor, which weighs each op by how well it explains the examples and answers with the resulting mixture. The *floor* is the score of a predictor that ignores the examples. Both are computed for each op set on its own ops, as in ex-2.2.16.
 

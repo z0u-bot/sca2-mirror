@@ -593,10 +593,10 @@ COST = len(ex.SECOND_PEAKS) * len(ex.SEEDS) * ex.cost_per_run(E)
 
 rf"""
 
-# Ex 2.2.20: a high-rate head start before the recipe schedule
+# Ex 2.2.20: A high-rate head start before the recipe schedule
 
 /// tip |
-<!-- tl;dr -->
+<!-- lede -->
 We train the seven-op set for 200 epochs on a schedule of two cycles: a short one at a high learning rate, then the recipe schedule for the rest of the run. A second condition lowers the peak of the second cycle. Does either keep more of the skill of the 400-epoch recipe than a plain 200-epoch run? Neither did, so we keep the plain schedule.
 ///
 
@@ -622,7 +622,7 @@ A short run at a high rate gets a long way quickly. The 50-epoch run of ex-2.2.1
 
 So we try both in one run: {HS} epochs on the schedule of that short run, then {E - HS} epochs on the recipe schedule from where it leaves off. If the second cycle builds on the first, the run should end closer to the 400-epoch runs than a plain 200-epoch run does, at the same cost.
 
-## The runs
+## Parameters
 
 Each run follows the {E}-epoch recipe of ex-2.2.19 with a different learning-rate schedule. The first cycle warms up over {ex.WARMUP_EPOCHS:g} epochs to {ex.HI_LR:g} and follows a cosine down to 1% of {ex.LO_LR:g} at epoch {HS}. The second warms up from there over {ex.WARMUP_EPOCHS:g} epochs to {ex.LO_LR:g}, and follows a cosine down to 1% of that at epoch {E}.
 
