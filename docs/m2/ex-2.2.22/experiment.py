@@ -174,13 +174,14 @@ for _c in CONDITIONS:
 
 # --- The measurements --------------------------------------------------------------------------------------
 
-LANDING_FRACTION = 0.75
+LANDING_FRACTION = 0.5
 """H2: at full dose, the edit at every position closes at least this share of the clean model's distance from the
-target null, in total variation, as a ratio of means over held-out `difference` contexts. Proposed; the report has the
-check against ex-2.2.21."""
+target null, in total variation, as a ratio of means over held-out `difference` contexts. The same share as the edit
+criterion (`GRADING_MIN_DAMAGE`), on the same clean-to-null scale."""
+assert LANDING_FRACTION == GRADING_MIN_DAMAGE
 
 GRADING_SITES: tuple[str, ...] = ("example answers", "query answer")
-"""E3: the roles where the alignment is compared with the posterior on `difference` given the pairs up to and
+"""E3: the roles where α (the alignment) is compared with the posterior on `difference` given the pairs up to and
 including that answer. The example answers are where ex-2.2.21 (E1) found the anchor; at the query answer the state
 already holds the answer, so its posterior counts the query pair too, and there ex-2.2.21 found the alignment climbing
 with depth."""
