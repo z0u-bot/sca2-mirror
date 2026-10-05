@@ -1,13 +1,22 @@
 # title: Ex 2.2.22: localized by depth, various pull caps, and contexts of varying length
 
 # The design constants come from `experiment.py` beside this script (the directory of the script is on sys.path
-# while it runs). This is the preregistration draft: the only computed figure is the posterior on the anchored op at
-# each example count, from the seven-op table alone.
+# while it runs). The figure in Parameters computes the posterior on the anchored op at each example count from the
+# seven-op table alone; the result sections read this experiment's published eval, suppression pass, by-count pass,
+# and trajectories, and ex-2.2.21's trajectories for the runs reused from it.
+import json
+import tempfile
+from collections.abc import Sequence
+from pathlib import Path
+from typing import Any
+
 import matplotlib.pyplot as plt
 import numpy as np
 
 import experiment as ex
+from matplotlib.axes import Axes
 from mini.lit import memo
+from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
 
 P = ex.ex2216._POSTERIOR_MODULE
@@ -164,6 +173,1400 @@ def counts_draw(post: dict[int, np.ndarray], pooled: np.ndarray, alt_text: str) 
     return _plot()
 
 
+# --- The results: fetching ----------------------------------------------------------------------------------
+
+
+def fetch(refs: Sequence[str], into: Path) -> dict[str, Path | None]:
+    """Each ref's published file under *into*, or None before it exists: one `get_refs` and one `get_many`."""
+    store = project_store()
+    have = {r: a for r, a in store.get_refs(list(refs)).items() if a is not None}
+    paths = store.get_many([(a, into / f"{i}-{Path(r).name}") for i, (r, a) in enumerate(have.items())])
+    return dict.fromkeys(refs) | dict(zip(have, paths, strict=True))
+
+
+def read_json(path: Path | None) -> dict:
+    assert path is not None, "not published yet"
+    return json.loads(path.read_text())
+
+
+SUPP_KEEP = ("op_ids", "posterior", "query_pair", "p_clean", "p_full")
+# The per-context arrays of the suppression pass that the confusion matrices of H2 read.
+
+with tempfile.TemporaryDirectory() as _tmp:
+    _json_refs = [ex.EVAL_REF, ex.SUPPRESSION_REF, ex.BY_COUNT_REF, ex.TRAJ_REF, ex.ex2221.TRAJ_REF]
+    _files = fetch(_json_refs, Path(_tmp))
+    EVAL, SUPP, BY_COUNT, TRAJ_NEW, TRAJ21 = (read_json(_files[r]) for r in _json_refs)
+    _array_refs = {
+        **{
+            ex.SUPPRESSION_ARRAYS_REF.format(label=r["label"]): ("supp", r["label"])
+            for r in SUPP["runs"]
+            if r["condition"] == ex.BASE and r["replicate"]
+        },
+        **{ex.BY_COUNT_ARRAYS_REF.format(label=r["label"]): ("count", r["label"]) for r in BY_COUNT["runs"]},
+    }
+    _files = fetch(list(_array_refs), Path(_tmp))
+    SUPP_ARRAYS: dict[str, dict[str, np.ndarray]] = {}
+    COUNT_ARRAYS: dict[str, dict[str, np.ndarray]] = {}
+    for _ref, (_kind, _lbl) in _array_refs.items():
+        _f = _files[_ref]
+        assert _f is not None, f"{_ref} is not published"
+        with np.load(_f) as _z:
+            if _kind == "supp":
+                SUPP_ARRAYS[_lbl] = {k: _z[k] for k in SUPP_KEEP}
+            else:
+                # Only the `difference` contexts are read for E3, so the alignment arrays keep only those.
+                COUNT_ARRAYS[_lbl] = {k: _z[k] for k in _z.files}
+
+# --- The results: shared helpers ----------------------------------------------------------------------------
+
+OPS: tuple[str, ...] = tuple(EVAL["runs"][0]["ops"])
+assert OPS == tuple(ex.OP_NAMES)
+D = OPS.index(ex.ANCHORED_OP)
+SLOW = ex.SEED_OFFSET + 2
+# Model seed 702, which took the slow path through training on most anchored conditions of ex-2.2.21.
+PAIRED = tuple(range(ex.SEED_OFFSET, ex.SEED_OFFSET + ex.SEEDS))
+SLICES = tuple(range(ex.N_SLICES))
+CONTROL = "control"
+WHOLE = "anchor-whole"
+NO_EMB_UNCAPPED = "anchor-no-emb"
+SLICE_GROUPS = {s: (s, f"{s}-matched") for s in ("no-emb", "no-last", "middle")}
+CAP_LADDER = {ex.HINGE_CAP: ex.BASE, 0.9: "cap-0.9", 0.95: "cap-0.95", None: WHOLE}
+ANCHORED = [c.name for c in (*ex.REFERENCES, *ex.CONDITIONS) if c.anchored]
+ALL_CONDITIONS = [CONTROL, *ANCHORED]
+
+
+def short(name: str) -> str:
+    """The name a figure or table gives a condition."""
+    return {ex.BASE: "hinge", WHOLE: "whole-line", NO_EMB_UNCAPPED: "no-emb, no cap"}.get(name, name)
+
+
+def runs(records: list[dict], cond: str, *, replicate: bool = False) -> list[dict]:
+    """The runs of one condition, in model-seed order; the replicate runs of `anchor-hinge` only on request."""
+    got = [r for r in records if r["condition"] == cond and bool(r["replicate"]) == replicate]
+    return sorted(got, key=lambda r: r["model_seed"])
+
+
+def paired(records: list[dict], cond: str) -> list[dict]:
+    """The runs of one condition at the paired model seeds, 700 to 702."""
+    return [r for r in runs(records, cond) if r["model_seed"] in PAIRED]
+
+
+def eem(r: dict) -> float:
+    return r["task"]["eem"]["all"]
+
+
+CONTROL_EEM = {r["model_seed"]: eem(r) for r in runs(EVAL["runs"], CONTROL)}
+
+
+def net_eem(cond: str) -> np.ndarray:
+    """Held-out EEM less the control's at the same model seed, at the paired seeds."""
+    return np.array([eem(r) - CONTROL_EEM[r["model_seed"]] for r in paired(EVAL["runs"], cond)])
+
+
+def band(x: np.ndarray, y: np.ndarray) -> float:
+    """The seed band between two conditions, with the seed standard deviation pooled over the two."""
+    n1, n2 = len(x), len(y)
+    var = ((n1 - 1) * np.var(x, ddof=1) + (n2 - 1) * np.var(y, ddof=1)) / (n1 + n2 - 2)
+    return float(ex.SEED_BAND_SD * np.sqrt(var) * np.sqrt(1 / n1 + 1 / n2))
+
+
+def span(values, fmt: str = ".3f") -> str:
+    return f"{min(values):{fmt}} to {max(values):{fmt}}"
+
+
+def bold_if(ok, text: str) -> str:
+    return f"<b>{text}</b>" if bool(ok) else text
+
+
+def rule_color() -> str:
+    return light_dark("#333", "#ddd")
+
+
+def gate_line(ax: Axes, y: float, *, fail: str, xs: tuple[float, float] | None = None, ls: str = "--") -> None:
+    """A gate rule with its failing side hatched; across the panel, or over the x-range *xs* only."""
+    ink = rule_color()
+    lo, hi = ax.get_ylim()
+    band_ = (lo, y) if fail == "below" else (y, hi)
+    edge = light_dark("#000", "#fff")
+    if xs is None:
+        ax.axhline(y, color=ink, lw=0.9, ls=ls, zorder=2)
+        ax.axhspan(*band_, facecolor="none", edgecolor=edge, hatch="//", lw=0, zorder=0, alpha=0.1)
+    else:
+        ax.plot(xs, [y, y], color=ink, lw=0.9, ls=ls, zorder=2)
+        ax.fill_between(xs, *band_, facecolor="none", edgecolor=edge, hatch="//", lw=0, zorder=0, alpha=0.1)
+    ax.set_ylim(lo, hi)
+
+
+def dots(
+    ax: Axes, x: float, v, color, *, rng, ms: float = 5.0, slow: int | None = None, centre: float | None = None
+) -> None:
+    """One column of per-seed dots with the seed mean on top (or *centre*, where given); a thin bar behind spans the
+    seed range. With *slow*, the dot at that index is drawn as a ring.
+    """
+    v = np.asarray(v, float)
+    ax.plot([x, x], [v.min(), v.max()], "-", color=color, lw=1.0, alpha=0.5, zorder=2, solid_capstyle="butt")
+    jitter = x + rng.uniform(-0.08, 0.08, len(v))
+    for i, (jx, y) in enumerate(zip(jitter, v, strict=True)):
+        ring = i == slow
+        ax.plot(
+            jx,
+            y,
+            "o",
+            ms=3.4 if ring else 2.6,
+            color=color,
+            alpha=0.8 if ring else 0.55,
+            zorder=3,
+            mfc="none" if ring else color,
+            mew=0.8 if ring else 0,
+        )
+    ax.plot(
+        x,
+        v.mean() if centre is None else centre,
+        "o",
+        ms=ms,
+        color=color,
+        zorder=4,
+        mec=light_dark("white", "#111"),
+        mew=0.6,
+    )
+
+
+def ink_of(kind: str) -> str:
+    """The colors of the report: the control, the base, a plain restriction, its matched twin, and context."""
+    return {
+        "control": light_dark("#555", "#bbb"),
+        "base": light_dark("#c0392b", "#ff8a76"),
+        "plain": light_dark("#1f6fb2", "#7ab8f5"),
+        "matched": light_dark("#2e8b57", "#7fd8a4"),
+        "context": light_dark("#8e6bb8", "#c9a8f0"),
+        "slow": light_dark("#d97706", "#fbbf24"),
+        "grey": light_dark("#aaa", "#666"),
+        "replicate": light_dark("#0e7490", "#67e8f9"),
+    }[kind]
+
+
+def cond_ink(cond: str) -> str:
+    if cond == CONTROL:
+        return ink_of("control")
+    if cond == ex.BASE:
+        return ink_of("base")
+    if cond.endswith("-matched"):
+        return ink_of("matched")
+    if cond in (WHOLE, NO_EMB_UNCAPPED):
+        return ink_of("context")
+    return ink_of("plain")
+
+
+# --- The results: the edit criteria, per condition ---------------------------------------------------------
+
+
+def supp_arrays(rs: list[dict]) -> dict[str, np.ndarray]:
+    """Per run: the clean and null EEM by op, and the EEM, total variation, and KL from the target null by dose and
+    op; stacked over the runs on the first axis.
+    """
+    return {
+        "clean": np.array([r["clean"]["eem"] for r in rs]),
+        "null": np.array([r["null"]["eem"] for r in rs]),
+        "edits": np.array([[e["eem"] for e in r["edits"]] for r in rs]),
+        "tv_clean": np.array([r["clean"]["tv_null"][D] for r in rs]),
+        "tv_full": np.array([r["edits"][-1]["tv_null"][D] for r in rs]),
+        "kl_clean": np.array([r["clean"]["kl_null"][D] for r in rs]),
+        "kl_full": np.array([r["edits"][-1]["kl_null"][D] for r in rs]),
+        "landing": np.array([r["landing"] for r in rs]),
+        "model_seed": np.array([r["model_seed"] for r in rs]),
+    }
+
+
+assert [e["dose"] for e in SUPP["runs"][0]["edits"]] == list(ex.DOSE_GAMMAS)
+_ctrl = supp_arrays(runs(SUPP["runs"], CONTROL))
+CONTROL_DROP = (_ctrl["clean"][:, None, :] - _ctrl["edits"]).mean(axis=0)
+# The control's seed-mean drop in EEM by dose and op, under the same edit; every drop here is net of it.
+
+
+def edit_criteria(s: dict[str, np.ndarray]) -> dict[str, Any]:
+    """Ex-2.2.21's two edit criteria and the selective reach, on the seed means of a set of runs, as there."""
+    drop = (s["clean"][:, None, :] - s["edits"]).mean(axis=0) - CONTROL_DROP  # (doses, ops)
+    gap = float((s["clean"][:, D] - s["null"][:, D]).mean())
+    anchored = drop[:, D]
+    worst = np.delete(drop, D, axis=1).max(axis=1)
+    rises = all(b >= a - ex.ex2221.GRADE_DIP for a, b in zip(anchored, anchored[1:], strict=False))
+    within = worst <= ex.SELECTIVITY_GATE
+    return {
+        "anchored": anchored,
+        "worst_by_dose": worst,
+        "gap": gap,
+        "full": float(anchored[-1] / gap),
+        "grades": bool(rises and anchored[-1] / gap >= ex.GRADING_MIN_DAMAGE),
+        "worst": float(worst.max()),
+        "selective": bool(within.all()),
+        "reach": float(max((a / gap for a, w in zip(anchored, within, strict=True) if w), default=0.0)),
+    }
+
+
+def per_seed_criteria(s: dict[str, np.ndarray]) -> list[dict[str, Any]]:
+    return [edit_criteria({k: v[i : i + 1] for k, v in s.items()}) for i in range(len(s["clean"]))]
+
+
+SUPP_PAIRED = {c: supp_arrays(paired(SUPP["runs"], c)) for c in ANCHORED}
+CRIT = {c: edit_criteria(s) for c, s in SUPP_PAIRED.items()}
+CRIT_SEEDS = {c: per_seed_criteria(s) for c, s in SUPP_PAIRED.items()}
+NET = {c: net_eem(c) for c in ALL_CONDITIONS}
+MARGIN = {c: np.array([r["margin"]["by_slice"] for r in paired(EVAL["runs"], c)]) for c in ALL_CONDITIONS}
+TASK_BAND = {
+    c: band(NET[c] + np.array([CONTROL_EEM[s] for s in PAIRED]), np.array([CONTROL_EEM[s] for s in PAIRED]))
+    for c in ANCHORED
+}
+
+
+# --- E1 and E2: the task score -------------------------------------------------------------------------------
+
+NET_ORDER = [
+    ex.BASE,
+    *(c for pair in SLICE_GROUPS.values() for c in pair),
+    NO_EMB_UNCAPPED,
+    "cap-0.9",
+    "cap-0.95",
+    WHOLE,
+    "k-mixed",
+]
+
+
+SLOW_PATH = [short(c) for c in NET_ORDER if c != "k-mixed" and NET[c][SLOW - ex.SEED_OFFSET] < -0.1]
+# The conditions whose run at model seed 702 ends far below the control (post hoc).
+
+
+def net_figure() -> str:
+    data = {short(c): {"v": NET[c].tolist(), "ink": cond_ink(c)} for c in NET_ORDER}
+    hi = max(NET_ORDER, key=lambda c: NET[c].mean())
+    alt = f"""
+        Held-out expected exact match less the control at the same seed, one column per condition, three seeds each
+        with the seed mean on top; the ring marks model seed {SLOW}. Seed {SLOW} sits about 0.13 below the control on
+        {", ".join(SLOW_PATH[:-1])}, and {SLOW_PATH[-1]}, and within a few hundredths of it on the other restricted
+        conditions; on whole-line both of the last two seeds sit about 0.1 below. The highest seed mean is
+        {short(hi)}, at {NET[hi].mean():+.3f}. k-mixed is below the control at every seed,
+        from {NET["k-mixed"].min():+.3f} to {NET["k-mixed"].max():+.3f}.
+    """
+    return net_draw(data, alt)
+
+
+@memo
+def net_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="task-net",
+        alt_text=alt_text,
+        caption=f"""
+            **The task score net of the control.** Held-out expected exact match on the three-example held-out set,
+            less that of the control at the same model seed. One small dot per seed and the seed mean on top; the
+            ring marks model seed {SLOW}. Colors: the base (hinge) condition, the plain slice restrictions, their
+            matched twins, and the conditions of ex-2.2.21 shown for context (whole-line is the uncapped end of the
+            cap ladder). The dashed rule is the task tolerance of the decision, {ex.TASK_COST_TOL:g} below the
+            control.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(7.2, 3.0), layout="constrained")
+        rng = np.random.default_rng(0)
+        ax.axhline(0, color=rule_color(), lw=0.7)
+        ax.axhline(-ex.TASK_COST_TOL, color=rule_color(), lw=0.7, ls="--")
+        for i, d in enumerate(data.values()):
+            dots(ax, i, d["v"], d["ink"], rng=rng, slow=SLOW - ex.SEED_OFFSET)
+        ax.set_xticks(range(len(data)), list(data), rotation=40, ha="right", fontsize=8)
+        ax.set_xlim(-0.6, len(data) - 0.4)
+        ax.set_ylabel("EEM less the control")
+        return fig
+
+    return _plot()
+
+
+# --- E1 and E2: tables of the criteria --------------------------------------------------------------------------
+
+
+def criteria_row(c: str) -> list[str]:
+    k = CRIT[c]
+    worst = [s["worst"] for s in CRIT_SEEDS[c]]
+    reach = [s["reach"] for s in CRIT_SEEDS[c]]
+    return [
+        f"`{short(c)}`",
+        f"{NET[c].mean():+.3f}",
+        f"{span(NET[c], '+.3f')}",
+        bold_if(k["grades"], "yes" if k["grades"] else "no"),
+        bold_if(k["selective"], f"{k['worst']:+.3f}"),
+        f"{span(worst, '+.3f')}",
+        f"{k['reach']:.2f}",
+        f"{span(reach, '.2f')}",
+    ]
+
+
+CRITERIA_HEAD = [
+    "condition",
+    "net EEM ↑",
+    "seeds",
+    "grades",
+    "worst other ↓",
+    "seeds",
+    "selective reach ↑",
+    "seeds",
+]
+
+
+def criteria_table(conds: list[str], caption: str) -> str:
+    return table_html(CRITERIA_HEAD, [criteria_row(c) for c in conds], caption)
+
+
+CRITERIA_NOTE = (
+    "Net EEM is the held-out score less the control at the same seed. *Grades*: the net drop on `difference` "
+    "rises with the dose and reaches half the way to the target null at full dose. *Worst other*: the largest net "
+    f"drop of any other op at any dose, bold where it stays within the gate of {ex.SELECTIVITY_GATE:g}. *Selective "
+    "reach*: the share of the way to the target null at the strongest dose within the gate. As in ex-2.2.21, the "
+    "criteria are read off the seed-mean drops; the seed columns give the range of the same quantity per seed."
+)
+
+
+def margin_table(conds: list[str], caption: str) -> str:
+    head = ["condition", *(f"slice {s}" for s in SLICES)]
+    rows = []
+    for c in conds:
+        pulled = set(ex.SLICE_SETS[ex.by_name(c).slices]) if c != CONTROL else set()
+        m = MARGIN[c].mean(axis=0)
+        rows.append([f"`{short(c)}`", *(f"{v:.2f}" if s in pulled else f"<i>{v:.2f}</i>" for s, v in enumerate(m))])
+    return table_html(head, rows, caption)
+
+
+# --- E1: the edit by slice set -----------------------------------------------------------------------------------
+
+E1_PANELS = {
+    "all": [ex.BASE],
+    **{s: [*pair, *([NO_EMB_UNCAPPED] if s == "no-emb" else [])] for s, pair in SLICE_GROUPS.items()},
+}
+
+
+def e1_edit_figure() -> str:
+    data = {
+        s: {
+            short(c): {
+                "anchored": CRIT[c]["anchored"].tolist(),
+                "worst": CRIT[c]["worst_by_dose"].tolist(),
+                "half": ex.GRADING_MIN_DAMAGE * CRIT[c]["gap"],
+                "ink": cond_ink(c),
+            }
+            for c in conds
+        }
+        for s, conds in E1_PANELS.items()
+    }
+    alt = f"""
+        Four panels, one per slice set (all, no-emb, no-last, middle), each plotting the seed-mean net drop in
+        expected exact match against the dose of the projection, from {min(ex.DOSE_GAMMAS):g} to
+        {max(ex.DOSE_GAMMAS):g}. Solid lines are the drop on `{ex.ANCHORED_OP}`, dashed lines the worst other op;
+        one color for the plain restriction and one for its matched twin, with the uncapped no-emb condition of
+        ex-2.2.21 in the no-emb panel. In every panel the solid lines rise past the halfway rule. The dashed line of
+        hinge stays near zero; in the restricted panels the dashed lines rise above the gate of
+        {ex.SELECTIVITY_GATE:g}, highest on middle-matched, at {CRIT["middle-matched"]["worst"]:.2f}.
+    """
+    return e1_edit_draw(data, alt)
+
+
+@memo
+def e1_edit_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e1-edit",
+        alt_text=alt_text,
+        caption=f"""
+            **The edit on each slice set.** The projection at every position: the seed-mean drop in held-out
+            expected exact match, less the control's drop under the same edit, against the dose. Solid: on
+            `{ex.ANCHORED_OP}` contexts. Dashed: the worst of the other six ops. The dotted rule is the selectivity
+            gate ({ex.SELECTIVITY_GATE:g}), and the dash-dot rule is half the way from the clean score on
+            `{ex.ANCHORED_OP}` to the target null, for the base condition.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, len(data), figsize=(8.4, 2.8), layout="constrained", sharey=True)
+        doses = list(ex.DOSE_GAMMAS)
+        ink = rule_color()
+        half = data["all"]["hinge"]["half"]
+        for ax, (s, conds) in zip(axes, data.items(), strict=True):
+            ax.axhline(ex.SELECTIVITY_GATE, color=ink, lw=0.8, ls=":")
+            ax.axhline(half, color=ink, lw=0.8, ls="-.")
+            ax.axhline(0, color=ink, lw=0.5)
+            for name, d in conds.items():
+                ax.plot(doses, d["anchored"], "-o", ms=3, color=d["ink"], lw=1.2, label=name)
+                ax.plot(doses, d["worst"], "--", color=d["ink"], lw=1.0)
+            ax.set_title(f"slices: {s}", fontsize=9)
+            ax.set_xlabel("dose γ", fontsize=8)
+            ax.set_xticks(doses)
+            ax.legend(frameon=False, fontsize=6.5, loc="upper left")
+        axes[0].set_ylabel("net drop in EEM")
+        return fig
+
+    return _plot()
+
+
+# --- E1: the alignment by slice --------------------------------------------------------------------------------
+
+EX_ANSWERS = EVAL["runs"][0]["roles"]["example answers"]
+
+
+def alignment_at_answers(c: str) -> tuple[np.ndarray, np.ndarray]:
+    """Seed-mean α at the example answers by slice: on `difference` contexts, and the mean over the other ops."""
+    a = np.mean([np.asarray(r["alignment"]) for r in paired(EVAL["runs"], c)], axis=0)  # ops × slices × positions
+    at = a[:, :, EX_ANSWERS].mean(axis=2)
+    return at[D], np.delete(at, D, axis=0).mean(axis=0)
+
+
+def e1_align_figure() -> str:
+    data = {
+        s: {
+            short(c): {
+                "anchored": alignment_at_answers(c)[0].tolist(),
+                "other": alignment_at_answers(c)[1].tolist(),
+                "ink": cond_ink(c),
+            }
+            for c in conds
+        }
+        | {"_pulled": [list(ex.SLICE_SETS[s])]}
+        for s, conds in E1_PANELS.items()
+    }
+    alt = f"""
+        Four panels, one per slice set, each plotting the seed-mean alignment with e₁ at the example answers against
+        the slice, 0 to {ex.N_LAYER}. Solid lines are `{ex.ANCHORED_OP}` contexts, dashed lines the other ops; one color
+        per condition. Unpulled slices are shaded. On every condition the `{ex.ANCHORED_OP}` line rises from near zero
+        at the embedding to its highest value in the middle or late slices, and the dashed line stays near zero.
+    """
+    return e1_align_draw(data, alt)
+
+
+@memo
+def e1_align_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e1-alignment",
+        alt_text=alt_text,
+        caption=f"""
+            **Where the anchor sits, by slice.** The seed-mean alignment α with e₁ at the example answers. Solid:
+            `{ex.ANCHORED_OP}` contexts; dashed: the mean over the other ops. Shaded slices are left out of the pull
+            in that panel.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, len(data), figsize=(8.4, 2.6), layout="constrained", sharey=True)
+        shade = light_dark("#000", "#fff")
+        for ax, (s, conds) in zip(axes, data.items(), strict=True):
+            pulled = set(conds["_pulled"][0])
+            for sl in SLICES:
+                if sl not in pulled:
+                    ax.axvspan(sl - 0.5, sl + 0.5, facecolor=shade, alpha=0.06, lw=0)
+            ax.axhline(0, color=rule_color(), lw=0.5)
+            for name, d in conds.items():
+                if name == "_pulled":
+                    continue
+                ax.plot(SLICES, d["anchored"], "-o", ms=3, color=d["ink"], lw=1.2, label=name)
+                ax.plot(SLICES, d["other"], "--", color=d["ink"], lw=0.9)
+            ax.set_title(f"slices: {s}", fontsize=9)
+            ax.set_xticks(SLICES)
+            ax.set_xlabel("slice", fontsize=8)
+            ax.set_xlim(-0.5, SLICES[-1] + 0.5)
+            ax.legend(frameon=False, fontsize=6.5, loc="upper left")
+        axes[0].set_ylabel("α at the example answers")
+        return fig
+
+    return _plot()
+
+
+# --- E2: the cap ladder -----------------------------------------------------------------------------------------
+
+CAP_X = {c: i for i, c in enumerate(CAP_LADDER)}
+
+
+def e2_figure() -> str:
+    data = {
+        "labels": [f"{c:g}" if c is not None else "none" for c in CAP_LADDER],
+        "worst": [[s["worst"] for s in CRIT_SEEDS[c]] for c in CAP_LADDER.values()],
+        "reach": [[s["reach"] for s in CRIT_SEEDS[c]] for c in CAP_LADDER.values()],
+        "net": [NET[c].tolist() for c in CAP_LADDER.values()],
+        "centre": {
+            "worst": [CRIT[c]["worst"] for c in CAP_LADDER.values()],
+            "reach": [CRIT[c]["reach"] for c in CAP_LADDER.values()],
+            "net": [float(NET[c].mean()) for c in CAP_LADDER.values()],
+        },
+        "margin": [MARGIN[c].mean(axis=0).tolist() for c in CAP_LADDER.values()],
+    }
+    alt = f"""
+        Four panels against the cap ({", ".join(data["labels"])}), each with one dot per seed and the seed mean
+        joined by a line; the ring marks model seed {SLOW}. The worst other op: seed means
+        {", ".join(f"{CRIT[c]['worst']:+.3f}" for c in CAP_LADDER.values())}, with one seed of hinge and one of
+        cap-0.95 well above the gate of {ex.SELECTIVITY_GATE:g}. The selective reach: seed means
+        {", ".join(f"{CRIT[c]['reach']:.2f}" for c in CAP_LADDER.values())}. The task score net of the control:
+        about the same at every cap, with the third seed far below the others throughout. The op margin by slice:
+        one line per slice, each rising a little with the cap.
+    """
+    return e2_draw(data, alt)
+
+
+@memo
+def e2_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e2-caps",
+        alt_text=alt_text,
+        caption=f"""
+            **The four caps.** Per seed (small dots, the ring is model seed {SLOW}), and the line through the large
+            dots. From the left: the worst net drop of any other op at any dose of the edit, with the selectivity gate
+            dotted, and the selective reach, where the line is read off the seed-mean drops as in the tables (so it
+            need not be the mean of the dots); the task score net of the control; and the seed-mean op margin at each
+            slice, one line per slice, darker for deeper slices. 0.8 is the hinge condition and "none" is the
+            whole-line condition of ex-2.2.21.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, 4, figsize=(8.4, 2.6), layout="constrained")
+        ink = ink_of("base")
+        x = np.arange(len(data["labels"]))
+        rng = np.random.default_rng(1)
+        for ax, key, label in zip(
+            axes[:3],
+            ("worst", "reach", "net"),
+            ("worst other op", "selective reach", "EEM less the control"),
+            strict=True,
+        ):
+            centre = data["centre"][key]
+            for i, v in enumerate(data[key]):
+                dots(ax, i, v, ink, rng=rng, ms=4, slow=SLOW - ex.SEED_OFFSET, centre=centre[i])
+            ax.plot(x, centre, "-", color=ink, lw=1.0, zorder=1)
+            ax.set_ylabel(label, fontsize=8)
+        axes[0].axhline(ex.SELECTIVITY_GATE, color=rule_color(), lw=0.8, ls=":")
+        axes[2].axhline(0, color=rule_color(), lw=0.5)
+        shades = plt.get_cmap("viridis")(np.linspace(0.85, 0.1, len(SLICES)))
+        m = np.array(data["margin"])
+        for s, color in zip(SLICES, shades, strict=True):
+            axes[3].plot(x, m[:, s], "-o", ms=2.5, lw=1.0, color=color, label=f"slice {s}")
+        axes[3].set_ylabel("op margin", fontsize=8)
+        axes[3].legend(frameon=False, fontsize=6, loc="center right")
+        for ax in axes:
+            ax.set_xticks(x, data["labels"], fontsize=8)
+            ax.set_xlabel("cap", fontsize=8)
+            ax.set_xlim(-0.5, len(x) - 0.5)
+        return fig
+
+    return _plot()
+
+
+# --- H1 ---------------------------------------------------------------------------------------------------------
+
+HINGE_EEM = np.array([eem(r) for r in paired(EVAL["runs"], ex.BASE)])
+MIXED_EEM = np.array([eem(r) for r in paired(EVAL["runs"], "k-mixed")])
+CTRL_PAIRED = np.array([CONTROL_EEM[s] for s in PAIRED])
+H1: dict[str, Any] = {
+    "short": float((HINGE_EEM - MIXED_EEM).mean()),
+    "by_seed": (HINGE_EEM - MIXED_EEM).tolist(),
+    "band": band(HINGE_EEM, MIXED_EEM),
+}
+H1["verdict"] = (
+    "Unresolved"
+    if max(H1["by_seed"]) > ex.REGRESSION_TOL and min(H1["by_seed"]) < -ex.REGRESSION_TOL
+    else "Pass"
+    if H1["short"] <= ex.REGRESSION_TOL
+    else "Partial"
+    if H1["short"] <= H1["band"]
+    else "Miss"
+)
+_t = runs(EVAL["runs"], ex.BASE)[0]["task"]
+CEIL3, FLOOR3 = _t["ceiling"]["all"], _t["floor"]["all"]
+
+
+def skill_at(r: dict, k: int) -> float:
+    c = r["counts"][str(k)]
+    return (c["eem"]["all"] - c["floor"]["all"]) / (c["ceiling"]["all"] - c["floor"]["all"])
+
+
+SKILL_CONDITIONS = ("k-mixed", ex.BASE, CONTROL)
+SKILL = {
+    c: np.array([[skill_at(r, k) for k in ex.MIXED_COUNTS] for r in paired(BY_COUNT["runs"], c)])
+    for c in SKILL_CONDITIONS
+}
+
+
+def h1_figure() -> str:
+    data = {
+        "eem": {
+            short(c): v.tolist() for c, v in ((CONTROL, CTRL_PAIRED), (ex.BASE, HINGE_EEM), ("k-mixed", MIXED_EEM))
+        },
+        "inks": [cond_ink(CONTROL), cond_ink(ex.BASE), ink_of("plain")],
+        "hinge": float(HINGE_EEM.mean()),
+        "band": H1["band"],
+        "ceiling": CEIL3,
+        "floor": FLOOR3,
+    }
+    alt = f"""
+        Held-out expected exact match on the three-example held-out set, one column each for the control, hinge, and
+        k-mixed, three seeds each with the seed mean on top; the ring marks model seed {SLOW}. Over the k-mixed
+        column a dashed gate at the hinge mean less {ex.REGRESSION_TOL:g}, {HINGE_EEM.mean() - ex.REGRESSION_TOL:.3f},
+        hatched below, and a dotted mark at the hinge mean less the seed band, {HINGE_EEM.mean() - H1["band"]:.3f}.
+        k-mixed seeds run from {MIXED_EEM.min():.3f} to {MIXED_EEM.max():.3f}, all below both marks; hinge from
+        {HINGE_EEM.min():.3f} to {HINGE_EEM.max():.3f}.
+    """
+    return h1_draw(data, alt)
+
+
+@memo
+def h1_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h1-recipe",
+        alt_text=alt_text,
+        caption=f"""
+            **`k-mixed` against `hinge` on three examples.** Held-out expected exact match on ex-2.2.21's held-out set,
+            one small dot per seed and the seed mean on top; the ring is model seed {SLOW}. The right axis gives the
+            same scale as skill, from the floor (0) to the Bayes ceiling (1, the dashed rule at the top). Over the
+            `k-mixed` column, the dashed rule is the `hinge` mean less {ex.REGRESSION_TOL:g}, with the failing side
+            hatched, and the dotted rule the `hinge` mean less the seed band of three seeds against three.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(4.2, 3.2), layout="constrained")
+        rng = np.random.default_rng(0)
+        cols = list(data["eem"])
+        ax.axhline(data["ceiling"], color=rule_color(), lw=0.9, ls="--")
+        for i, (name, ink) in enumerate(zip(cols, data["inks"], strict=True)):
+            dots(ax, i, data["eem"][name], ink, rng=rng, slow=SLOW - ex.SEED_OFFSET)
+        ax.set_ylim(data["floor"], data["ceiling"] + 0.02)
+        i = cols.index("k-mixed")
+        ax.plot([i - 0.3, i + 0.3], [data["hinge"] - data["band"]] * 2, ":", color=rule_color(), lw=0.9)
+        gate_line(ax, data["hinge"] - ex.REGRESSION_TOL, fail="below", xs=(i - 0.3, i + 0.3))
+        floor, ceil = data["floor"], data["ceiling"]
+        ax.secondary_yaxis(
+            "right", functions=(lambda y: (y - floor) / (ceil - floor), lambda s: floor + s * (ceil - floor))
+        ).set_ylabel("skill")
+        ax.set_ylabel("held-out EEM, three examples")
+        ax.set_xticks(range(len(cols)), cols, fontsize=8)
+        ax.set_xlim(-0.6, len(cols) - 0.4)
+        return fig
+
+    return _plot()
+
+
+def h1_table() -> str:
+    rows = [
+        [
+            "`k-mixed` short of `hinge`",
+            f"{MIXED_EEM.mean():.4f} vs. {HINGE_EEM.mean():.4f}",
+            ", ".join(f"{v:+.3f}" for v in H1["by_seed"]),
+            f"{H1['short']:.4f}",
+            f"≤ {ex.REGRESSION_TOL:g}",
+            f"{H1['band']:.4f}",
+            bold_if(H1["verdict"] == "Pass", H1["verdict"].lower()),
+        ]
+    ]
+    return table_html(
+        ["criterion", "seed means", "by seed (700–702)", "shortfall ↓", "tolerance", "seed band", "verdict"],
+        rows,
+        "**The criterion of H1.** Held-out expected exact match on the three-example held-out set, paired by model "
+        "seed. The seed band is for three seeds against three, with the seed standard deviation pooled over the two "
+        "conditions; a shortfall above the tolerance but inside the band is a partial pass.",
+        text_cols=3,
+    )
+
+
+def skill_figure() -> str:
+    data = {
+        short(c): {"v": SKILL[c].tolist(), "ink": cond_ink(c) if c != "k-mixed" else ink_of("plain")}
+        for c in SKILL_CONDITIONS
+    }
+    km = SKILL["k-mixed"].mean(axis=0)
+    hg = SKILL[ex.BASE].mean(axis=0)
+    alt = f"""
+        Skill against the number of examples, one to five, for k-mixed, hinge, and the control, one thin line per
+        seed and a heavy line for the seed mean. k-mixed rises with the count, from {km[0]:.2f} at one example to
+        {km[-1]:.2f} at five. hinge and the control peak at three examples, the count they were trained on (hinge
+        {hg[2]:.2f}), and are lower on either side: hinge {hg[0]:.2f} at one example and {hg[-1]:.2f} at five. The
+        k-mixed mean is below hinge at three examples and above it at one and at five.
+    """
+    return skill_draw(data, alt)
+
+
+@memo
+def skill_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h1-skill-by-count",
+        alt_text=alt_text,
+        caption=f"""
+            **Skill at each example count.** The share of the way from the floor to the Bayes ceiling at that count,
+            on a held-out set of {ex.HOLDOUT_CONTEXTS:,} contexts per op at each count. Thin lines: one per seed;
+            the ring marks model seed {SLOW}. Heavy lines: the seed mean. `hinge` and the control trained on three
+            examples only.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(4.6, 3.0), layout="constrained")
+        x = np.array(ex.MIXED_COUNTS)
+        for name, d in data.items():
+            v = np.array(d["v"])
+            for i, row in enumerate(v):
+                ax.plot(x, row, "-", color=d["ink"], lw=0.6, alpha=0.5)
+                if i == SLOW - ex.SEED_OFFSET:
+                    ax.plot(x, row, "o", ms=3, mfc="none", color=d["ink"], mew=0.7)
+            ax.plot(x, v.mean(axis=0), "-o", ms=3.5, color=d["ink"], lw=1.6, label=name)
+        ax.set_xticks(x)
+        ax.set_xlabel("examples per context (k)")
+        ax.set_ylabel("skill")
+        ax.legend(frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- E3 ----------------------------------------------------------------------------------------------------------
+
+E3_CONDITIONS = ("k-mixed", ex.BASE, WHOLE, CONTROL)
+POST_EDGES = np.linspace(0, 1, 11)
+MIN_BIN = 30
+# A bin with fewer points than this in a run is left out of that run's line.
+
+
+def answer_points(c: str, counts: Sequence[int]) -> list[list[tuple[np.ndarray, np.ndarray]]]:
+    """Per paired seed, per count: the posterior on `difference` at each answer, `(n, k + 1)`, and α there by slice,
+    `(n, slices, k + 1)`, over the held-out `difference` contexts.
+    """
+    out = []
+    for r in paired(BY_COUNT["runs"], c):
+        a = COUNT_ARRAYS[r["label"]]
+        per = []
+        for k in counts:
+            keep = a[f"k{k}_op_ids"] == D
+            per.append((a[f"k{k}_posterior_at_answer"][keep], a[f"k{k}_alpha_at_answer"][keep].astype(np.float32)))
+        out.append(per)
+    return out
+
+
+def binned(post: np.ndarray, alpha: np.ndarray) -> np.ndarray:
+    """Mean α by slice in each posterior bin, `(bins, slices)`; NaN where a bin has fewer than `MIN_BIN` points."""
+    b = np.clip(np.digitize(post, POST_EDGES[1:-1]), 0, len(POST_EDGES) - 2)
+    out = np.full((len(POST_EDGES) - 1, alpha.shape[1]), np.nan)
+    for i in range(len(POST_EDGES) - 1):
+        if (b == i).sum() >= MIN_BIN:
+            out[i] = alpha[b == i].mean(axis=0)
+    return out
+
+
+def e3_counts(c: str) -> tuple[int, ...]:
+    return ex.MIXED_COUNTS if c == "k-mixed" else (ex.K,)
+
+
+def e3_curves(c: str) -> dict[str, np.ndarray]:
+    """Seed-mean α by posterior bin and slice, at the example answers and at the query answer."""
+    seeds = answer_points(c, e3_counts(c))
+    out = {}
+    for site in ex.GRADING_SITES:
+        per_seed = []
+        for per in seeds:
+            if site == "example answers":
+                post = np.concatenate([p[:, :-1].ravel() for p, _ in per])
+                alpha = np.concatenate([a[:, :, :-1].transpose(0, 2, 1).reshape(-1, a.shape[1]) for _, a in per])
+            else:
+                post = np.concatenate([p[:, -1] for p, _ in per])
+                alpha = np.concatenate([a[:, :, -1] for _, a in per])
+            per_seed.append(binned(post, alpha))
+        out[site] = np.nanmean(np.stack(per_seed), axis=0)
+    return out
+
+
+def e3_by_index(c: str) -> np.ndarray:
+    """On the three-example held-out set: seed-mean α by answer index, posterior bin, and slice."""
+    seeds = answer_points(c, (ex.K,))
+    return np.nanmean(np.stack([[binned(p[:, j], a[:, :, j]) for j in range(ex.K + 1)] for ((p, a),) in seeds]), axis=0)
+
+
+E3 = {c: e3_curves(c) for c in E3_CONDITIONS}
+E3_INDEX = {c: e3_by_index(c) for c in E3_CONDITIONS}
+BIN_MID = (POST_EDGES[:-1] + POST_EDGES[1:]) / 2
+
+
+def e3_ink(c: str) -> str:
+    return ink_of("plain") if c == "k-mixed" else cond_ink(c)
+
+
+def e3_figure() -> str:
+    data = {
+        "curves": {short(c): {s: v.tolist() for s, v in E3[c].items()} for c in E3_CONDITIONS},
+        "inks": [e3_ink(c) for c in E3_CONDITIONS],
+    }
+    alt = f"""
+        A grid of two rows (the example answers, the query answer) and {len(SLICES)} columns (slices 0 to
+        {ex.N_LAYER}). Each panel plots the seed-mean alignment with e₁ against the posterior on `{ex.ANCHORED_OP}`
+        given the pairs so far, in ten bins, one line per condition: k-mixed (pooled over its counts), hinge,
+        whole-line, and the control. The control stays near zero in every panel. At slice 0 every line is flat near
+        zero. From slice 2 on, at the example answers, the anchored lines rise with the posterior, steeply in its
+        upper half; at the query answer they rise too, from a higher start.
+    """
+    return e3_draw(data, alt)
+
+
+@memo
+def e3_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e3-alignment-by-posterior",
+        alt_text=alt_text,
+        caption=f"""
+            **α against the posterior on `{ex.ANCHORED_OP}`.** At each answer of a held-out `{ex.ANCHORED_OP}`
+            context, the alignment with e₁ against the posterior on `{ex.ANCHORED_OP}` given the pairs up to and
+            including that answer, in bins of a tenth: the mean within each bin per run, then the mean over the three
+            paired seeds. A bin with fewer than {MIN_BIN} points in a run is left out of it. `k-mixed` pools its
+            held-out sets at every count; the other conditions are read at three examples.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(2, len(SLICES), figsize=(8.4, 3.8), layout="constrained", sharex=True, sharey=True)
+        for row, site in enumerate(ex.GRADING_SITES):
+            for s in SLICES:
+                ax = axes[row][s]
+                ax.axhline(0, color=rule_color(), lw=0.5)
+                for (name, curves), ink in zip(data["curves"].items(), data["inks"], strict=True):
+                    ax.plot(BIN_MID, np.array(curves[site])[:, s], "-o", ms=2.2, lw=1.0, color=ink, label=name)
+                if row == 0:
+                    ax.set_title(f"slice {s}", fontsize=9)
+                if row == 1:
+                    ax.set_xlabel("posterior", fontsize=8)
+            axes[row][0].set_ylabel(f"α, {site}", fontsize=8)
+        axes[0][0].legend(frameon=False, fontsize=6.5, loc="upper left")
+        return fig
+
+    return _plot()
+
+
+def e3_index_figure() -> str:
+    data = {
+        "curves": {short(c): E3_INDEX[c].tolist() for c in E3_CONDITIONS},
+        "inks": [e3_ink(c) for c in E3_CONDITIONS],
+    }
+    alt = f"""
+        A grid of four rows (the answers of the first, second, and third example, then the query answer) and
+        {len(SLICES)} columns (slices 0 to {ex.N_LAYER}), on the three-example held-out set. Each panel plots the
+        seed-mean alignment with e₁ against the posterior on `{ex.ANCHORED_OP}` in bins, one line per condition. The
+        first answer has few distinct posterior values, so its lines have few points. Within a row the anchored lines
+        mostly rise with the posterior from slice 2 on, and the lines sit higher in later rows.
+    """
+    return e3_index_draw(data, alt)
+
+
+@memo
+def e3_index_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e3-by-answer",
+        alt_text=alt_text,
+        caption="""
+            **The same at each answer, on three examples.** As the figure above, with one row per answer: the
+            answers of the three examples, then the query answer. Every condition is read on the three-example
+            held-out set, `k-mixed` included.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        rows = ex.K + 1
+        fig, axes = plt.subplots(rows, len(SLICES), figsize=(8.4, 6.0), layout="constrained", sharex=True, sharey=True)
+        names = [f"example {j + 1}" for j in range(ex.K)] + ["query"]
+        for j in range(rows):
+            for s in SLICES:
+                ax = axes[j][s]
+                ax.axhline(0, color=rule_color(), lw=0.5)
+                for (name, v), ink in zip(data["curves"].items(), data["inks"], strict=True):
+                    ax.plot(BIN_MID, np.array(v)[j, :, s], "-o", ms=2.2, lw=1.0, color=ink, label=name)
+                if j == 0:
+                    ax.set_title(f"slice {s}", fontsize=9)
+                if j == rows - 1:
+                    ax.set_xlabel("posterior", fontsize=8)
+            axes[j][0].set_ylabel(f"α, {names[j]}", fontsize=8)
+        axes[0][0].legend(frameon=False, fontsize=6.5, loc="upper left")
+        return fig
+
+    return _plot()
+
+
+def posterior_points(counts: Sequence[int]) -> np.ndarray:
+    """The posterior on `difference` at every answer of the held-out `difference` contexts at *counts*; the same for
+    every run, so read from the first `k-mixed` run.
+    """
+    a = COUNT_ARRAYS[paired(BY_COUNT["runs"], "k-mixed")[0]["label"]]
+    return np.concatenate([a[f"k{k}_posterior_at_answer"][a[f"k{k}_op_ids"] == D].ravel() for k in counts])
+
+
+E3_POINTS = {"k-mixed": posterior_points(ex.MIXED_COUNTS), "three examples": posterior_points((ex.K,))}
+
+
+def e3_points_figure() -> str:
+    data = {k: v.tolist() for k, v in E3_POINTS.items()}
+    alt = f"""
+        Two panels. Left: a histogram of the posterior on `{ex.ANCHORED_OP}` at every answer of the held-out
+        `{ex.ANCHORED_OP}` contexts, in bins of a tenth, as a share of points, for k-mixed (all counts) and for three
+        examples. Both have most of their points in the top bin and a second, smaller mass in the bottom and
+        middle bins. Right: the same as cumulative curves; the k-mixed curve rises in more, smaller steps.
+    """
+    return e3_points_draw(data, alt)
+
+
+@memo
+def e3_points_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e3-points",
+        alt_text=alt_text,
+        caption=f"""
+            **Where the points of the figures above lie.** The posterior on `{ex.ANCHORED_OP}` at every answer of the
+            held-out `{ex.ANCHORED_OP}` contexts: the example answers and the query answer together. Left: the share of
+            points in each bin of a tenth. Right: the share of points at or below the posterior on the x-axis.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, (a, b) = plt.subplots(1, 2, figsize=(7.2, 2.6), layout="constrained")
+        inks = [ink_of("plain"), ink_of("base")]
+        x = np.linspace(0, 1, 401)
+        for (name, v), ink, off in zip(data.items(), inks, (-0.022, 0.022), strict=True):
+            v = np.asarray(v)
+            h, _ = np.histogram(v, bins=POST_EDGES)
+            a.bar(BIN_MID + off, h / len(v), width=0.044, color=ink, label=name)
+            b.plot(x, np.searchsorted(np.sort(v), x, side="right") / len(v), color=ink, lw=1.4, label=name)
+        a.set_xlabel("posterior", fontsize=8)
+        a.set_ylabel("share of points", fontsize=8)
+        b.set_xlabel("posterior", fontsize=8)
+        b.set_ylabel("share at or below", fontsize=8)
+        b.set_xlim(0, 1)
+        b.set_ylim(0, 1)
+        a.legend(frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- H2 ----------------------------------------------------------------------------------------------------------
+
+REPLICATE = supp_arrays(runs(SUPP["runs"], ex.BASE, replicate=True))
+STORED = SUPP_PAIRED[ex.BASE]
+H2_PASS = REPLICATE["landing"] >= ex.LANDING_FRACTION
+H2_VERDICT = "Pass" if H2_PASS.all() else "Miss" if not H2_PASS.any() else "Unresolved"
+LANDING = {c: supp_arrays(paired(SUPP["runs"], c))["landing"] for c in ALL_CONDITIONS}
+REPLICATE_CRIT = edit_criteria(REPLICATE)
+# Ex-2.2.21's edit criteria on the replicate runs (post hoc: H2 scores the landing on them, and nothing else).
+
+
+def hinge_edit_rows() -> list[list[str]]:
+    """Per `hinge` run, paired seeds then replicate: the worst other op under the edit, net of the control, and the
+    selective reach.
+    """
+    rows = []
+    for label, arrays in (("paired", STORED), ("replicate", REPLICATE)):
+        for i, k in enumerate(per_seed_criteria(arrays)):
+            drop = arrays["clean"][i] - arrays["edits"][i] - CONTROL_DROP  # (doses, ops)
+            others = np.delete(np.arange(len(OPS)), D)
+            op = OPS[others[np.unravel_index(drop[:, others].argmax(), drop[:, others].shape)[1]]]
+            rows.append(
+                [
+                    f"{int(arrays['model_seed'][i])}",
+                    label,
+                    f"`{op}`",
+                    bold_if(k["selective"], f"{k['worst']:+.3f}"),
+                    f"{k['reach']:.2f}",
+                ]
+            )
+    return rows
+
+
+def hinge_edit_table() -> str:
+    return table_html(
+        ["model seed", "runs", "worst op", "worst other ↓", "selective reach ↑"],
+        hinge_edit_rows(),
+        "**The edit on each `hinge` run**, at the paired seeds and on the replicate. *Worst other*: the largest drop "
+        "in EEM of any other op at any dose, net of the seed-mean drop of the control, bold where it stays within "
+        f"the gate of {ex.SELECTIVITY_GATE:g}; *worst op* is the op it falls on. *Selective reach* as in the tables of E1.",
+        text_cols=3,
+    )
+
+
+def h2_figure() -> str:
+    data = {
+        "replicate": {k: REPLICATE[k].tolist() for k in ("tv_clean", "tv_full", "kl_clean", "kl_full", "model_seed")},
+        "stored": {k: STORED[k].tolist() for k in ("tv_clean", "tv_full", "kl_clean", "kl_full", "model_seed")},
+        "landing": {short(c): LANDING[c].tolist() for c in [ex.BASE, *(c for c in NET_ORDER if c != ex.BASE), CONTROL]},
+        "inks": [cond_ink(c) for c in [ex.BASE, *(c for c in NET_ORDER if c != ex.BASE), CONTROL]],
+        "repl_landing": REPLICATE["landing"].tolist(),
+    }
+    alt = f"""
+        Three panels. Left: the total variation distance from the target null on `{ex.ANCHORED_OP}` contexts, clean
+        and under the full edit, as paired points joined by a line, for the three replicate runs and, fainter, the
+        three stored hinge runs. Each run's clean distance is about {span(REPLICATE["tv_clean"], ".2f")} on the
+        replicate and its edited distance {span(REPLICATE["tv_full"], ".2f")}; a tick on each line marks half the
+        clean distance, which every replicate run stays just above. Middle: the KL divergence of the target null from
+        the model, clean and edited, for the same runs; it falls under the edit on every run. Right: the landing per
+        run for every condition, with the gate at {ex.LANDING_FRACTION:g}. The replicate runs land at
+        {", ".join(f"{v:.2f}" for v in REPLICATE["landing"])}; most anchored runs land between 0.35 and 0.5, and the
+        control near zero.
+    """
+    return h2_draw(data, alt)
+
+
+@memo
+def h2_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h2-landing",
+        alt_text=alt_text,
+        caption=f"""
+            **The edit and the target null.** On held-out `{ex.ANCHORED_OP}` contexts, the full edit (the projection
+            at every position, γ = 1). Left: the mean total variation distance of the model from the target null,
+            clean and edited, for the replicate runs (solid) and the stored `hinge` runs (faint); the tick on each
+            line is half the clean distance, the point a run has to reach to pass. Middle: the mean KL divergence
+            KL(target null ‖ model), for the same runs. Right: the landing, one dot per run at the paired seeds, with
+            the replicate beside `hinge` as squares and the gate of H2 dashed.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, axes = plt.subplots(1, 3, figsize=(8.4, 3.0), layout="constrained", width_ratios=[1, 1, 2.6])
+        repl, stored = ink_of("replicate"), ink_of("base")
+        for ax, key in zip(axes[:2], ("tv", "kl"), strict=True):
+            for runs_, ink, alpha in ((data["stored"], stored, 0.35), (data["replicate"], repl, 1.0)):
+                for c, f in zip(runs_[f"{key}_clean"], runs_[f"{key}_full"], strict=True):
+                    ax.plot([0, 1], [c, f], "-o", ms=3.5, color=ink, alpha=alpha, lw=1.0)
+                    if key == "tv":
+                        ax.plot([0.92, 1.08], [c / 2] * 2, "-", color=ink, alpha=alpha, lw=1.2)
+            ax.set_xticks([0, 1], ["clean", "edited"], fontsize=8)
+            ax.set_xlim(-0.3, 1.3)
+            ax.set_ylim(0, None)
+        axes[0].set_ylabel("TV from the target null", fontsize=8)
+        axes[1].set_ylabel("KL(target null ‖ model)", fontsize=8)
+        ax = axes[2]
+        rng = np.random.default_rng(2)
+        names = list(data["landing"])
+        for i, (name, ink) in enumerate(zip(names, data["inks"], strict=True)):
+            dots(ax, i, data["landing"][name], ink, rng=rng, ms=4, slow=SLOW - ex.SEED_OFFSET)
+        ax.plot([0.25] * 3, data["repl_landing"], "s", ms=3.5, color=repl, zorder=4)
+        ax.axhline(ex.LANDING_FRACTION, color=rule_color(), lw=0.9, ls="--")
+        ax.axhline(0, color=rule_color(), lw=0.5)
+        ax.set_xticks(range(len(names)), names, rotation=40, ha="right", fontsize=7)
+        ax.set_xlim(-0.6, len(names) - 0.4)
+        ax.set_ylabel("landing", fontsize=8)
+        return fig
+
+    return _plot()
+
+
+def h2_table() -> str:
+    rows = [
+        [
+            f"{int(s)}",
+            f"{tc:.3f}",
+            f"{tf:.3f}",
+            bold_if(land >= ex.LANDING_FRACTION, f"{land:.3f}"),
+            f"{kc:.2f}",
+            f"{kf:.2f}",
+        ]
+        for s, tc, tf, land, kc, kf in zip(
+            REPLICATE["model_seed"],
+            REPLICATE["tv_clean"],
+            REPLICATE["tv_full"],
+            REPLICATE["landing"],
+            REPLICATE["kl_clean"],
+            REPLICATE["kl_full"],
+            strict=True,
+        )
+    ]
+    return table_html(
+        ["model seed", "TV, clean", "TV, edited", "landing ↑", "KL, clean", "KL, edited"],
+        rows,
+        f"**The replicate runs of H2.** Means over the held-out `{ex.ANCHORED_OP}` contexts. The landing is one less "
+        f"the ratio of the two total variation columns; bold would mark a landing of at least "
+        f"{ex.LANDING_FRACTION:g}.",
+    )
+
+
+# --- H2: where the answers go ---------------------------------------------------------------------------------
+
+CONF_BINS = (0.0, MID_LO, MID_HI, 1.0)
+# The bins of the posterior on the true op: below the middle band, the middle band, and above it.
+
+
+@memo
+def gives_table(pair: np.ndarray) -> np.ndarray:
+    """For each op and context, which colors that op can give on the query pair: `(ops, n, colors)`."""
+    n = len(pair)
+    out = np.zeros((TABLE7.n_ops, n, P.N_COLORS), dtype=bool)
+    rows = np.arange(n)
+    for o in range(TABLE7.n_ops):
+        idx, ok = TABLE7.idx[o, pair], TABLE7.prob[o, pair] > 0
+        for j in range(idx.shape[1]):
+            out[o, rows[ok[:, j]], idx[ok[:, j], j]] = True
+    return out
+
+
+def confusion(
+    p: np.ndarray, op_ids: np.ndarray, post: np.ndarray, pair: np.ndarray, lo: float, hi: float
+) -> np.ndarray:
+    """Where a distribution puts its mass, by op, as in ex-2.2.20, over the contexts whose posterior on the true op
+    lies in [lo, hi). Rows are the true op. The diagonal is the mass on the colors the true op can give for the
+    query operands; off it, the mass on the colors the column op can give and the true op cannot.
+    """
+    rows = np.arange(len(p))
+    on_true = post[rows, op_ids]
+    sel = (on_true >= lo) & ((on_true < hi) if hi < 1 else (on_true <= hi))
+    gives = gives_table(pair)[:, sel]
+    p, true_op = p[sel].astype(float), op_ids[sel]
+    rows = np.arange(len(p))
+    true = gives[true_op, rows]
+    per_col = np.stack(
+        [(p * np.where((true_op == o)[:, None], true, gives[o] & ~true)).sum(1) for o in range(len(OPS))], 1
+    )
+    m = np.full((len(OPS), len(OPS)), np.nan)
+    for o in range(len(OPS)):
+        if (true_op == o).sum() >= MIN_BIN:
+            m[o] = per_col[true_op == o].mean(0)
+    return m
+
+
+def target_null_dist(a: dict[str, np.ndarray]) -> np.ndarray:
+    """The answer distribution of the target null on each context: the posterior with `difference` removed."""
+    ctx = P.Contexts(
+        a["op_ids"].astype(np.int64),
+        np.zeros((len(a["op_ids"]), 0), np.int64),
+        np.zeros((len(a["op_ids"]), 0), np.int64),
+        a["query_pair"],
+    )
+    return P.predictive(TABLE7, ctx, ex.ex2216._target_null(P, TABLE7, ctx, a["posterior"].astype(float), D))
+
+
+@memo
+def confusion_set(arrays: dict[str, dict[str, np.ndarray]]) -> dict[str, list[np.ndarray]]:
+    """Per bin of the posterior on the true op, the seed-mean confusion matrix of the clean model, the edited model,
+    and the target null, over the replicate runs.
+    """
+    out: dict[str, list[np.ndarray]] = {"clean": [], "edited": [], "target null": []}
+    for lo, hi in zip(CONF_BINS, CONF_BINS[1:], strict=False):
+        per = {k: [] for k in out}
+        for a in arrays.values():
+            args = (a["op_ids"].astype(np.int64), a["posterior"], a["query_pair"], lo, hi)
+            per["clean"].append(confusion(a["p_clean"], *args))
+            per["edited"].append(confusion(a["p_full"], *args))
+            per["target null"].append(confusion(target_null_dist(a), *args))
+        for k in out:
+            out[k].append(np.nanmean(np.stack(per[k]), axis=0))
+    return out
+
+
+CONFUSION = confusion_set(SUPP_ARRAYS)
+PRINT_FLOOR = 0.01
+
+
+def seq_cmap():
+    cmap = plt.get_cmap(light_dark("Blues", "magma")).copy()
+    cmap.set_bad(light_dark("#fff", "#111"))
+    return cmap
+
+
+def cell_text_color(v: float, vmax: float) -> str:
+    dark_cell = (v / vmax > 0.55) == (light_dark(0, 1) == 0)
+    return "#fff" if dark_cell else "#000"
+
+
+def bin_label(lo: float, hi: float) -> str:
+    return f"posterior {lo:g} to {hi:g}"
+
+
+def confusion_figure() -> str:
+    data = {k: [m.tolist() for m in v] for k, v in CONFUSION.items()}
+    d_row = {k: [float(np.nanmean(np.delete(np.array(m)[D], D))) for m in v] for k, v in data.items()}
+    alt = f"""
+        A grid of {len(CONF_BINS) - 1} rows, one per bin of the posterior on the true op, and three columns: the clean
+        model, the edited model, and the target null, each a {len(OPS)} by {len(OPS)} matrix with the true op on the
+        rows and, on the columns, the mass on the answers of each op that the true op cannot give. The diagonal is
+        outlined and left blank. Outside the `{ex.ANCHORED_OP}` row the edited matrices put a little more mass
+        off the diagonal than the clean ones, in the two upper bins. In the `{ex.ANCHORED_OP}` row the clean model puts little mass off the diagonal, and the edited model
+        and the target null put much more there; the mean cell off the diagonal in that row, by bin from low to high, is
+        {", ".join(f"{v:.2f}" for v in d_row["clean"])} clean, {", ".join(f"{v:.2f}" for v in d_row["edited"])}
+        edited, and {", ".join(f"{v:.2f}" for v in d_row["target null"])} for the target null.
+    """
+    return confusion_draw(data, alt)
+
+
+@memo
+def confusion_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="h2-confusion",
+        alt_text=alt_text,
+        caption=f"""
+            **Where the answers go, by how sure the context is.** Op confusion, as in ex-2.2.20, over the held-out
+            contexts of every op, for the replicate runs (seed mean). Rows: the true op. Columns: the mass on the
+            colors the column op can give for the query operands and the true op cannot. The diagonal (the mass on
+            the answers of the true op) is outlined and left out of the color scale. One row of panels per bin of the
+            posterior on the true op; a row of a matrix with fewer than {MIN_BIN} contexts in a run is blank. Values
+            of at least {PRINT_FLOOR:g} are printed.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        nb = len(CONF_BINS) - 1
+        fig, axes = plt.subplots(nb, 3, figsize=(8.4, 2.7 * nb + 0.6), layout="constrained", sharex=True, sharey=True)
+        n = len(OPS)
+        eye = np.eye(n, dtype=bool)
+        mats = [np.array(m) for v in data.values() for m in v]
+        vmax = max(float(np.nanmax(np.where(eye, np.nan, m))) for m in mats)
+        im = None
+        for c, (name, ms) in enumerate(data.items()):
+            for b, m in enumerate(ms):
+                m = np.array(m)
+                ax = axes[b][c]
+                im = ax.imshow(np.where(eye, np.nan, m), cmap=seq_cmap(), vmin=0, vmax=vmax)
+                for i, j in np.ndindex(n, n):
+                    if i == j:
+                        ax.plot(j, i, "s", ms=11, mfc="none", mec="0.6", mew=0.6)
+                    elif np.isfinite(m[i, j]) and m[i, j] >= PRINT_FLOOR:
+                        ax.text(
+                            j,
+                            i,
+                            f"{m[i, j]:.2f}"[1:],
+                            ha="center",
+                            va="center",
+                            fontsize=6,
+                            color=cell_text_color(m[i, j], vmax),
+                        )
+                if b == 0:
+                    ax.set_title(name, fontsize=9)
+                ax.set_xticks(range(n), OPS, rotation=90, fontsize=7)
+                ax.set_yticks(range(n), OPS, fontsize=7)
+        for b in range(nb):
+            axes[b][0].set_ylabel(bin_label(CONF_BINS[b], CONF_BINS[b + 1]), fontsize=8)
+        assert im is not None
+        fig.colorbar(im, ax=axes, shrink=0.4, label="mass")
+        return fig
+
+    return _plot()
+
+
+# --- E4: training trajectories -------------------------------------------------------------------------------
+
+TRAJ_GRID = [
+    [CONTROL, ex.BASE, "cap-0.9", "cap-0.95", WHOLE],
+    ["no-emb", "no-last", "middle", NO_EMB_UNCAPPED, "k-mixed"],
+    ["no-emb-matched", "no-last-matched", "middle-matched", None, None],
+]
+
+
+def traj_runs() -> list[dict]:
+    """Every run's trajectory at the paired seeds and, for `hinge`, the replicate: the new runs' own, and ex-2.2.21's
+    for the reused runs.
+    """
+    new = [
+        {"cond": r["condition"], "seed": r["model_seed"], "replicate": bool(r["replicate"]), "traj": r["traj"]}
+        for r in TRAJ_NEW.values()
+    ]
+    reused = [
+        {"cond": r["arm"], "seed": r["model_seed"], "replicate": False, "traj": r["traj"]}
+        for r in TRAJ21.values()
+        if r["arm"] in ex.REUSED_SEEDS and r["model_seed"] in PAIRED
+    ]
+    return new + reused
+
+
+TRAJ = traj_runs()
+
+
+def traj_series(key: str) -> dict[str, list[dict]]:
+    out: dict[str, list[dict]] = {}
+    for r in TRAJ:
+        t = r["traj"]
+        pts = [(x, y) for x, y in zip(t["epoch"], t[key], strict=True) if y is not None]
+        out.setdefault(r["cond"], []).append(
+            {"seed": r["seed"], "replicate": r["replicate"], "x": [p[0] for p in pts], "y": [p[1] for p in pts]}
+        )
+    return out
+
+
+def traj_figure(key: str, name: str, ylabel: str, caption: str, alt: str) -> str:
+    return traj_draw(traj_series(key), name, ylabel, caption, alt)
+
+
+@memo
+def traj_draw(data: dict, name: str, ylabel: str, caption: str, alt_text: str) -> str:
+    @themed(name=name, alt_text=alt_text, caption=caption)
+    def _plot() -> plt.Figure:
+        nr, nc = len(TRAJ_GRID), len(TRAJ_GRID[0])
+        fig, axes = plt.subplots(nr, nc, figsize=(8.4, 1.75 * nr + 0.4), layout="constrained", sharex=True, sharey=True)
+        grey, hi, repl = ink_of("grey"), ink_of("slow"), ink_of("replicate")
+        for i, row in enumerate(TRAJ_GRID):
+            for j, cond in enumerate(row):
+                ax = axes[i][j]
+                if cond is None:
+                    ax.set_visible(False)
+                    continue
+                for r in sorted(data[cond], key=lambda r: (r["replicate"], r["seed"] == SLOW)):
+                    ink = repl if r["replicate"] else hi if r["seed"] == SLOW else grey
+                    ax.plot(r["x"], r["y"], color=ink, lw=0.9 if ink != grey else 0.7, alpha=0.9)
+                ax.set_title(short(cond), fontsize=8)
+                ax.set_xlim(0, ex.EPOCHS)
+                if i == nr - 1 or TRAJ_GRID[min(i + 1, nr - 1)][j] is None:
+                    ax.set_xlabel("epoch", fontsize=7)
+                    ax.tick_params(labelbottom=True)
+            axes[i][0].set_ylabel(ylabel, fontsize=7)
+        handles = [
+            plt.Line2D([], [], color=hi, lw=0.9, label=f"model seed {SLOW}"),
+            plt.Line2D([], [], color=grey, lw=0.7, label=f"model seeds {PAIRED[0]}, {PAIRED[1]}"),
+            plt.Line2D(
+                [], [], color=repl, lw=0.9, label=f"replicate ({ex.REPLICATE_SEEDS[0]}–{ex.REPLICATE_SEEDS[-1]})"
+            ),
+        ]
+        fig.legend(handles=handles, loc="outside upper center", ncols=3, frameon=False, fontsize=7)
+        return fig
+
+    return _plot()
+
+
+# --- Decision ------------------------------------------------------------------------------------------------
+
+
+def task_gate(c: str) -> bool:
+    """The hard gate of the decision: a seed-mean shortfall within `TASK_COST_TOL` or within the seed band."""
+    short_ = -float(NET[c].mean())
+    return short_ <= ex.TASK_COST_TOL or short_ <= TASK_BAND[c]
+
+
+def decision_table() -> str:
+    rows = [
+        [
+            f"`{short(c)}`",
+            bold_if(task_gate(c), f"{NET[c].mean():+.3f}"),
+            f"{TASK_BAND[c]:.3f}",
+            f"{LANDING[c].mean():.2f}",
+            span(LANDING[c], ".2f"),
+        ]
+        for c in NET_ORDER
+    ]
+    return table_html(
+        ["condition", "net EEM ↑", "seed band", "landing ↑", "seeds"],
+        rows,
+        "**The task gate and the landing.** Net EEM as in the tables of E1, bold where the candidate clears the "
+        f"task gate (a seed-mean shortfall within {ex.TASK_COST_TOL:g} or within the seed band). The landing as in "
+        "H2, at the paired seeds.",
+    )
+
+
+def final(cond: str, key: str, seed: int) -> float:
+    r = next(r for r in TRAJ if r["cond"] == cond and r["seed"] == seed and not r["replicate"])
+    return [y for y in r["traj"][key] if y is not None][-1]
+
+
+def e4_eem_figure() -> str:
+    caption = f"""
+        **The task score through training.** EEM on a subsample of the held-out set, one line per run, one panel per
+        condition. The run at model seed {SLOW} is highlighted, and on `hinge` the replicate runs are drawn too.
+    """
+    alt = f"""
+        A grid of panels, one per condition, each plotting EEM against the epoch for each run. On `hinge`,
+        `cap-0.9`, `cap-0.95`, `no-emb`, and `k-mixed`, the run at model seed {SLOW} ends below the others; on
+        whole-line two runs do. Most runs rise to a first plateau and later rise again; the low runs stay near the
+        plateau and climb slowly. On the other slice conditions and on the uncapped `no-emb`, the runs end together.
+    """
+    return traj_figure("eem", "e4-eem", "EEM", caption, alt)
+
+
+def e4_margin_figure() -> str:
+    caption = """
+        **The op margin through training**, at the last slice, as in ex-2.2.21; same layout and highlighting as the
+        figure above.
+    """
+    alt = f"""
+        The same grid, plotting the op margin at the last slice against the epoch. On most anchored conditions the
+        margin rises early and the runs end close together, the run at model seed {SLOW} with them or above. On
+        `k-mixed` that run ends lowest, at {final("k-mixed", "m_context", SLOW):.2f}. The control stays near zero.
+    """
+    return traj_figure("m_context", "e4-margin", "op margin, last slice", caption, alt)
+
+
 # %%
 
 rf"""
@@ -184,9 +1587,10 @@ r"""
 
 - [Localized by depth (E1)](#localized-by-depth-e1) —
 - [Various pull caps (E2)](#various-pull-caps-e2) —
-- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — *verdict*.
+- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — partial.
 - [The anchor and the posterior (E3)](#the-anchor-and-the-posterior-e3) —
-- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — *verdict*.
+- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — miss.
+- [Training trajectories (E4, post hoc)](#training-trajectories-e4-post-hoc) —
 - [Decision](#decision) —
 
 /// admonition | How to read this report
@@ -260,26 +1664,54 @@ Beside it we report the KL divergence of the target null from the model, KL(targ
 
 # %%
 
-r"""
+rf"""
 ## Localized by depth (E1)
 
 We look at the slice conditions beside the baseline (`hinge`) condition, on four measures: the task score net of the control, the op margin at each slice, whether the edit meets the two criteria (the drop on `difference` grades with the dose, and the other ops stay within the gate), and the selective reach. The question is whether a restriction raises the task score, as leaving out the embedding did on the uncapped pull in ex-2.2.21, while editing as selectively as the `hinge` condition, and whether the matched weight changes the answer. Ex-2.2.21's uncapped `no-emb` condition is shown beside its capped twin.
 
-/// admonition | TODO
-A figure of the task score net of the control for every condition of this scout and its references, seeds as points, which E2 shares. A table of the four measures for each slice condition and its reference, seed means with the seed range. A figure of the edit for each condition: the drop on `difference` and the worst other op against the dose, one panel per slice set, the plain and matched weights as two lines. A figure of the alignment by slice at the example answers, for `difference` contexts and the others.
-///
+The figure below shows the task score for every condition, so E2 and H1 refer back to it.
+
+{net_figure()}
+
+**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH)} conditions end well below the control, and the others end near it. So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E4 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
+
+The edit is next: the drop on `{ex.ANCHORED_OP}` and on the worst other op as the dose grows.
+
+{e1_edit_figure()}
+
+On the `hinge` condition the edit grades and stays within the gate. Every restriction lets the edit spill onto other ops past the gate, at both weights. The spill is largest on the slice sets that leave out the last slice at the plain weight and on `middle-matched`, and smallest on `no-emb`. The matched weight lowers it when the last slice is left out alone and raises it on the other two slice sets. Three conditions miss the grading criterion (`no-emb`, `no-emb-matched`, and `middle-matched`), each because the drop dips between the two strongest doses by a little more than the tolerance of {ex.ex2221.GRADE_DIP:g}, while still reaching half the way to the target null.
+
+{criteria_table([ex.BASE, *(c for pair in SLICE_GROUPS.values() for c in pair), NO_EMB_UNCAPPED], "**The edit criteria by slice set.** " + CRITERIA_NOTE)}
+
+The op margin (below) is about as large as on `hinge` at the middle slices. Where the last slice is left unpulled, the margin there is lower than on `hinge`. At the embedding it is higher on most restricted conditions, whether that slice is pulled or not.
+
+{margin_table([ex.BASE, *(c for pair in SLICE_GROUPS.values() for c in pair), NO_EMB_UNCAPPED, CONTROL], "**The op margin at each slice**, seed means. Italics mark slices the condition does not pull.")}
+
+The alignment at the example answers shows the states of the other ops as well as of `{ex.ANCHORED_OP}`.
+
+{e1_align_figure()}
+
+On `{ex.ANCHORED_OP}` contexts the alignment rises through the stack on every slice set, and sooner on the restricted conditions than on `hinge`. So do the states of other ops: at the first two slices they sit further along e₁ than on `hinge`, most of all on the slice sets that leave out the embedding. `no-last-matched` is the exception, close to `hinge` throughout.
 """
 
 # %%
 
-r"""
+rf"""
 ## Various pull caps (E2)
 
 The same four measures over the four caps: 0.8 (the `hinge` condition), 0.9, 0.95, and no cap (ex-2.2.21's whole-line condition). If the selectivity falls off gradually with the cap, a cap near where it crosses the gate gives the most anchor that still edits cleanly. If it drops at one cap, the step is where to stop. At three seeds a gradual fall smaller than the seed range would look flat, and the uncapped condition only just missed the gate in ex-2.2.21, so a flat result would say the cap matters less than the seeds vary.
 
-/// admonition | TODO
-The worst other op at full dose, the selective reach, the op margin at each slice, and the task score net of the control, each against the cap, with seeds as points and the seed mean as a line.
-///
+{e2_figure()}
+
+**What we saw.** The selectivity does not fall off steadily with the cap. On the seed means, the caps of 0.8 and 0.9 and the uncapped condition stay within the gate, and the cap of 0.95 is past it. That comes from one run: at model seed {PAIRED[0]} the edit on `cap-0.95` takes another op down by several times the gate, and reaches almost none of the way to the target null within it. The `hinge` run at the same seed also spills past the gate on its own, though the seed mean stays within it. The uncapped condition, which spilled just past the gate over five seeds in ex-2.2.21, stays within it at these three.
+
+The op margin rises a little with the cap at every slice, and the task score follows `hinge` at every cap, with the run at model seed {SLOW} on the slow path (E1).
+
+{criteria_table(list(CAP_LADDER.values()), "**The edit criteria by cap**, from 0.8 to no cap. " + CRITERIA_NOTE)}
+
+**The replicate (post hoc).** The three replicate runs of `hinge` were trained for H2, and the edit criteria can be scored on them too. On their seed means the edit misses both criteria. It spills past the gate, and again the spill comes from one run: at model seed {int(REPLICATE["model_seed"][0])} the edit takes `darken` down by many times the gate. It also misses grading, on every replicate run, in a different way from the slice conditions: the drop on `{ex.ANCHORED_OP}` reaches nearly its full size by half the dose, then dips at the stronger doses by a little more than the tolerance. The table below sets the six `hinge` runs side by side.
+
+{hinge_edit_table()}
 """
 
 # %%
@@ -291,21 +1723,43 @@ rf"""
 
 At each example count we also report the skill of `k-mixed`, the share of the way from the floor (a predictor that ignores the examples) to the ceiling, with no gate. A count where the skill falls well below the others would say the model has not learned that length, which matters for the alignment against the evidence (E3).
 
-/// admonition | TODO
-Figures and tables of EEM on the three-example held-out set for `k-mixed`, `hinge`, and the control, per seed, with the tolerance marked. A separate figure of the skill of `k-mixed` at each count, with the skill of `hinge` at three examples as a reference.
+{h1_figure()}
+
+**What we saw.** `k-mixed` falls short of `hinge` at every seed, by {min(H1["by_seed"]):.2f} to {max(H1["by_seed"]):.2f} in EEM, and it is below the control at every seed too (E1). The mean shortfall is above the tolerance and just inside the seed band. The band is wide mostly because both conditions score lower at model seed {SLOW}, on the slow path described in E1.
+
+{h1_table()}
+
+The skill of `k-mixed` rises steadily with the number of examples, so no count stands out as one the model failed to learn. `hinge` and the control, trained on three examples alone, score higher than `k-mixed` at three examples and lower with one or two. With four or five, the control stays higher and `hinge` falls below.
+
+{skill_figure()}
+
+/// admonition | Partial
+`k-mixed` falls short of `hinge` by {H1["short"]:.3f} in EEM, above the tolerance of {ex.REGRESSION_TOL:g} and inside the seed band of {H1["band"]:.3f}.
 ///
 """
 
 # %%
 
-r"""
+rf"""
 ## The anchor and the posterior (E3)
 
 Whether α at the answers rises with the posterior on `difference`. The label is the same for every `difference` context however well its examples fit, so if α grades anyway, the anchor follows what the model has inferred and not just the label. Evidence builds up along a context, so the posterior also rises with the position of an answer; to tell the two apart, we also compare contexts at the same answer index, where the posterior still differs from one context to the next. We look at it on `k-mixed`, and on the `hinge` and whole-line conditions of ex-2.2.21 at three examples. This is a first look that would shape a later prediction, so it has no gate.
 
-/// admonition | TODO
-The seed-mean α at the example answers and at the query answer against the posterior on `difference` given the pairs so far, in bins. One panel per slice, one line per condition, and the control as a reference. The same at each answer index. Under them, a histogram of the points over the posterior, and the same as a cumulative curve, as in the figure in Parameters.
-///
+First, how the answers spread over the posterior. Each point is one answer of a held-out `{ex.ANCHORED_OP}` context.
+
+{e3_points_figure()}
+
+**What we saw.** Most answers sit near certainty, with smaller groups near zero and in the middle. The two corpora give nearly the same spread, so for this measurement mixing the counts added little. The query answers sit almost all in the top bin, since the query pair is counted too, so the curves below are most informative at the example answers.
+
+{e3_figure()}
+
+Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.7 sits above its neighbours, and most of its points are answers of the first example. `k-mixed` sits lower than the two three-example conditions at every slice.
+
+The posterior also rises along a context, so the next figure holds the answer index fixed.
+
+{e3_index_figure()}
+
+At the answers of the second and third examples, where the posterior still varies from one context to the next, α rises with the posterior at a fixed index. The first answer has too few distinct posterior values to show a trend, and the lines sit higher at later answers.
 """
 
 # %%
@@ -317,9 +1771,39 @@ rf"""
 
 At full dose, with the edit at every position, on held-out `{ex.ANCHORED_OP}` contexts, we expect the edit to close at least {ex.LANDING_FRACTION:.0%} of the distance from the target null that the clean model has, in total variation, as a ratio of means over contexts. That is the same share as the edit criterion of ex-2.2.21, which asks for half the way to the target null in EEM, and on the same scale: both run from the clean model (0) to the target null (1). The landing asks for more, since mass that leaves the `{ex.ANCHORED_OP}` answer counts toward it only where it arrives on answers the target null gives. Closing that share in every seed of the replicate would be a pass, and falling short in every seed a miss. If some seeds pass and others fall short, the result would be outside the plan, and the verdict would be Unresolved.
 
-/// admonition | TODO
-Per seed: the total variation distance from the target null on the clean model and under the full edit, as paired points, with the {ex.LANDING_FRACTION:.0%} line, and the KL divergence beside it. Op-confusion matrices for the replicate, clean and edited, beside the target null, in the style of ex-2.2.20 (the mass on the answers of each column op that the true op cannot give), one set per bin of the posterior on the true op, so the uncertain contexts are covered too. These show where the answers go.
+{h2_figure()}
+
+**What we saw.** The edit moves every replicate run a little under half of the way to the target null, and none reaches the gate. The stored `hinge` runs land in the same place, and the runs of the other anchored conditions land near them, apart from `k-mixed` at model seed {SLOW}; the control hardly moves. The KL divergence falls further, to about a quarter of its clean value, so under the edit few of the answers the target null gives are left with almost no weight.
+
+{h2_table()}
+
+The confusion matrices show where the answers go, at three levels of how sure the context is about its op.
+
+{confusion_figure()}
+
+In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin, and very little on the answers of `{ex.ANCHORED_OP}`. So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
+
+/// admonition | Miss
+The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the distance from the target null on the three replicate runs, short of {ex.LANDING_FRACTION:.0%} in each.
 ///
+"""
+
+# %%
+
+rf"""
+## Training trajectories (E4, post hoc)
+
+The run at model seed {SLOW} ends low on several conditions (E1), as it did in ex-2.2.21. To see when it parts from the others, the figure below follows the task score through training for every run, on a subsample of the held-out set, with the run at that seed highlighted.
+
+{e4_eem_figure()}
+
+**What we saw.** Most runs rise quickly to a first plateau, stay on it for some tens of epochs, and then rise again, at a time that varies from run to run. On the conditions where the run at model seed {SLOW} ends low, that run never makes the second rise and climbs slowly from the plateau for the rest of training. On whole-line the run at model seed {PAIRED[1]} does the same, and on the control one run makes the second rise late. On the restricted conditions, other than `no-emb`, every run makes the second rise and the three end together, as do the runs of the uncapped `no-emb`. All three replicate runs of `hinge` make it, one ending a little lower than the other two.
+
+The op margin at the last slice, below, shows whether the slow runs also hold the anchor less firmly.
+
+{e4_margin_figure()}
+
+The margin shows no matching split: on most conditions the slow run ends with the others or above them. `k-mixed` is the exception, where the run at model seed {SLOW} also ends with the lowest margin.
 """
 
 # %%
@@ -339,8 +1823,16 @@ The criteria, reported for every candidate (in more than one table, if one would
 
 The counts choice also weighs H1 and how much spread E3 finds. The choice is made with the results in hand, to be confirmed at fresh seeds.
 
+The criteria for every candidate, in three tables.
+
+{criteria_table(NET_ORDER, "**The edit criteria for every candidate.** " + CRITERIA_NOTE)}
+
+{margin_table([*NET_ORDER, CONTROL], "**The op margin at each slice for every candidate**, seed means. Italics mark slices the condition does not pull.")}
+
+{decision_table()}
+
 /// admonition | TODO
-The table of every criterion for every candidate, then what we chose and why.
+What we chose and why, after discussion.
 ///
 """
 
@@ -363,5 +1855,5 @@ rf"""
 
 **The edit and the landing.** The suppression pass is ex-2.2.21's, at every position only. The landing measurements compare the answer distribution of the edited model over the color vocabulary at the query `=` with the target null from the posterior over the other ops (`sca.data.incontext.target_null`).
 
-**Budget.** {ex.N_RUNS} runs at about \$0.13 each on an L4, the cost of ex-2.2.21's runs. Under \$5 in all, with the scoring passes.
+**Budget.** Planned at under \$5: {ex.N_RUNS} runs at about \$0.13 each on an L4 (the cost of ex-2.2.21's runs), with the scoring passes. The experiment cost \$6.69 in all.
 """
