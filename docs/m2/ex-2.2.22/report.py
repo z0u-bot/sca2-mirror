@@ -628,8 +628,9 @@ def e1_align_figure() -> str:
     alt = f"""
         Four panels, one per slice set, each plotting the seed-mean alignment with e₁ at the example answers against
         the slice, 0 to {ex.N_LAYER}. Solid lines are `{ex.ANCHORED_OP}` contexts, dashed lines the other ops; one color
-        per condition. Unpulled slices are shaded. On every condition the `{ex.ANCHORED_OP}` line rises from near zero
-        at the embedding to its highest value in the middle or late slices, and the dashed line stays near zero.
+        per condition. Unpulled slices are shaded. On every condition the `{ex.ANCHORED_OP}` line rises from the
+        embedding to its highest value in the middle or late slices; the dashed line peaks at slice 1, between 0.2 and
+        0.4, and falls back to about 0.1 by the last slice.
     """
     return e1_align_draw(data, alt)
 
@@ -694,8 +695,8 @@ def e2_figure() -> str:
         {", ".join(f"{CRIT[c]['worst']:+.3f}" for c in CAP_LADDER.values())}, with one seed of hinge and one of
         cap-0.95 well above the gate of {ex.SELECTIVITY_GATE:g}. The selective reach: seed means
         {", ".join(f"{CRIT[c]['reach']:.2f}" for c in CAP_LADDER.values())}. The task score net of the control:
-        about the same at every cap, with the third seed far below the others throughout. The op margin by slice:
-        one line per slice, each rising a little with the cap.
+        about the same at every cap, with the third seed far below the others, and on the uncapped condition the second seed too. The op margin by slice:
+        one line per slice, each a little higher at 0.95 than at 0.8, with the uncapped condition just below 0.95.
     """
     return e2_draw(data, alt)
 
@@ -798,7 +799,8 @@ def h1_figure() -> str:
         k-mixed, three seeds each with the seed mean on top; the ring marks model seed {SLOW}. Over the k-mixed
         column a dashed gate at the hinge mean less {ex.REGRESSION_TOL:g}, {HINGE_EEM.mean() - ex.REGRESSION_TOL:.3f},
         hatched below, and a dotted mark at the hinge mean less the seed band, {HINGE_EEM.mean() - H1["band"]:.3f}.
-        k-mixed seeds run from {MIXED_EEM.min():.3f} to {MIXED_EEM.max():.3f}, all below both marks; hinge from
+        k-mixed seeds run from {MIXED_EEM.min():.3f} to {MIXED_EEM.max():.3f}, all below the dashed gate and
+        {["none", "one", "two", "all three"][int((MIXED_EEM < HINGE_EEM.mean() - H1["band"]).sum())]} below the dotted mark; hinge from
         {HINGE_EEM.min():.3f} to {HINGE_EEM.max():.3f}.
     """
     return h1_draw(data, alt)
@@ -1103,7 +1105,7 @@ def e3_points_draw(data: dict, alt_text: str) -> str:
         name="e3-points",
         alt_text=alt_text,
         caption=f"""
-            **Where the points of the figures above lie.** The posterior on `{ex.ANCHORED_OP}` at every answer of the
+            **Where the points of the figures below lie.** The posterior on `{ex.ANCHORED_OP}` at every answer of the
             held-out `{ex.ANCHORED_OP}` contexts: the example answers and the query answer together. Left: the share of
             points in each bin of a tenth. Right: the share of points at or below the posterior on the x-axis.
         """,
@@ -1186,7 +1188,7 @@ def h2_figure() -> str:
         and under the full edit, as paired points joined by a line, for the three replicate runs and, fainter, the
         three stored hinge runs. Each run's clean distance is about {span(REPLICATE["tv_clean"], ".2f")} on the
         replicate and its edited distance {span(REPLICATE["tv_full"], ".2f")}; a tick on each line marks half the
-        clean distance, which every replicate run stays just above. Middle: the KL divergence of the target null from
+        clean distance, which every replicate run stays above. Middle: the KL divergence of the target null from
         the model, clean and edited, for the same runs; it falls under the edit on every run. Right: the landing per
         run for every condition, with the gate at {ex.LANDING_FRACTION:g}. The replicate runs land at
         {", ".join(f"{v:.2f}" for v in REPLICATE["landing"])}; most anchored runs land between 0.35 and 0.5, and the
@@ -1587,9 +1589,9 @@ r"""
 
 - [Localized by depth (E1)](#localized-by-depth-e1) —
 - [Various pull caps (E2)](#various-pull-caps-e2) —
-- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — partial.
+- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — **partial**.
 - [The anchor and the posterior (E3)](#the-anchor-and-the-posterior-e3) —
-- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — miss.
+- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — **miss**.
 - [Training trajectories (E4, post hoc)](#training-trajectories-e4-post-hoc) —
 - [Decision](#decision) —
 
@@ -1673,7 +1675,7 @@ The figure below shows the task score for every condition, so E2 and H1 refer ba
 
 {net_figure()}
 
-**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH)} conditions end well below the control, and the others end near it. So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E4 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
+**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH[:-1])}, and `{SLOW_PATH[-1]}` conditions end well below the control, and the others end near it (on `whole-line`, so does the run at {PAIRED[1]}). So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E4 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
 
 The edit is next: the drop on `{ex.ANCHORED_OP}` and on the worst other op as the dose grows.
 
@@ -1703,13 +1705,13 @@ The same four measures over the four caps: 0.8 (the `hinge` condition), 0.9, 0.9
 
 {e2_figure()}
 
-**What we saw.** The selectivity does not fall off steadily with the cap. On the seed means, the caps of 0.8 and 0.9 and the uncapped condition stay within the gate, and the cap of 0.95 is past it. That comes from one run: at model seed {PAIRED[0]} the edit on `cap-0.95` takes another op down by several times the gate, and reaches almost none of the way to the target null within it. The `hinge` run at the same seed also spills past the gate on its own, though the seed mean stays within it. The uncapped condition, which spilled just past the gate over five seeds in ex-2.2.21, stays within it at these three.
+**What we saw.** The selectivity does not fall off steadily with the cap. On the seed means, the caps of 0.8 and 0.9 and the uncapped condition stay within the gate, and the cap of 0.95 is past it. That comes from one run: at model seed {PAIRED[0]} the edit on `cap-0.95` takes another op down by many times the gate, and reaches almost none of the way to the target null within it. The `hinge` run at the same seed also spills past the gate on its own, though the seed mean stays within it. The uncapped condition, which spilled just past the gate over five seeds in ex-2.2.21, stays within it at these three. Taken run by run, the order changes: two of the three `cap-0.9` runs pass the gate a little, and no uncapped run does.
 
-The op margin rises a little with the cap at every slice, and the task score follows `hinge` at every cap, with the run at model seed {SLOW} on the slow path (E1).
+Past the embedding, the op margin is a little higher at the caps of 0.9 and 0.95 than at 0.8, and the uncapped condition sits just below 0.95. The task score follows `hinge` at every cap, with the run at model seed {SLOW} on the slow path (E1), and on the uncapped condition the run at {PAIRED[1]} as well.
 
 {criteria_table(list(CAP_LADDER.values()), "**The edit criteria by cap**, from 0.8 to no cap. " + CRITERIA_NOTE)}
 
-**The replicate (post hoc).** The three replicate runs of `hinge` were trained for H2, and the edit criteria can be scored on them too. On their seed means the edit misses both criteria. It spills past the gate, and again the spill comes from one run: at model seed {int(REPLICATE["model_seed"][0])} the edit takes `darken` down by many times the gate. It also misses grading, on every replicate run, in a different way from the slice conditions: the drop on `{ex.ANCHORED_OP}` reaches nearly its full size by half the dose, then dips at the stronger doses by a little more than the tolerance. The table below sets the six `hinge` runs side by side.
+**The replicate (post hoc).** The three replicate runs of `hinge` were trained for H2, and the edit criteria can be scored on them too. On their seed means the edit misses both criteria. It spills past the gate, and again the spill comes from one run: at model seed {int(REPLICATE["model_seed"][0])} the edit takes `darken` down by many times the gate. It also misses grading, on every replicate run, in the same way as the slice conditions that miss it: the drop on `{ex.ANCHORED_OP}` reaches nearly its full size by half the dose, then dips at the stronger doses by a little more than the tolerance. The table below sets the six `hinge` runs side by side.
 
 {hinge_edit_table()}
 """
@@ -1753,7 +1755,7 @@ First, how the answers spread over the posterior. Each point is one answer of a 
 
 {e3_figure()}
 
-Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.7 sits above its neighbours, and most of its points are answers of the first example. `k-mixed` sits lower than the two three-example conditions at every slice.
+Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.7 sits above its neighbours, and most of its points are answers of the first example. `k-mixed` sits lower than the two three-example conditions in most bins past the embedding, and at the embedding itself.
 
 The posterior also rises along a context, so the next figure holds the answer index fixed.
 
@@ -1781,7 +1783,7 @@ The confusion matrices show where the answers go, at three levels of how sure th
 
 {confusion_figure()}
 
-In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin, and very little on the answers of `{ex.ANCHORED_OP}`. So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
+In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin. (The mass left on the answers of `{ex.ANCHORED_OP}` itself is on the diagonal, which the figure leaves blank; it falls from {CONFUSION["clean"][1][D][D]:.2f} to {CONFUSION["edited"][1][D][D]:.2f} in the middle bin.) So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
 
 /// admonition | Miss
 The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the distance from the target null on the three replicate runs, short of {ex.LANDING_FRACTION:.0%} in each.
