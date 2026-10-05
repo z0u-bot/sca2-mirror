@@ -172,13 +172,11 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 <details markdown="1" open="true"><summary><h3 id="d22-anchoring-an-operation">D2.2: anchoring an operation</h3></summary>
 
-- [D2.2 design](./m2/d2.2/design.md)
+D2.2 anchors an operation the model has to infer from solved examples in its context. The [design](./m2/d2.2/design.md) says where it stands and what comes next; the chapters below tell how we got there.
 
-    The plan: the claims D2.2 exists to make, a quick route through the experiments that keeps the rounds of review few, the engineering that precedes them, the risk each retires, and what is out of scope.
+<h4 id="d22-removing-red">Removing <em>red</em></h4>
 
-- [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md)
-
-    Adopted after ex-2.2.14: the op anchor went to the op word, so D2.2 anchors an op the model infers from solved examples in its context, with no word to name it. Covers what M3 needs from D2.2, the new grammar and its failure modes, and how D2.3 changes.
+D2.1 anchored *red* but never removed it, so D2.2 started there. Projecting the anchored axis out of the D2.1 models took *red* out, more so the redder the line, and the damage stayed within the bound the placed geometry sets. Some of the cost fell on lines with no red in them, through the embeddings of `+` and `=`. A training term from M1 gave the removed model a designed answer, at some cost to selectivity, and a survey of edits on stored models chose the plain projection. A later re-score measured removal as a distance on the color grid, which varies less between seeds than exact match does.
 
 - [2.2.1. Suppressing _red_ in the anchored transformer](./m2/ex-2.2.1/report.py)
 
@@ -195,6 +193,26 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`word-tokens` `intervention` `fallback` `training` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.2/report.py -->
+
+- [2.2.8. A survey of the intervention operator on the stored ex-2.2.3 checkpoints](./m2/ex-2.2.8/report.py)
+
+    A survey, no training and no gates: 84 operators (the shaped suppression over threshold and ramp, M1's repulsion over threshold and landing, each at every position and at the operand positions) scored on the adopted point's twenty stored seeds and on `t00`'s five, through the eval contract. On the adopted point the plain projection is inside the selectivity gate on every op and the frozen rule proposes it; a threshold above the non-red lines' alignment removes less at zero cost, and one inside it costs more than projecting everything. On `t00` only the operand-only edits are feasible.
+
+    <span class="tags">`survey` `intervention` `eval-contract`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.8/report.py -->
+
+- [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
+
+    A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
+
+    <span class="tags">`reanalysis` `probes` `methodology` `intervention`</span>
+
+    <!-- mini:figures ./m2/answer-distance/report.py -->
+
+<h4 id="d22-a-richer-grammar-for-red">A richer grammar for <em>red</em></h4>
+
+To anchor an op we first needed several, so the grammar grew to six ops named by words, then to eleven after a scouting round and three pilots. We anchored *red* again at each step to check that the recipe still worked, and it did: the anchor landed and the task was unhurt. Giving the readout a table of its own cleaned the syntax embeddings. Removal was clean on ten of the eleven ops; on `hue-hsv` the model kept about a quarter of the answers that needed red. A heavier anchor left that leftover as it was, and anchoring *red* to a plane lowered it, though not by enough to adopt, so we carried it forward as a known side effect. Two re-analyses of the stored models looked at how anchoring changes the wider color geometry, and at why the first operand leans toward the axis.
 
 - [2.2.3. The multi-op grammar, with _red_ anchored again](./m2/ex-2.2.3/report.py)
 
@@ -236,14 +254,6 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.7/report.py -->
 
-- [2.2.8. A survey of the intervention operator on the stored ex-2.2.3 checkpoints](./m2/ex-2.2.8/report.py)
-
-    A survey, no training and no gates: 84 operators (the shaped suppression over threshold and ramp, M1's repulsion over threshold and landing, each at every position and at the operand positions) scored on the adopted point's twenty stored seeds and on `t00`'s five, through the eval contract. On the adopted point the plain projection is inside the selectivity gate on every op and the frozen rule proposes it; a threshold above the non-red lines' alignment removes less at zero cost, and one inside it costs more than projecting everything. On `t00` only the operand-only edits are feasible.
-
-    <span class="tags">`survey` `intervention` `eval-contract`</span>
-
-    <!-- mini:figures ./m2/ex-2.2.8/report.py -->
-
 - [2.2.9. The grammar handover](./m2/ex-2.2.9/report.py)
 
     The four proposals from the scouting round and the pilots go in together at fresh seeds: table A+ (eleven ops, three of which read operand order), stochastic rounding, the whole-line labeller, and the untied readout, on ex-2.2.3's adopted recipe. Twenty seeds of the full handover and twenty with ex-2.2.3's labeller, nine with the tied readout, five un-anchored, and an exploratory arm that holds lines per op at the six-op count. *Red* lands, the task is unhurt, and the whole-line label and the separate readout cost nothing the gates resolve. Removal is clean on eight of the eleven ops and misses the gate on the three HSV ops, one-sided by slot, so the handover is not adopted as it stands; one seed in twenty holds the anchor a little less well by the end of training.
@@ -259,14 +269,6 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`scouting` `multi-op` `intervention` `anchoring`</span>
 
     <!-- mini:figures ./m2/ex-2.2.10/report.py -->
-
-- [Geometry under anchoring: a whole-geometry read over the stored runs](./m2/geometry-rsa/report.py)
-
-    A reanalysis, no training and no gates: 131 stored checkpoints from ex-2.1.10, ex-2.2.3, and ex-2.2.9, each read against its own experiment's un-anchored controls by representational similarity (the correlation of two runs' colour-distance matrices) and by Procrustes, at every residual slice and two sites, with the anchor axis e₁ kept and dropped. Past the first block an anchored run's colour geometry correlates with a control's at about half the control-against-control level, in every condition. Dropping e₁ brings the six-op recipe at 50 epochs back to the control band and the heavier anchors, the longer training, and the handover arms only part way or not at all. Anchored seeds agree with each other more closely than control seeds do, so anchoring moves the deep geometry to a different, more reproducible arrangement, less like the RGB cube. Proposes a preregistered read of the handover grammar through training.
-
-    <span class="tags">`scouting` `anchoring` `geometry` `representations`</span>
-
-    <!-- mini:figures ./m2/geometry-rsa/report.py -->
 
 - [2.2.11. The handover re-run](./m2/ex-2.2.11/report.py)
 
@@ -292,6 +294,26 @@ These experiments were preparation for the main work: exercising the infrastruct
 
     <!-- mini:figures ./m2/ex-2.2.13/report.py -->
 
+- [Geometry under anchoring: a whole-geometry read over the stored runs](./m2/geometry-rsa/report.py)
+
+    A reanalysis, no training and no gates: 131 stored checkpoints from ex-2.1.10, ex-2.2.3, and ex-2.2.9, each read against its own experiment's un-anchored controls by representational similarity (the correlation of two runs' colour-distance matrices) and by Procrustes, at every residual slice and two sites, with the anchor axis e₁ kept and dropped. Past the first block an anchored run's colour geometry correlates with a control's at about half the control-against-control level, in every condition. Dropping e₁ brings the six-op recipe at 50 epochs back to the control band and the heavier anchors, the longer training, and the handover arms only part way or not at all. Anchored seeds agree with each other more closely than control seeds do, so anchoring moves the deep geometry to a different, more reproducible arrangement, less like the RGB cube. Proposes a preregistered read of the handover grammar through training.
+
+    <span class="tags">`scouting` `anchoring` `geometry` `representations`</span>
+
+    <!-- mini:figures ./m2/geometry-rsa/report.py -->
+
+- [Where the op1 lean sits: a reanalysis of ex-2.2.11's stored runs](./m2/op1-lean/report.py)
+
+    A reanalysis, no training and no gates: ex-2.2.11's 54 stored runs, asking where the containment rise (ᾱ at op1) comes from. The lean is near zero at the embedding and grows block by block, and at the last block it sits at op1, op2, and the answer, the positions whose next token is a syntax word. With a readout of its own the model sets the readout vectors for the colors at −e₁ and those for the syntax words at +e₁, so the e₁ coordinate of a state votes *a syntax word comes next*, more than half of the margin at op1; the tied readout can move only the syntax embeddings and gets little of that. The whole-line labeller reaches op1 through answer-labelled lines only on lines a training crop cuts short, a few percent of their pull, and the per-color test of that route is weak. Proposes a readout-side cleaning, a span-narrowing arm, and skipping the pull on cut lines.
+
+    <span class="tags">`scouting` `anchoring` `containment` `readout`</span>
+
+    <!-- mini:figures ./m2/op1-lean/report.py -->
+
+<h4 id="d22-anchoring-an-op-word-and-the-pivot">Anchoring an op word, and the pivot</h4>
+
+Ex-2.2.14 anchored `difference`, with no *red* anchor beside it. It landed at twice the margin *red* reached and cost the task nothing, but nearly all of it sat on the embedding of the word `difference`, so removing it would be hard to tell apart from deleting the word. The concepts we care about in language models mostly have no word of their own, so we took the op words out of the grammar: each line now shows a few solved examples and a query, and the model has to infer the op. Ex-2.2.15 checked which lines cut short by the training window the pull should act on.
+
 - [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (done)
 
     The first anchored-op experiment: `difference` goes on e₁ with no _red_ anchor beside it, on the handover setup at five fresh seeds, with the other ten ops at three seeds each. The op lands at twice the margin _red_ reached, holds through the anneal, and costs the task nothing, and every other op anchors the same way, so `difference` stands. The margin saturates in a few epochs because the pull puts the op word's embedding on the axis. With the op word alone pulled, the blocks carry a twentieth of its alignment to `=` and none to the answer. A sparse or noisy labeller lands the op as well as one that labels every line, and the probe scan leaves the op about as readable as the control has it.
@@ -305,37 +327,53 @@ These experiments were preparation for the main work: exercising the infrastruct
     A scouting run before the in-context grammar. Training windows cut the lines at their edges, and the anchor asks whatever is visible of a labelled line to carry its whole label, even when the op word is out of sight. Ex-2.2.14's primary is trained under six policies for which cut lines to pull (all of them, whole lines only, lines more than half visible, a pull scaled by the visible share, positions after a visible op word, and cut lines only), and at a shorter window where cut lines are twice as common. The sign to watch is the first operand's lean toward the axis, which ex-2.2.14 saw after the fact. Proposes the crop policy the pilot starts from.
 
     <span class="tags">`scouting` `anchoring` `labelling` `preregistration`</span>
-- [2.2.16. The in-context grammar pilot](./m2/ex-2.2.16/report.py) (done)
 
-    The first experiment on the D2.2 pivot's grammar, where the model infers the op from a few solved examples and no token names it. Its method section computes, from the op table alone, the posterior over ops across contexts on a grid of example counts and replacement rates, the Bayes ceiling and the floor on the same grid, and what cube noise costs; from those it chose the three grammar conditions the control trains at. No control came near its ceiling: at every condition, and at twice the width, the unanchored model got a little under halfway from the floor to the Bayes ceiling. So the pilot stopped at its first rule, and the anchored arms and the rules for round 3 were left unscored until the grammar and recipe are reworked.
+- [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md)
+
+    Adopted after ex-2.2.14: the op anchor went to the op word, so D2.2 anchors an op the model infers from solved examples in its context, with no word to name it. Covers what M3 needs from D2.2, the new grammar and its failure modes, and how D2.3 changes.
+
+<h4 id="d22-teaching-the-control-the-in-context-task">Teaching the control the in-context task</h4>
+
+Once the op had no word, the first question was whether an un-anchored model could learn the task at all. At first it got a little under halfway from guessing to the best score any predictor could reach. A newline mask, a lower learning rate, longer training, and dropping ops whose answers often coincide brought it to about nine tenths of the way. A later scout halved the length of a run with little loss.
+
+- [2.2.16. The in-context grammar pilot](./m2/ex-2.2.16/report.py)
+
+    The first experiment on the new grammar, where the model infers the op from a few solved examples. Every control got a little under halfway from guessing to the best possible score, so the pilot stopped before anything was anchored.
 
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `preregistration`</span>
-- [2.2.17. The center control plateau](./m2/ex-2.2.17/report.py) (done)
 
-    A scout on ex-2.2.16's unanchored control at `k3-r0.3`, over seven rounds of learning rate, length, schedule, and model size. A newline mask, a lower peak rate, and eight times the steps lift it from 0.27 to about 0.45 held-out expected exact match, against a Bayes ceiling of 0.52; past that, no schedule, length, width, or depth moves it by more than the seed spread. Scoring the answer distributions shows the model on the ceiling where the examples leave the op uncertain, and short of it where they settle the op, with mass kept on other ops' answers and a shortfall on hsvmix that grows with the hue gap.
+- [2.2.17. The center control plateau](./m2/ex-2.2.17/report.py)
+
+    More steps, a newline mask, and a lower learning rate took the control most of the way to its pass line, and then it leveled off. It matches the best possible score where the examples leave the op uncertain, and falls short where they settle it.
 
     <span class="tags">`scouting` `in-context` `training`</span>
 
     <!-- mini:figures ./m2/ex-2.2.17/report.py -->
-- [2.2.18. Dropping ops with similar answers](./m2/ex-2.2.18/report.py) (done)
 
-    A scout on the op set of the in-context grammar, at one seed per op set, with ex-2.2.17's recipe. It drops one op of each pair whose answers often coincide (`screen`, `multiply`, `hsvmix`, `exclusion`), one at a time and all four together, and scores each run against the Bayes ceiling of its own op set. Dropping all four raised the ceiling from 0.51 to 0.61, and the model came within 0.044 of it, closer than any run so far. A second round dropped `lighten`, `darken`, `hsvmix`, and `exclusion` instead: the ceiling stayed near 0.52 and the gap narrowed to 0.055, so most of the higher ceiling comes from dropping ops that round at random. Single drops mostly moved the ceiling and the model together. Also logs how skill grows through training, for later rounds on a cheaper recipe.
+- [2.2.18. Dropping ops with similar answers](./m2/ex-2.2.18/report.py)
+
+    Dropping four ops whose answers often coincide with another op raised the best possible score, and the model came closer to it than any run before. Most of the gain came from dropping ops that round at random.
 
     <span class="tags">`scouting` `in-context` `training`</span>
 
     <!-- mini:figures ./m2/ex-2.2.18/report.py -->
-- [2.2.19. Training length and seeds for the seven-op set](./m2/ex-2.2.19/report.py) (done)
 
-    How short a run on the seven-op set (`no-four`) can be and keep most of the skill of the 400-epoch recipe. A scout at one seed trained 50, 100, and 200 epochs, and a rule fixed in advance picked 200: at 100 epochs the HSV-channel ops were still far short. On three fresh seeds, 200 epochs fell short of 400 by 0.016 on average, just over the gate of 0.015, with calibration unchanged; we adopt 200 epochs, which halves the cost of a run. The fresh seeds also show `no-four` closer to its ceiling than the full set at every paired seed.
+- [2.2.19. Training length and seeds for the seven-op set](./m2/ex-2.2.19/report.py)
+
+    Half the training length keeps most of the skill of the full recipe, though a little short of the gate we set, and we adopted it. A follow-up, [where the calibration KL sits](./m2/ex-2.2.19/calibration.py), finds the model surest of itself where the examples fit several ops.
+
+    <span class="tags">`in-context` `training`</span>
+
+- [2.2.20. A high-rate head start before the recipe schedule](./m2/ex-2.2.20/report.py)
+
+    A short burst at a higher learning rate before the usual schedule kept no more of the skill than the plain run, so the plain schedule stays.
 
     <span class="tags">`in-context` `training`</span>
 
-    Follow-up: [where the calibration KL sits](./m2/ex-2.2.19/calibration.py), a post hoc split of the calibration KL over every held-out context. Its largest share is in the contexts whose examples fit several ops (a posterior on the true op below 0.5, a quarter of the set, holding about 42%), where the model is surer of its top answer than the examples warrant; the confident contexts the op confusion matrices use hold 9%. The total is level between 200 and 400 epochs, but at every seed the longer run is better calibrated on clear contexts and worse on unclear ones.
-- [2.2.20. A high-rate head start before the recipe schedule](./m2/ex-2.2.20/report.py) (done)
+<h4 id="d22-anchoring-and-removing-the-inferred-op">Anchoring and removing the inferred op</h4>
 
-    Whether a 200-epoch run on the seven-op set keeps more of the skill of the 400-epoch recipe when its first 50 epochs run on a short schedule at a higher learning rate and the remaining 150 on the recipe schedule. Two schedules, the second with a lower second peak, four runs each, paired by seed with the 200- and 400-epoch runs of ex-2.2.19. Neither keeps more of the skill than the plain 200-epoch run: both fall further short in the HSV-channel ops, so the plain schedule stays.
+With the control near its ceiling, we anchored `difference` on the new grammar. The anchor settled on the example answers, where the context shows the most about its op, and hardly at all at the query `=`. With the pull capped, an edit at every position took `difference` out gradually and left the other ops as they were, and the edited model answered much as an ideal predictor that no longer knew the op. Ex-2.2.22 tests three changes to that recipe, and whether the landing holds at fresh seeds.
 
-    <span class="tags">`in-context` `training`</span>
 - [2.2.21. The in-context grammar pilot, on the reworked recipe](./m2/ex-2.2.21/report.py) (done)
 
     Round 2 of the D2.2 route again, now that the control on the seven-op set gets about nine tenths of the way to its ceiling. It trains the control and anchored `difference` under the whole-line label and its variants, and scores the rules ex-2.2.16 never reached. The control reproduces the recipe, and the whole-line label and the verification lines stay. The whole-line arm falls a little short of the control, inside the seed band. The anchor sits on the answers, and on the hinge arm an edit applied at every position takes `difference` out gradually while the other ops stay as they were. Edited that way, the model answers `difference` contexts much as a Bayes predictor that no longer knows the op. No edit at the query `=` meets both criteria, and the label variants that pull the anchor there spill onto every op.
@@ -343,25 +381,11 @@ These experiments were preparation for the main work: exercising the infrastruct
     <span class="tags">`pilot` `in-context` `anchoring` `labelling` `intervention`</span>
 
     <!-- mini:figures ./m2/ex-2.2.21/report.py -->
+
 - [2.2.22. Localized by depth, various pull caps, and contexts of varying length](./m2/ex-2.2.22/report.py) (preregistration draft)
 
     A scout with three questions from ex-2.2.21, each a change to the hinge condition, the best recipe so far. It retrains anchored `difference` with the pull kept off the embedding slice, the last slice, or both, each at the recipe weight and at the weight that keeps the effective pull as it was; with the cap raised to 0.9 and 0.95; and on a corpus whose contexts have from one to five examples. It also asks whether the edit of ex-2.2.21 lands the model on the answers of an ideal predictor that no longer knows the op, which would let us do without a trained fallback.
 
     <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
-- [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
-
-    A re-score of ex-2.2.11's 54 checkpoints with a distance on the color grid beside expected exact match, in grid steps from the line's raw answer, with a floor and a chance level beside each. On `handover` the answers the operator removes move 44% to 77% of the way from a perfect answer to chance; on `mix` nine in ten sit one or two steps off. The non-red lines move under 0.03 steps, less than the control's own lines do under the same operator. The distances vary between seeds a tenth as much as the kept share of exact match. Adopts the distance, with a set direction, for D2.2's next removal and selectivity gates.
-
-    <span class="tags">`reanalysis` `probes` `methodology` `intervention`</span>
-
-    <!-- mini:figures ./m2/answer-distance/report.py -->
-
-- [Where the op1 lean sits: a reanalysis of ex-2.2.11's stored runs](./m2/op1-lean/report.py)
-
-    A reanalysis, no training and no gates: ex-2.2.11's 54 stored runs, asking where the containment rise (ᾱ at op1) comes from. The lean is near zero at the embedding and grows block by block, and at the last block it sits at op1, op2, and the answer, the positions whose next token is a syntax word. With a readout of its own the model sets the readout vectors for the colors at −e₁ and those for the syntax words at +e₁, so the e₁ coordinate of a state votes *a syntax word comes next*, more than half of the margin at op1; the tied readout can move only the syntax embeddings and gets little of that. The whole-line labeller reaches op1 through answer-labelled lines only on lines a training crop cuts short, a few percent of their pull, and the per-color test of that route is weak. Proposes a readout-side cleaning, a span-narrowing arm, and skipping the pull on cut lines.
-
-    <span class="tags">`scouting` `anchoring` `containment` `readout`</span>
-
-    <!-- mini:figures ./m2/op1-lean/report.py -->
 
 </details>
