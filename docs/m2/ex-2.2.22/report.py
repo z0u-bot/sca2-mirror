@@ -20,14 +20,19 @@ def cell_html(text: str) -> str:
     return "".join(f"<code>{p}</code>" if i % 2 else p for i, p in enumerate(parts))
 
 
-def table_html(head: list[str], rows: list[list[str]], caption: str, *, text_cols: int = 1) -> str:
-    """An authored table in the shared report style; the first *text_cols* columns are text, the rest numeric."""
+def table_html(
+    head: list[str], rows: list[list[str]], caption: str, *, text_cols: int = 1, muted: frozenset[int] = frozenset()
+) -> str:
+    """An authored table in the shared report style; the first *text_cols* columns are text, the rest numeric.
+
+    Rows whose index is in *muted* are greyed out, for context rows such as runs reused from another experiment.
+    """
     ths = "".join(f"<th{' class=num' if i >= text_cols else ''}>{cell_html(h)}</th>" for i, h in enumerate(head))
     body = "".join(
-        "<tr>"
+        ('<tr style="opacity: 0.5">' if r in muted else "<tr>")
         + "".join(f"<td{' class=num' if i >= text_cols else ''}>{cell_html(c)}</td>" for i, c in enumerate(row))
         + "</tr>"
-        for row in rows
+        for r, row in enumerate(rows)
     )
     table = f'<table class="report-table dense"><thead><tr>{ths}</tr></thead><tbody>{body}</tbody></table>'
     return figure_html(table, caption=caption, class_="report-figure")
@@ -45,24 +50,39 @@ SETTING_CELLS = {
 
 
 def conditions_table() -> str:
-    """One row per new condition. The setting it changes from its reference is in bold."""
-    head = ["condition", "reference", "slices", "λ_a", "cap", "examples (k)"]
-    rows = []
+    """One row per condition, with the reused runs of ex-2.2.21 greyed out. Bold marks what a condition changes."""
+    head = ["condition", "reference", "seeds", "slices", "λ_a", "cap", "examples (k)"]
+    first, last = ex.SEED_OFFSET, ex.SEED_OFFSET + ex.SEEDS - 1
+    reused = {a.name: a.seeds for a in ex.ex2221.ARMS}
+    rows = [
+        [
+            f"`{c.name}`",
+            "ex-2.2.21",
+            f"{first}–{first + reused[c.name] - 1}",
+            *(fmt(c) for fmt in SETTING_CELLS.values()),
+        ]
+        for c in ex.REFERENCES
+    ]
     for c in ex.CONDITIONS:
         ref = ex.by_name(c.reference)
         cells = [
             f"<b>{fmt(c)}</b>" if ex.settings(c)[k] != ex.settings(ref)[k] else fmt(c)
             for k, fmt in SETTING_CELLS.items()
         ]
-        rows.append([f"`{c.name}`", f"`{c.reference}`", *cells])
+        rows.append([f"`{c.name}`", f"`{c.reference}`", f"{first}–{last}", *cells])
+    base = ex.by_name(ex.BASE)
+    seeds = f"{ex.REPLICATE_SEEDS[0]}–{ex.REPLICATE_SEEDS[-1]}"
+    rows.append([f"`{ex.BASE}`", "replicate", f"<b>{seeds}</b>", *(fmt(base) for fmt in SETTING_CELLS.values())])
     return table_html(
         head,
         rows,
-        f"The {len(ex.CONDITIONS)} new conditions, {ex.SEEDS} seeds each ({ex.N_RUNS} runs). Each changes the setting "
-        "in bold from its reference, and is paired with it by model seed. The base is the hinge condition of "
-        f"ex-2.2.21 (`{ex.BASE}`): every slice pulled, λ_a = {ex.LAMBDA_A:g}, the pull capped at "
-        f"{ex.HINGE_CAP:g}, and {ex.K} examples per context.",
-        text_cols=6,
+        f"The conditions. The greyed rows are runs of ex-2.2.21, reused here. Below them are the "
+        f"{len(ex.CONDITIONS)} new conditions; each changes the setting in bold from its reference, and is paired "
+        f"with it by model seed. The last row repeats `{ex.BASE}` at new seeds, for H2. That makes {ex.N_RUNS} new "
+        f"runs. The base is the hinge condition of ex-2.2.21 (`{ex.BASE}`): every slice pulled, "
+        f"λ_a = {ex.LAMBDA_A:g}, the pull capped at {ex.HINGE_CAP:g}, and {ex.K} examples per context.",
+        text_cols=7,
+        muted=frozenset(range(len(ex.REFERENCES))),
     )
 
 
