@@ -1368,7 +1368,7 @@ def confusion_figure() -> str:
         A grid of {len(CONF_BINS) - 1} rows, one per bin of the posterior on the true op, and three columns: the clean
         model, the edited model, and the target null, each a {len(OPS)} by {len(OPS)} matrix with the true op on the
         rows and, on the columns, the mass on the answers of each op that the true op cannot give. The diagonal is
-        outlined and left blank. Outside the `{ex.ANCHORED_OP}` row the edited matrices put a little more mass
+        outlined, with its value printed in grey and no color. Outside the `{ex.ANCHORED_OP}` row the edited matrices put a little more mass
         off the diagonal than the clean ones, in the two upper bins. In the `{ex.ANCHORED_OP}` row the clean model puts little mass off the diagonal, and the edited model
         and the target null put much more there; the mean cell off the diagonal in that row, by bin from low to high, is
         {", ".join(f"{v:.2f}" for v in d_row["clean"])} clean, {", ".join(f"{v:.2f}" for v in d_row["edited"])}
@@ -1386,7 +1386,7 @@ def confusion_draw(data: dict, alt_text: str) -> str:
             **Where the answers go, by how sure the context is.** Op confusion, as in ex-2.2.20, over the held-out
             contexts of every op, for the replicate runs (seed mean). Rows: the true op. Columns: the mass on the
             colors the column op can give for the query operands and the true op cannot. The diagonal (the mass on
-            the answers of the true op) is outlined and left out of the color scale. One row of panels per bin of the
+            the answers of the true op) is outlined, printed in grey italics, and left out of the color scale. One row of panels per bin of the
             posterior on the true op; a row of a matrix with fewer than {MIN_BIN} contexts in a run is blank. Values
             of at least {PRINT_FLOOR:g} are printed.
         """,
@@ -1407,6 +1407,17 @@ def confusion_draw(data: dict, alt_text: str) -> str:
                 for i, j in np.ndindex(n, n):
                     if i == j:
                         ax.plot(j, i, "s", ms=11, mfc="none", mec="0.6", mew=0.6)
+                        if np.isfinite(m[i, j]):
+                            ax.text(
+                                j,
+                                i,
+                                f"{m[i, j]:.2f}".removeprefix("0"),
+                                ha="center",
+                                va="center",
+                                fontsize=6,
+                                color=ink_of("grey"),
+                                fontstyle="italic",
+                            )
                     elif np.isfinite(m[i, j]) and m[i, j] >= PRINT_FLOOR:
                         ax.text(
                             j,
@@ -1430,7 +1441,172 @@ def confusion_draw(data: dict, alt_text: str) -> str:
     return _plot()
 
 
-# --- E4: training trajectories -------------------------------------------------------------------------------
+# --- E4: where the remaining distance is (post hoc) ------------------------------------------------------------
+
+SPLIT_GROUPS = ("colors another op gives", "colors only `difference` gives", "colors no op gives")
+
+
+def ideal_dist(a: dict[str, np.ndarray]) -> np.ndarray:
+    """The answer distribution of the ideal predictor with every op, `difference` included, on each context."""
+    n = len(a["op_ids"])
+    empty = np.zeros((n, 0), np.int64)
+    ctx = P.Contexts(a["op_ids"].astype(np.int64), empty, empty, a["query_pair"])
+    return P.predictive(TABLE7, ctx, a["posterior"].astype(float))
+
+
+def tv(x: np.ndarray, y: np.ndarray) -> np.ndarray:
+    return np.abs(x - y).sum(axis=1) / 2
+
+
+@memo
+def distance_split(arrays: dict[str, dict[str, np.ndarray]]) -> list[dict[str, Any]]:
+    """Per replicate run, on the held-out `difference` contexts: the mean total variation distance from the target
+    null, clean and edited, split by the colors it falls on; how closely the weight the edited model puts on each other
+    op follows the target null from one context to the next; and, as a reference, how far the clean model is from the
+    ideal predictor with every op.
+    """
+    out = []
+    for a in arrays.values():
+        keep = a["op_ids"] == D
+        q = target_null_dist(a)[keep].astype(float)
+        gives = gives_table(a["query_pair"])[:, keep]
+        others = np.delete(gives, D, axis=0)
+        groups = (others.any(0), gives[D] & ~others.any(0), ~gives.any(0))
+        row: dict[str, Any] = {"model_seed": int(a["model_seed"]) if "model_seed" in a else None}
+        for name in ("p_clean", "p_full"):
+            pm = a[name][keep].astype(float)
+            half = np.abs(pm - q) / 2
+            row[name] = [float((half * g).sum(1).mean()) for g in groups]
+        pm = a["p_full"][keep].astype(float)
+        row["op_corr"] = float(np.mean([np.corrcoef((pm * o).sum(1), (q * o).sum(1))[0, 1] for o in others]))
+        ideal = ideal_dist(a)
+        row["ideal_d"] = float(tv(a["p_clean"].astype(float), ideal)[a["op_ids"] == D].mean())
+        row["ideal_other"] = float(tv(a["p_clean"].astype(float), ideal)[a["op_ids"] != D].mean())
+        out.append(row)
+    return out
+
+
+SPLIT = distance_split(SUPP_ARRAYS)
+for _row, _seed in zip(SPLIT, REPLICATE["model_seed"], strict=True):
+    _row["model_seed"] = int(_seed)
+
+
+SPLIT_CLEAN = np.array([r["p_clean"] for r in SPLIT])
+SPLIT_FULL = np.array([r["p_full"] for r in SPLIT])
+SPLIT_ONLY_D = float((SPLIT_CLEAN[:, 1] / SPLIT_CLEAN.sum(1)).mean())
+SPLIT_OTHER_EDITED = float((SPLIT_FULL[:, 0] / SPLIT_FULL.sum(1)).mean())
+SPLIT_IDEAL = float(np.mean([r["ideal_d"] for r in SPLIT]))
+SPLIT_GAP_SHARE = float(np.mean([r["ideal_d"] / sum(r["p_full"]) for r in SPLIT]))
+
+
+def split_figure() -> str:
+    clean = np.array([r["p_clean"] for r in SPLIT])
+    full = np.array([r["p_full"] for r in SPLIT])
+    alt = f"""
+        A stacked bar chart, two bars per replicate run (model seeds {", ".join(str(r["model_seed"]) for r in SPLIT)}):
+        the mean total variation distance from the target null on `{ex.ANCHORED_OP}` contexts, clean and edited,
+        split into the part on colors another op gives, on colors only `{ex.ANCHORED_OP}` gives, and on colors no op
+        gives. Clean, the distance is about {clean.sum(1).mean():.2f}, of which about {clean[:, 1].mean():.2f} is on
+        colors only `{ex.ANCHORED_OP}` gives. Edited, it is about {full.sum(1).mean():.2f}, almost all on colors
+        another op gives, with the `{ex.ANCHORED_OP}`-only part near zero. A tick on each run marks the distance of the
+        clean model from the ideal predictor on the same contexts, about {np.mean([r["ideal_d"] for r in SPLIT]):.2f}.
+    """
+    return split_draw(
+        {
+            "clean": clean.tolist(),
+            "full": full.tolist(),
+            "seeds": [r["model_seed"] for r in SPLIT],
+            "ideal": [r["ideal_d"] for r in SPLIT],
+        },
+        alt,
+    )
+
+
+@memo
+def split_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="e4-split",
+        alt_text=alt_text,
+        caption=f"""
+            **Where the distance from the target null falls.** On held-out `{ex.ANCHORED_OP}` contexts, for the
+            replicate runs of `hinge`: the mean total variation distance from the target null, clean and under the
+            full edit, split by the colors it falls on. The tick is the distance of the clean model from the
+            ideal predictor that keeps every op, on the same contexts.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        fig, ax = plt.subplots(figsize=(5.0, 2.8), layout="constrained")
+        inks = (ink_of("plain"), ink_of("base"), ink_of("grey"))
+        xs = []
+        for i in range(len(data["seeds"])):
+            for j, key in enumerate(("clean", "full")):
+                x = i * 2.6 + j
+                bottom = 0.0
+                for g, (v, ink) in enumerate(zip(data[key][i], inks, strict=True)):
+                    ax.bar(
+                        x,
+                        v,
+                        bottom=bottom,
+                        color=ink,
+                        width=0.8,
+                        label=SPLIT_GROUPS[g].replace("`", "") if i == j == 0 else None,
+                    )
+                    bottom += v
+                xs.append(x)
+            ax.plot([i * 2.6 - 0.45, i * 2.6 + 1.45], [data["ideal"][i]] * 2, color=rule_color(), lw=1.0, ls="--")
+        ax.set_xticks(xs, ["clean" if k % 2 == 0 else "edited" for k in range(len(xs))], fontsize=7)
+        for i, seed in enumerate(data["seeds"]):
+            ax.text(
+                i * 2.6 + 0.5,
+                -0.13,
+                f"model seed {seed}",
+                ha="center",
+                va="top",
+                fontsize=7.5,
+                transform=ax.get_xaxis_transform(),
+            )
+        ax.set_ylabel("TV from the target null", fontsize=8)
+        ax.set_ylim(0, 1.0)
+        ax.legend(frameon=False, fontsize=6.5, loc="upper center", ncols=3, handlelength=1.2)
+        return fig
+
+    return _plot()
+
+
+def split_table() -> str:
+    rows = [
+        [
+            f"{r['model_seed']}",
+            *(f"{v:.3f}" for v in r["p_clean"]),
+            *(f"{v:.3f}" for v in r["p_full"]),
+            f"{r['op_corr']:.2f}",
+            f"{r['ideal_d']:.3f}",
+        ]
+        for r in SPLIT
+    ]
+    return table_html(
+        [
+            "model seed",
+            "clean: other ops",
+            "only `difference`",
+            "no op",
+            "edited: other ops",
+            "only `difference`",
+            "no op",
+            "op weights, r",
+            "clean from ideal",
+        ],
+        rows,
+        f"**The distance from the target null by color**, on held-out `{ex.ANCHORED_OP}` contexts, for the replicate "
+        "runs: the parts of the mean total variation distance on colors another op gives, on colors only "
+        f"`{ex.ANCHORED_OP}` gives, and on colors no op gives. *Op weights, r*: the correlation over contexts between "
+        "the mass the edited model puts on the answers of each other op and the mass the target null puts there, "
+        "averaged over the six ops. *Clean from ideal*: the mean distance of the clean model from the ideal predictor "
+        "that keeps every op, on the same contexts.",
+    )
+
+
+# --- E5: training trajectories -------------------------------------------------------------------------------
 
 TRAJ_GRID = [
     [CONTROL, ex.BASE, "cap-0.9", "cap-0.95", WHOLE],
@@ -1553,7 +1729,7 @@ def e4_eem_figure() -> str:
         whole-line two runs do. Most runs rise to a first plateau and later rise again; the low runs stay near the
         plateau and climb slowly. On the other slice conditions and on the uncapped `no-emb`, the runs end together.
     """
-    return traj_figure("eem", "e4-eem", "EEM", caption, alt)
+    return traj_figure("eem", "e5-eem", "EEM", caption, alt)
 
 
 def e4_margin_figure() -> str:
@@ -1566,7 +1742,7 @@ def e4_margin_figure() -> str:
         margin rises early and the runs end close together, the run at model seed {SLOW} with them or above. On
         `k-mixed` that run ends lowest, at {final("k-mixed", "m_context", SLOW):.2f}. The control stays near zero.
     """
-    return traj_figure("m_context", "e4-margin", "op margin, last slice", caption, alt)
+    return traj_figure("m_context", "e5-margin", "op margin, last slice", caption, alt)
 
 
 # %%
@@ -1592,7 +1768,8 @@ r"""
 - [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — **partial**.
 - [The anchor and the posterior (E3)](#the-anchor-and-the-posterior-e3) —
 - [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — **miss**.
-- [Training trajectories (E4, post hoc)](#training-trajectories-e4-post-hoc) —
+- [Where the distance from the target null remains (E4, post hoc)](#where-the-distance-from-the-target-null-remains-e4-post-hoc) —
+- [Training trajectories (E5, post hoc)](#training-trajectories-e5-post-hoc) —
 - [Decision](#decision) —
 
 /// admonition | How to read this report
@@ -1675,7 +1852,7 @@ The figure below shows the task score for every condition, so E2 and H1 refer ba
 
 {net_figure()}
 
-**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH[:-1])}, and `{SLOW_PATH[-1]}` conditions end well below the control, and the others end near it (on `whole-line`, so does the run at {PAIRED[1]}). So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E4 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
+**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH[:-1])}, and `{SLOW_PATH[-1]}` conditions end well below the control, and the others end near it (on `whole-line`, so does the run at {PAIRED[1]}). So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E5 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
 
 The edit is next: the drop on `{ex.ANCHORED_OP}` and on the worst other op as the dose grows.
 
@@ -1783,7 +1960,7 @@ The confusion matrices show where the answers go, at three levels of how sure th
 
 {confusion_figure()}
 
-In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin. (The mass left on the answers of `{ex.ANCHORED_OP}` itself is on the diagonal, which the figure leaves blank; it falls from {CONFUSION["clean"][1][D][D]:.2f} to {CONFUSION["edited"][1][D][D]:.2f} in the middle bin.) So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
+In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin. The mass left on the answers of `{ex.ANCHORED_OP}` itself, on the diagonal, falls close to the little the target null puts there. So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
 
 /// admonition | Miss
 The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the distance from the target null on the three replicate runs, short of {ex.LANDING_FRACTION:.0%} in each.
@@ -1793,7 +1970,25 @@ The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the dis
 # %%
 
 rf"""
-## Training trajectories (E4, post hoc)
+## Where the distance from the target null remains (E4, post hoc)
+
+H2 scores the distance from the target null as a whole. The confusion matrices count mass by op, and by op the edited model looks closer to the target null than the landing says. So here we split the distance by the colors it falls on: answers another op could give, answers only `{ex.ANCHORED_OP}` gives, and colors no op gives.
+
+{split_figure()}
+
+**What we saw.** On the clean model, about {SPLIT_ONLY_D:.0%} of the distance is mass on answers only `{ex.ANCHORED_OP}` gives. The edit removes nearly all of it and moves little onto colors no op gives. What remains, about {SPLIT_OTHER_EDITED:.0%} of the edited distance, is on answers another op could give: the edited model puts its mass on the right kind of answer and shares it among those answers differently from the target null.
+
+The sharing follows the examples in part. From one context to the next, the mass the edited model puts on the answers of each other op rises and falls with the mass the target null puts there, though loosely (the correlations are in the table below).
+
+For scale, the clean model is some way from an ideal predictor too. On the same contexts it is about {SPLIT_IDEAL:.2f} from the ideal predictor that keeps every op, in the same measure, which is about {SPLIT_GAP_SHARE:.0%} of the distance that remains under the edit.
+
+{split_table()}
+"""
+
+# %%
+
+rf"""
+## Training trajectories (E5, post hoc)
 
 The run at model seed {SLOW} ends low on several conditions (E1), as it did in ex-2.2.21. To see when it parts from the others, the figure below follows the task score through training for every run, on a subsample of the held-out set, with the run at that seed highlighted.
 
