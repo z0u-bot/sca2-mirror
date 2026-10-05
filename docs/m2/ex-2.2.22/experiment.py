@@ -4,13 +4,13 @@ Ex-2.2.21 left three questions about how to anchor the inferred op. The `no-emb`
 embedding slice out of the pull, had the best task score but edited less selectively. The hinge condition, whose
 pull stops at an alignment of 0.8, edited selectively, and the uncapped condition just missed the gate, so a cap
 between the two may hold more of the anchor and keep the selectivity. And the posterior on the op takes about three
-distinct values at three examples, too few to test whether the anchor grades with it. The hinge condition is the best
-recipe so far, so every new condition here changes one setting from it (or from a new condition of this scout), and
-ex-2.2.21's runs are reused as references, paired by model seed.
+distinct values given a whole context of three examples, too few to test whether the anchor grades with it. The hinge
+condition is the best recipe so far, so every new condition here changes one setting from it (or from a new condition
+of this scout), and ex-2.2.21's runs are reused as references, paired by model seed.
 
 Design only for now: the constants below are frozen with the report skeleton. The DAG reuses ex-2.2.21's (the
-corpus prep, `cells`, the training step, the eval, and the suppression pass), with two additions: a corpus whose
-contexts draw their example count per line, and a held-out set with every count.
+corpus prep, `cells`, the training step, the eval, and the suppression pass), with three additions: a corpus whose
+contexts draw their example count per line, a held-out set with every count, and the landing measurements of H2.
 """
 
 from __future__ import annotations
@@ -53,7 +53,7 @@ N_SLICES = N_LAYER + 1
 
 EPOCHS = ex2221.EPOCHS
 CENTRE = ex2221.CENTRE
-"""Three examples at ρ = 0.3: the corpus of every condition but `mixed`, and of every reference."""
+"""Three examples at ρ = 0.3: the corpus of every condition but `k-mixed`, and of every reference."""
 K, RHO = CENTRE
 LABEL_RATE = ex2221.LABEL_RATE
 HINGE_SOFTNESS = ex2221.HINGE_SOFTNESS
@@ -114,10 +114,13 @@ class Condition:
 
 
 MIXED_COUNTS: tuple[int, ...] = (1, 2, 3, 4, 5)
-"""The example counts of the `mixed` condition, one drawn uniformly per context. The mean is three, so the corpus has
-the same number of tokens on average as the fixed-count corpus, and an epoch the same number of steps. Each count
-adds levels to the posterior on `difference` that the others lack (the report has the figure). Two whole contexts at
-five examples fit in the window of 96 tokens."""
+"""The example counts of the `k-mixed` condition, one drawn uniformly per context. The mean is three, so the corpus
+has the same number of tokens on average as the fixed-count corpus, and an epoch the same number of steps. Each count
+adds levels to the posterior on `difference` given the whole context that the others lack (the report has the
+figure).
+One example contributes the most contexts in doubt, and pooled over the counts, the share of `difference` contexts
+whose examples favour some other op is about what it is at three examples. Two whole contexts at five examples fit in
+the window of 96 tokens."""
 
 BASE = "anchor-hinge"
 
@@ -136,7 +139,7 @@ CONDITIONS: tuple[Condition, ...] = (
     *(Condition(f"{s}-matched", s, slices=s, weight=per_slice_weight(s)) for s in ("no-emb", "no-last", "middle")),
     Condition("cap-0.9", BASE, cap=0.9),
     Condition("cap-0.95", BASE, cap=0.95),
-    Condition("mixed", BASE, counts=MIXED_COUNTS),
+    Condition("k-mixed", BASE, counts=MIXED_COUNTS),
 )
 """Every new condition is the hinge condition of ex-2.2.21 with one setting changed, except the `-matched` twins,
 which change the weight from a slice condition of this scout."""
@@ -147,8 +150,13 @@ SEED_OFFSET = ex2221.SEED_OFFSET
 seed. Seed 702 took the slow path through training on most anchored conditions there, so the pairing also shows
 whether a setting changes that."""
 
-N_RUNS = SEEDS * len(CONDITIONS)
-assert N_RUNS == 27
+REPLICATE_SEEDS: tuple[int, ...] = (703, 704, 705)
+"""H2: three more runs of `anchor-hinge`, at seeds it was not trained at in ex-2.2.21, so H2 is scored on runs its
+prediction was not drawn from. The first two pair with the five-seed control of ex-2.2.21."""
+assert not set(REPLICATE_SEEDS) & set(range(SEED_OFFSET, SEED_OFFSET + SEEDS))
+
+N_RUNS = SEEDS * len(CONDITIONS) + len(REPLICATE_SEEDS)
+assert N_RUNS == 30
 
 
 def settings(c: Condition) -> dict[str, object]:
@@ -167,14 +175,12 @@ for _c in CONDITIONS:
 # --- The measurements --------------------------------------------------------------------------------------
 
 LANDING_FRACTION = 0.75
-"""H2: at full dose, the edit at every position closes at least this share of the gap between the clean model and
-the target null, in KL(target null ‖ model), the only direction that is finite, averaged over held-out `difference` contexts."""
+"""H2: at full dose, the edit at every position closes at least this share of the clean model's distance from the
+target null, in total variation, as a ratio of means over held-out `difference` contexts. Proposed; the report has the
+check against ex-2.2.21."""
 
-SEED_AGREEMENT_RATIO = 1.5
-"""H2: the edited runs agree with one another about their answers on `difference` contexts at least as closely as
-this many times the disagreement of the clean runs, in the Jensen-Shannon divergence between the predictives of each
-pair of seeds."""
-
-GRADING_SITES: tuple[str, ...] = ("example answers",)
-"""E3: the role where ex-2.2.21 (E1) found the anchor, and where the alignment is compared with the posterior on
-`difference` given the examples up to and including that answer."""
+GRADING_SITES: tuple[str, ...] = ("example answers", "query answer")
+"""E3: the roles where the alignment is compared with the posterior on `difference` given the pairs up to and
+including that answer. The example answers are where ex-2.2.21 (E1) found the anchor; at the query answer the state
+already holds the answer, so its posterior counts the query pair too, and there ex-2.2.21 found the alignment climbing
+with depth."""
