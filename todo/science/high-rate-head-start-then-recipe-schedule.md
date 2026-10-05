@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [D2.2, in-context, training, ex-2.2.19]
 opened: 2026-10-01
+closed: 2026-10-04
 ---
 # A high-rate head start, then the recipe schedule
 
@@ -13,4 +14,6 @@ Open design questions: whether the second stage restarts the optimizer state or 
 
 ## Notes
 
-**2026-10-01, ex-2.2.20** — Preregistered as [ex-2.2.20](/docs/m2/ex-2.2.20/report.py), which settles the open design questions: one 200-epoch run per seed on a two-cycle schedule, carrying the optimizer state over; model seeds 600 to 603, scored on 601 to 603; and the H1 rule of ex-2.2.19 for a pass. Close this once the results are in.
+**2026-10-01, ex-2.2.20** — Preregistered as [ex-2.2.20](/docs/m2/ex-2.2.20/report.py), which settles the open design questions: one 200-epoch run per seed on a two-cycle schedule, carrying the optimizer state over; model seeds 600 to 603, scored on 601 to 603; and the H1 rule of ex-2.2.19 for a pass.
+
+**2026-10-04, PM** — Done: [ex-2.2.20](/docs/m2/ex-2.2.20/report.py) has its results and Sandy's review (merged in #237 and #241). Neither head-start schedule kept more of the skill than the plain 200-epoch run, since both fall further short on the HSV-channel ops, so the plain 200-epoch schedule stays the recipe.

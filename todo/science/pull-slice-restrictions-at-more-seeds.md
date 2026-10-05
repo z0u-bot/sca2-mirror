@@ -2,6 +2,7 @@
 status: open
 tags: [D2.2, anchoring, in-context, ex-2.2.21]
 opened: 2026-10-02
+priority: high
 ---
 # Leave slices out of the pull, at more seeds and longer training
 
@@ -16,3 +17,7 @@ The reasoning for going further, from the review: an abstract concept like an op
 Run them beside the whole-line arm and the control at more seeds (perhaps eight), at 200 epochs and again at 300 or 400, since the slow path shows up as a plateau that a longer run gives time to leave (ex-2.2.21's training traces). Score the task, the op margin, and the suppression pass, so the answer covers editability too.
 
 Post hoc, the suppression pass found that `no-emb` edits less selectively than the whole-line arm. One reading is that the restriction itself makes the early blocks hold the axis less cleanly. Another, from the review, is that the anchor weight λa was set with the embedding slice in the pull, so a restricted pull may want a lower one. Crossing each restriction with a lower λa (a bracket of two or three levels) would separate the two.
+
+## Notes
+
+**2026-10-04, PM** — Drafted as part of the ex-2.2.22 preregistration in [PR #246](https://github.com/z0u/sca2/pull/246) (not yet frozen): the `no-last` and `middle` slice sets, and a twin for each slice set (`no-emb` included) at a weight that keeps the per-slice pull unchanged, at 3 seeds paired with ex-2.2.21. Shortlisted while that scout is the next step for D2.2 round 3. Close or settle this from its results.

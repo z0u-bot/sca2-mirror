@@ -2,6 +2,7 @@
 status: open
 tags: [D2.2, in-context, anchoring, ex-2.2.21]
 opened: 2026-10-01
+priority: high
 ---
 # Does the anchor grade with the posterior on the op?
 
@@ -12,3 +13,7 @@ First, the anchor does not land at the query `=` on the whole-line label: it sit
 Second, the stimulus is coarse. At three examples and ρ = 0.3 the posterior on `difference` takes few distinct values: on the seven-op table about 0.4% of `difference` contexts fall in the 0.5 to 0.65 bin, 3% in 0.65 to 0.8, and 38% in 0.8 to 0.95, nearly all of them in one step near 0.91. (The eleven-op table is similar: 2%, 5%, and 35%.) So a test across ex-2.2.16's evidence bins has two nearly empty bins. A version that holds up treats the posterior as about three levels (near 0.3, near 0.91, and near 1) or widens the stimulus, with a mix of example counts or noise rates in the held-out set only. Grammars with more examples (k > 3, which ex-2.2.16 scanned up to six) are another way to widen it: each extra example splits the posterior levels further, at the cost of a longer context.
 
 Round 3 already plans a graded stimulus (the [D2.2 route](/docs/m2/d2.2/design.md#quick-route)), so this may belong there. The `sampled` arm of ex-2.2.21, which trains the grading, is the trained comparison.
+
+## Notes
+
+**2026-10-04, PM** — Drafted as part of the ex-2.2.22 preregistration in [PR #246](https://github.com/z0u/sca2/pull/246) (not yet frozen): the control and the hinge arm trained on contexts with 1 to 5 examples, which spreads the posterior on the op over more values than the three a fixed count gives. Shortlisted while that scout is the next step for D2.2 round 3. Close or settle this from its results.
