@@ -22,6 +22,7 @@ CSS_PATH = Path(__file__).with_name("lit.css")  # the frame; its header maps the
 
 EXTENSIONS = [
     "tables",
+    "def_list",
     "footnotes",
     "attr_list",
     "md_in_html",

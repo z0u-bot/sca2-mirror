@@ -750,3 +750,22 @@ class TestLazyNpz:
 
         z = LazyNpz(path.read_bytes())
         assert total(z) == 3 and total(LazyNpz(path.read_bytes())) == 3 and len(calls) == 1
+
+
+class TestMarkdownPage:
+    """A Markdown page under ``docs/`` goes through the same weave and page as a script."""
+
+    def test_parses_as_one_piece_of_static_prose(self, tmp_path):
+        md = tmp_path / "design.md"
+        md.write_text("# A design\n\nSome text with {braces}.\n")
+        doc = parse(md)
+        assert doc.segments == (Prose(md.read_text(), 1),) and doc.title == "A design"
+
+    def test_renders_with_github_slugs_and_definition_lists(self, tmp_path):
+        """Heading ids match GitHub, which ``check_md_links`` validates a fragment against; the page dialect has definition lists."""
+        md = tmp_path / "design.md"
+        md.write_text("# Title\n\n## Provenance & cost\n\nOps\n: Seven of them.\n")
+        html = render(md, out_dir=tmp_path / "out").html
+        assert 'id="provenance--cost"' in html  # GitHub keeps both hyphens; check_md_links validates against them
+        assert "<dt>Ops</dt>" in html and "<dd>Seven of them.</dd>" in html
+        assert (tmp_path / "out" / "index.md").read_text() == md.read_text()
