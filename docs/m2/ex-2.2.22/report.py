@@ -190,7 +190,7 @@ r"""
 - [Decision](#decision) —
 
 /// admonition | How to read this report
-This is a preregistration draft. Once it is agreed, the predictions and the criteria for the decision are frozen at a commit quoted here, before any run of this experiment. Each section opens with what we expect, and the results will replace the placeholders in place.
+The predictions and the criteria for the decision were frozen at commit `94873f2`, before any run of this experiment. Each section opens with what we expected, and the results replace the placeholders in place.
 ///
 """
 
