@@ -15,6 +15,7 @@ import numpy as np
 
 import experiment as ex
 from matplotlib.axes import Axes
+from matplotlib.patches import Rectangle
 from mini.lit import memo
 from mini.store import project_store
 from mini.vis import figure_html, light_dark, themed
@@ -410,6 +411,9 @@ def per_seed_criteria(s: dict[str, np.ndarray]) -> list[dict[str, Any]]:
 SUPP_PAIRED = {c: supp_arrays(paired(SUPP["runs"], c)) for c in ANCHORED}
 CRIT = {c: edit_criteria(s) for c, s in SUPP_PAIRED.items()}
 CRIT_SEEDS = {c: per_seed_criteria(s) for c, s in SUPP_PAIRED.items()}
+SLICE_RUNS = [r for pair in SLICE_GROUPS.values() for c in pair for r in CRIT_SEEDS[c]]
+# The runs of every slice restriction, for a count of those within the gate (post hoc).
+NUM_WORDS = ("none", "one", "two", "three", "four", "five", "six")
 NET = {c: net_eem(c) for c in ALL_CONDITIONS}
 MARGIN = {c: np.array([r["margin"]["by_slice"] for r in paired(EVAL["runs"], c)]) for c in ALL_CONDITIONS}
 TASK_BAND = {
@@ -781,6 +785,8 @@ SKILL = {
     c: np.array([[skill_at(r, k) for k in ex.MIXED_COUNTS] for r in paired(BY_COUNT["runs"], c)])
     for c in SKILL_CONDITIONS
 }
+LONG_DROP = int(SKILL[ex.BASE][:, -1].argmin())
+# The `hinge` run with the lowest skill at five examples (post hoc).
 
 
 def h1_figure() -> str:
@@ -915,7 +921,7 @@ def skill_draw(data: dict, alt_text: str) -> str:
 # --- E3 ----------------------------------------------------------------------------------------------------------
 
 E3_CONDITIONS = ("k-mixed", ex.BASE, WHOLE, CONTROL)
-POST_EDGES = np.linspace(0, 1, 11)
+POST_EDGES = np.linspace(0, 1, 6)
 MIN_BIN = 30
 # A bin with fewer points than this in a run is left out of that run's line.
 
@@ -990,10 +996,11 @@ def e3_figure() -> str:
     alt = f"""
         A grid of two rows (the example answers, the query answer) and {len(SLICES)} columns (slices 0 to
         {ex.N_LAYER}). Each panel plots the seed-mean alignment with e₁ against the posterior on `{ex.ANCHORED_OP}`
-        given the pairs so far, in ten bins, one line per condition: k-mixed (pooled over its counts), hinge,
+        given the pairs so far, in five bins, one line per condition: k-mixed (pooled over its counts), hinge,
         whole-line, and the control. The control stays near zero in every panel. At slice 0 every line is flat near
-        zero. From slice 2 on, at the example answers, the anchored lines rise with the posterior, steeply in its
-        upper half; at the query answer they rise too, from a higher start.
+        zero. From slice 2 on, at the example answers, the anchored lines rise with the posterior, peaking in the bin
+        from 0.6 to 0.8. At the query answer the three-example conditions have points in the top bin only, where the
+        anchored ones sit near 0.9 past slice 1; k-mixed has a point in the middle bin too, lower.
     """
     return e3_draw(data, alt)
 
@@ -1006,7 +1013,7 @@ def e3_draw(data: dict, alt_text: str) -> str:
         caption=f"""
             **α against the posterior on `{ex.ANCHORED_OP}`.** At each answer of a held-out `{ex.ANCHORED_OP}`
             context, the alignment with e₁ against the posterior on `{ex.ANCHORED_OP}` given the pairs up to and
-            including that answer, in bins of a tenth: the mean within each bin per run, then the mean over the three
+            including that answer, in five equal bins: the mean within each bin per run, then the mean over the three
             paired seeds. A bin with fewer than {MIN_BIN} points in a run is left out of it. `k-mixed` pools its
             held-out sets at every count; the other conditions are read at three examples.
         """,
@@ -1039,8 +1046,9 @@ def e3_index_figure() -> str:
         A grid of four rows (the answers of the first, second, and third example, then the query answer) and
         {len(SLICES)} columns (slices 0 to {ex.N_LAYER}), on the three-example held-out set. Each panel plots the
         seed-mean alignment with e₁ against the posterior on `{ex.ANCHORED_OP}` in bins, one line per condition. The
-        first answer has few distinct posterior values, so its lines have few points. Within a row the anchored lines
-        mostly rise with the posterior from slice 2 on, and the lines sit higher in later rows.
+        first answer has no points in the top bin, and the query answer has points in the top bin only. Within a row
+        the anchored lines rise with the posterior from slice 2 on, and at the same posterior they sit higher in
+        earlier rows.
     """
     return e3_index_draw(data, alt)
 
@@ -1091,10 +1099,10 @@ E3_POINTS = {"k-mixed": posterior_points(ex.MIXED_COUNTS), "three examples": pos
 def e3_points_figure() -> str:
     data = {k: v.tolist() for k, v in E3_POINTS.items()}
     alt = f"""
-        Two panels. Left: a histogram of the posterior on `{ex.ANCHORED_OP}` at every answer of the held-out
-        `{ex.ANCHORED_OP}` contexts, in bins of a tenth, as a share of points, for k-mixed (all counts) and for three
-        examples. Both have most of their points in the top bin and a second, smaller mass in the bottom and
-        middle bins. Right: the same as cumulative curves; the k-mixed curve rises in more, smaller steps.
+        Cumulative curves of the posterior on `{ex.ANCHORED_OP}` at every answer of the held-out
+        `{ex.ANCHORED_OP}` contexts, for k-mixed (all counts) and for three examples. Both climb in steps, the largest
+        near 0.05, 0.42, 0.69, and 0.91, with about half of the points above 0.9 and about a quarter at 1. The two
+        curves nearly overlap; the k-mixed curve has a few more, smaller steps.
     """
     return e3_points_draw(data, alt)
 
@@ -1106,26 +1114,22 @@ def e3_points_draw(data: dict, alt_text: str) -> str:
         alt_text=alt_text,
         caption=f"""
             **Where the points of the figures below lie.** The posterior on `{ex.ANCHORED_OP}` at every answer of the
-            held-out `{ex.ANCHORED_OP}` contexts: the example answers and the query answer together. Left: the share of
-            points in each bin of a tenth. Right: the share of points at or below the posterior on the x-axis.
+            held-out `{ex.ANCHORED_OP}` contexts, the example answers and the query answer together: the share of
+            points at or below the posterior on the x-axis.
         """,
     )
     def _plot() -> plt.Figure:
-        fig, (a, b) = plt.subplots(1, 2, figsize=(7.2, 2.6), layout="constrained")
+        fig, b = plt.subplots(figsize=(4.2, 2.6), layout="constrained")
         inks = [ink_of("plain"), ink_of("base")]
         x = np.linspace(0, 1, 401)
-        for (name, v), ink, off in zip(data.items(), inks, (-0.022, 0.022), strict=True):
+        for (name, v), ink in zip(data.items(), inks, strict=True):
             v = np.asarray(v)
-            h, _ = np.histogram(v, bins=POST_EDGES)
-            a.bar(BIN_MID + off, h / len(v), width=0.044, color=ink, label=name)
             b.plot(x, np.searchsorted(np.sort(v), x, side="right") / len(v), color=ink, lw=1.4, label=name)
-        a.set_xlabel("posterior", fontsize=8)
-        a.set_ylabel("share of points", fontsize=8)
         b.set_xlabel("posterior", fontsize=8)
         b.set_ylabel("share at or below", fontsize=8)
         b.set_xlim(0, 1)
         b.set_ylim(0, 1)
-        a.legend(frameon=False, fontsize=7)
+        b.legend(frameon=False, fontsize=7, loc="upper left")
         return fig
 
     return _plot()
@@ -1139,6 +1143,8 @@ H2_PASS = REPLICATE["landing"] >= ex.LANDING_FRACTION
 H2_VERDICT = "Pass" if H2_PASS.all() else "Miss" if not H2_PASS.any() else "Unresolved"
 LANDING = {c: supp_arrays(paired(SUPP["runs"], c))["landing"] for c in ALL_CONDITIONS}
 REPLICATE_CRIT = edit_criteria(REPLICATE)
+HINGE_WITHIN = sum(r["selective"] for r in [*CRIT_SEEDS[ex.BASE], *per_seed_criteria(REPLICATE)])
+# How many of the six `hinge` runs (paired and replicate) edit within the gate (post hoc).
 # Ex-2.2.21's edit criteria on the replicate runs (post hoc: H2 scores the landing on them, and nothing else).
 
 
@@ -1406,7 +1412,7 @@ def confusion_draw(data: dict, alt_text: str) -> str:
                 im = ax.imshow(np.where(eye, np.nan, m), cmap=seq_cmap(), vmin=0, vmax=vmax)
                 for i, j in np.ndindex(n, n):
                     if i == j:
-                        ax.plot(j, i, "s", ms=11, mfc="none", mec="0.6", mew=0.6)
+                        ax.add_patch(Rectangle((j - 0.46, i - 0.46), 0.92, 0.92, fill=False, ec="0.6", lw=0.6))
                         if np.isfinite(m[i, j]):
                             ax.text(
                                 j,
@@ -1508,8 +1514,8 @@ def split_figure() -> str:
         split into the part on colors another op gives, on colors only `{ex.ANCHORED_OP}` gives, and on colors no op
         gives. Clean, the distance is about {clean.sum(1).mean():.2f}, of which about {clean[:, 1].mean():.2f} is on
         colors only `{ex.ANCHORED_OP}` gives. Edited, it is about {full.sum(1).mean():.2f}, almost all on colors
-        another op gives, with the `{ex.ANCHORED_OP}`-only part near zero. A tick on each run marks the distance of the
-        clean model from the ideal predictor on the same contexts, about {np.mean([r["ideal_d"] for r in SPLIT]):.2f}.
+        another op gives, with the `{ex.ANCHORED_OP}`-only part near zero; that part is hatched. A dashed line on each
+        run marks the distance of the clean model from the ideal predictor on the same contexts, about {np.mean([r["ideal_d"] for r in SPLIT]):.2f}.
     """
     return split_draw(
         {
@@ -1530,8 +1536,8 @@ def split_draw(data: dict, alt_text: str) -> str:
         caption=f"""
             **Where the distance from the target null falls.** On held-out `{ex.ANCHORED_OP}` contexts, for the
             replicate runs of `hinge`: the mean total variation distance from the target null, clean and under the
-            full edit, split by the colors it falls on. The tick is the distance of the clean model from the
-            ideal predictor that keeps every op, on the same contexts.
+            full edit, split by the answers it falls on. The dashed line is the distance of the clean model from
+            the ideal predictor behind the Bayes ceiling, which keeps all seven ops, on the same contexts.
         """,
     )
     def _plot() -> plt.Figure:
@@ -1543,11 +1549,15 @@ def split_draw(data: dict, alt_text: str) -> str:
                 x = i * 2.6 + j
                 bottom = 0.0
                 for g, (v, ink) in enumerate(zip(data[key][i], inks, strict=True)):
+                    # The middle group is hatched, so the three stay apart in greyscale.
                     ax.bar(
                         x,
                         v,
                         bottom=bottom,
-                        color=ink,
+                        facecolor="none" if g == 1 else ink,
+                        edgecolor=ink,
+                        hatch="////" if g == 1 else None,
+                        lw=0.8 if g == 1 else 0,
                         width=0.8,
                         label=SPLIT_GROUPS[g].replace("`", "") if i == j == 0 else None,
                     )
@@ -1597,12 +1607,12 @@ def split_table() -> str:
             "clean from ideal",
         ],
         rows,
-        f"**The distance from the target null by color**, on held-out `{ex.ANCHORED_OP}` contexts, for the replicate "
+        f"**The distance from the target null by answer**, on held-out `{ex.ANCHORED_OP}` contexts, for the replicate "
         "runs: the parts of the mean total variation distance on colors another op gives, on colors only "
         f"`{ex.ANCHORED_OP}` gives, and on colors no op gives. *Op weights, r*: the correlation over contexts between "
         "the mass the edited model puts on the answers of each other op and the mass the target null puts there, "
         "averaged over the six ops. *Clean from ideal*: the mean distance of the clean model from the ideal predictor "
-        "that keeps every op, on the same contexts.",
+        "behind the Bayes ceiling, on the same contexts.",
     )
 
 
@@ -1752,7 +1762,7 @@ rf"""
 
 /// tip |
 <!-- lede -->
-A scout. We retrain the anchored `{ex.ANCHORED_OP}` condition with the pull kept off the embedding or readout, with the hinge cap raised, and on contexts whose numbers of examples vary.
+A scout. We retrain the anchored `{ex.ANCHORED_OP}` condition with the pull kept off the embedding or readout, with the hinge cap raised, and on contexts whose numbers of examples vary. None of the three changes improved the recipe: leaving slices out made the edit spill onto other ops, the cap made no steady difference, and varying the number of examples cost a little skill. Pooled over contexts, the edited model answers about as an ideal predictor that had lost `{ex.ANCHORED_OP}` would, though context by context it gets less than half of the way there.
 ///
 
 Ex-2.2.21 found that an edit applied at every position can take `{ex.ANCHORED_OP}` out of an anchored model gradually while the other ops stay as they were, at least when the pull is capped. This scout trains {len(ex.CONDITIONS)} new conditions at {ex.SEEDS} seeds each, and reuses ex-2.2.21's runs as references, paired by model seed.
@@ -1763,14 +1773,14 @@ Ex-2.2.21 found that an edit applied at every position can take `{ex.ANCHORED_OP
 r"""
 ## Findings
 
-- [Localized by depth (E1)](#localized-by-depth-e1) —
-- [Various pull caps (E2)](#various-pull-caps-e2) —
-- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — **partial**.
-- [The anchor and the posterior (E3)](#the-anchor-and-the-posterior-e3) —
-- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — **miss**.
-- [Where the distance from the target null remains (E4, post hoc)](#where-the-distance-from-the-target-null-remains-e4-post-hoc) —
-- [Training trajectories (E5, post hoc)](#training-trajectories-e5-post-hoc) —
-- [Decision](#decision) —
+- [Localized by depth (E1)](#localized-by-depth-e1) — every slice restriction lets the edit spill onto other ops past the gate, on nearly every run.
+- [Various pull caps (E2)](#various-pull-caps-e2) — the selectivity does not fall off steadily with the cap; runs past the gate turn up at every cap from 0.8 to 0.95.
+- [Mixed counts keep the recipe near its ceiling (H1)](#mixed-counts-keep-the-recipe-near-its-ceiling-h1) — **partial**. `k-mixed` falls short of `hinge` by a little more than the tolerance, inside the seed band.
+- [The anchor and the posterior (E3)](#the-anchor-and-the-posterior-e3) — at the example answers, α rises with the posterior on every anchored condition, at a fixed answer index too.
+- [The edit lands on the target null (H2)](#the-edit-lands-on-the-target-null-h2) — **miss**. The edit moves each replicate run a little under half of the way to the target null.
+- [Where the distance from the target null remains (E4, post hoc)](#where-the-distance-from-the-target-null-remains-e4-post-hoc) — the edit removes nearly all the mass on answers only `difference` gives; what remains is on answers other ops give, shared out differently from the target null.
+- [Training trajectories (E5, post hoc)](#training-trajectories-e5-post-hoc) — most runs rise to a plateau and then rise again; on several conditions the run at model seed 702 never makes the second rise.
+- [Decision](#decision) — keep every slice in the pull and three examples per context, drop the cap, and look into the seeds before confirming it.
 
 /// admonition | How to read this report
 The predictions and the criteria for the decision were frozen at commit `94873f2`, before any run of this experiment. Each section opens with what we expected, and the results replace the placeholders in place.
@@ -1852,13 +1862,15 @@ The figure below shows the task score for every condition, so E2 and H1 refer ba
 
 {net_figure()}
 
-**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH[:-1])}, and `{SLOW_PATH[-1]}` conditions end well below the control, and the others end near it (on `whole-line`, so does the run at {PAIRED[1]}). So the seed means mostly say whether a condition left that run on the slow path it took in ex-2.2.21 (E5 follows it through training). Restricting the pull to fewer slices left it off that path on every slice set but `no-emb` at the plain weight.
+**What we saw.** The task score varies more from seed to seed than from condition to condition. At model seed {PAIRED[0]} every anchored condition with three examples scores a little above the control, and at {PAIRED[1]} most score near it. At {SLOW} the {", ".join(f"`{c}`" for c in SLOW_PATH[:-1])}, and `{SLOW_PATH[-1]}` conditions end well below the control, and the others end near it (on `whole-line`, so does the run at {PAIRED[1]}). So the seed means mostly say whether the run at model seed {SLOW} took the slow path it took in ex-2.2.21 (E5 follows it through training). Of the slice sets, only `no-emb` at the plain weight put that run on the slow path; on every other slice set it trained as quickly as the runs at the other seeds.
 
 The edit is next: the drop on `{ex.ANCHORED_OP}` and on the worst other op as the dose grows.
 
 {e1_edit_figure()}
 
 On the `hinge` condition the edit grades and stays within the gate. Every restriction lets the edit spill onto other ops past the gate, at both weights. The spill is largest on the slice sets that leave out the last slice at the plain weight and on `middle-matched`, and smallest on `no-emb`. The matched weight lowers it when the last slice is left out alone and raises it on the other two slice sets. Three conditions miss the grading criterion (`no-emb`, `no-emb-matched`, and `middle-matched`), each because the drop dips between the two strongest doses by a little more than the tolerance of {ex.ex2221.GRADE_DIP:g}, while still reaching half the way to the target null.
+
+Taken run by run, `hinge` is less tidy than its seed mean, since one of its three runs spills past the gate (E2 has more). But the restrictions spill more often: only {NUM_WORDS[sum(r["selective"] for r in SLICE_RUNS)]} of their {len(SLICE_RUNS)} runs stays within the gate.
 
 {criteria_table([ex.BASE, *(c for pair in SLICE_GROUPS.values() for c in pair), NO_EMB_UNCAPPED], "**The edit criteria by slice set.** " + CRITERIA_NOTE)}
 
@@ -1882,13 +1894,13 @@ The same four measures over the four caps: 0.8 (the `hinge` condition), 0.9, 0.9
 
 {e2_figure()}
 
-**What we saw.** The selectivity does not fall off steadily with the cap. On the seed means, the caps of 0.8 and 0.9 and the uncapped condition stay within the gate, and the cap of 0.95 is past it. That comes from one run: at model seed {PAIRED[0]} the edit on `cap-0.95` takes another op down by many times the gate, and reaches almost none of the way to the target null within it. The `hinge` run at the same seed also spills past the gate on its own, though the seed mean stays within it. The uncapped condition, which spilled just past the gate over five seeds in ex-2.2.21, stays within it at these three. Taken run by run, the order changes: two of the three `cap-0.9` runs pass the gate a little, and no uncapped run does.
+**What we saw.** The selectivity does not fall off steadily with the cap. On the seed means, the caps of 0.8 and 0.9 and the uncapped condition stay within the gate, and the cap of 0.95 is past it. That comes from one run: at model seed {PAIRED[0]} the edit on `cap-0.95` takes another op down by many times the gate, and reaches almost none of the way to the target null within it. The `hinge` run at the same seed also spills past the gate on its own, though the seed mean stays within it. The uncapped condition, which spilled just past the gate over five seeds in ex-2.2.21, stays within it at these three. Taken run by run, the order changes: two of the three `cap-0.9` runs go a little past the gate, and every uncapped run stays within it. So the cap does not put the spills in order: runs past the gate turn up at 0.8, 0.9, and 0.95, and the uncapped condition, within the gate at all three of these seeds, went past it on its seed mean over five seeds in ex-2.2.21.
 
 Past the embedding, the op margin is a little higher at the caps of 0.9 and 0.95 than at 0.8, and the uncapped condition sits just below 0.95. The task score follows `hinge` at every cap, with the run at model seed {SLOW} on the slow path (E1), and on the uncapped condition the run at {PAIRED[1]} as well.
 
 {criteria_table(list(CAP_LADDER.values()), "**The edit criteria by cap**, from 0.8 to no cap. " + CRITERIA_NOTE)}
 
-**The replicate (post hoc).** The three replicate runs of `hinge` were trained for H2, and the edit criteria can be scored on them too. On their seed means the edit misses both criteria. It spills past the gate, and again the spill comes from one run: at model seed {int(REPLICATE["model_seed"][0])} the edit takes `darken` down by many times the gate. It also misses grading, on every replicate run, in the same way as the slice conditions that miss it: the drop on `{ex.ANCHORED_OP}` reaches nearly its full size by half the dose, then dips at the stronger doses by a little more than the tolerance. The table below sets the six `hinge` runs side by side.
+**The replicate (post hoc).** The three replicate runs of `hinge` were trained for H2, and the edit criteria can be scored on them too. On their seed means the edit misses both criteria. It spills past the gate, and again the spill comes from one run: at model seed {int(REPLICATE["model_seed"][0])} the edit takes `darken` down by many times the gate. It also misses grading, on every replicate run, in the same way as the slice conditions that miss it: the drop on `{ex.ANCHORED_OP}` reaches nearly its full size by half the dose, then dips at the stronger doses by a little more than the tolerance. The table below sets the six `hinge` runs side by side. The edit stays within the gate on {NUM_WORDS[HINGE_WITHIN]} of them.
 
 {hinge_edit_table()}
 """
@@ -1908,7 +1920,7 @@ At each example count we also report the skill of `k-mixed`, the share of the wa
 
 {h1_table()}
 
-The skill of `k-mixed` rises steadily with the number of examples, so no count stands out as one the model failed to learn. `hinge` and the control, trained on three examples alone, score higher than `k-mixed` at three examples and lower with one or two. With four or five, the control stays higher and `hinge` falls below.
+The skill of `k-mixed` rises steadily with the number of examples, so no count stands out as one the model failed to learn. `hinge` and the control, trained on three examples alone, score higher than `k-mixed` at three examples and lower with one or two. With four or five, the control stays higher and `hinge` falls below. That fall comes from one run: at model seed {PAIRED[LONG_DROP]} the skill of `hinge` drops to {SKILL[ex.BASE][LONG_DROP, -2]:.2f} at four examples and to {SKILL[ex.BASE][LONG_DROP, -1]:.2f} at five (the floor is 0), while its other two runs lose much less. That run is not the slow one, so it seems that how well a model trained on three examples copes with longer contexts varies from seed to seed.
 
 {skill_figure()}
 
@@ -1928,17 +1940,17 @@ First, how the answers spread over the posterior. Each point is one answer of a 
 
 {e3_points_figure()}
 
-**What we saw.** Most answers sit near certainty, with smaller groups near zero and in the middle. The two corpora give nearly the same spread, so for this measurement mixing the counts added little. The query answers sit almost all in the top bin, since the query pair is counted too, so the curves below are most informative at the example answers.
+**What we saw.** About half the answers sit above 0.9, and the rest fall on a few steps lower down. The two corpora give nearly the same spread, so for this measurement mixing the counts added little. The query answers sit almost all in the top bin, since the query pair is counted too, so the curves below are most informative at the example answers.
 
 {e3_figure()}
 
-Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.7 sits above its neighbours, and most of its points are answers of the first example. `k-mixed` sits lower than the two three-example conditions in most bins past the embedding, and at the embedding itself.
+Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.8 sits above the top bin. Most of the points in that bin are answers of the first example, and the next figure suggests why that matters. `k-mixed` sits lower than the two three-example conditions in most bins past the embedding, and at the embedding itself.
 
 The posterior also rises along a context, so the next figure holds the answer index fixed.
 
 {e3_index_figure()}
 
-At the answers of the second and third examples, where the posterior still varies from one context to the next, α rises with the posterior at a fixed index. The first answer has too few distinct posterior values to show a trend, and the lines sit higher at later answers.
+At a fixed index, α rises with the posterior at every example answer. At the same posterior, it sits higher at earlier answers: at the first answer, α in the bin from 0.6 to 0.8 is about as high as it gets anywhere. So the bump in the pooled figure above seems to come from mixing answer indices, with the first answers crowded into that one bin.
 """
 
 # %%
@@ -1952,7 +1964,7 @@ At full dose, with the edit at every position, on held-out `{ex.ANCHORED_OP}` co
 
 {h2_figure()}
 
-**What we saw.** The edit moves every replicate run a little under half of the way to the target null, and none reaches the gate. The stored `hinge` runs land in the same place, and the runs of the other anchored conditions land near them, apart from `k-mixed` at model seed {SLOW}; the control hardly moves. The KL divergence falls further, to about a quarter of its clean value, so under the edit few of the answers the target null gives are left with almost no weight.
+**What we saw.** The edit moves every replicate run a little under half of the way to the target null, and none reaches the gate. The stored `hinge` runs land in the same place, and the runs of the other anchored conditions land near them, apart from `k-mixed` at model seed {SLOW}; the control hardly moves. The KL divergence falls further, to about a quarter of its clean value. KL grows large wherever the model puts next to nothing on an answer the target null gives. The clean model, sure of `{ex.ANCHORED_OP}`, does that on many answers, which is why its KL is large. So it seems that under the edit far fewer such answers remain.
 
 {h2_table()}
 
@@ -1960,7 +1972,11 @@ The confusion matrices show where the answers go, at three levels of how sure th
 
 {confusion_figure()}
 
-In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin. The mass left on the answers of `{ex.ANCHORED_OP}` itself, on the diagonal, falls close to the little the target null puts there. So, counted by op, the edit puts the mass about where the target null does. In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control.
+In the `{ex.ANCHORED_OP}` row, the edited model puts about as much mass on the answers of each other op as the target null does, in every bin. The mass left on the answers of `{ex.ANCHORED_OP}` itself, on the diagonal, falls close to the little the target null puts there. So, pooled over contexts, the edit puts the mass about where the target null does.
+
+The matrices and the landing measure different things. A matrix adds up the mass on the answers of each op over all the contexts in a bin, so a model that puts too much on one op in some contexts and too little in others can still match the target null in total. The landing measures the distance on each context and then averages, so those mismatches add up instead of cancelling. E4 looks at where they fall.
+
+In the rows of the other ops, the edit moves a little mass off the true op and onto the others in the two surer bins, where the target null puts almost none. That loss is in the EEM of the other ops, and E2 scores it net of the control. In the two surer bins, the largest entries off the diagonal are between `sat-hsv` and `value-hsv`, which the clean model already confuses with each other at about the same level; the edit adds a little to them.
 
 /// admonition | Miss
 The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the distance from the target null on the three replicate runs, short of {ex.LANDING_FRACTION:.0%} in each.
@@ -1972,15 +1988,15 @@ The edit closes {", ".join(f"{v:.0%}" for v in REPLICATE["landing"])} of the dis
 rf"""
 ## Where the distance from the target null remains (E4, post hoc)
 
-H2 scores the distance from the target null as a whole. The confusion matrices count mass by op, and by op the edited model looks closer to the target null than the landing says. So here we split the distance by the colors it falls on: answers another op could give, answers only `{ex.ANCHORED_OP}` gives, and colors no op gives.
+H2 scores the distance from the target null context by context, and the confusion matrices, which pool over contexts, make the edited model look closer to the target null than the landing says. So here we split the distance by the answers it falls on: answers another op could give, answers only `{ex.ANCHORED_OP}` gives, and colors no op gives.
 
 {split_figure()}
 
 **What we saw.** On the clean model, about {SPLIT_ONLY_D:.0%} of the distance is mass on answers only `{ex.ANCHORED_OP}` gives. The edit removes nearly all of it and moves little onto colors no op gives. What remains, about {SPLIT_OTHER_EDITED:.0%} of the edited distance, is on answers another op could give: the edited model puts its mass on the right kind of answer and shares it among those answers differently from the target null.
 
-The sharing follows the examples in part. From one context to the next, the mass the edited model puts on the answers of each other op rises and falls with the mass the target null puts there, though loosely (the correlations are in the table below).
+The sharing partially follows the examples. The mass the edited model puts on the answers of each other op rises and falls with the mass the target null puts there, though loosely (the correlations over contexts are in the table below).
 
-For scale, the clean model is some way from an ideal predictor too. On the same contexts it is about {SPLIT_IDEAL:.2f} from the ideal predictor that keeps every op, in the same measure, which is about {SPLIT_GAP_SHARE:.0%} of the distance that remains under the edit.
+For scale, the clean model is some way from an ideal predictor too. On the same contexts it is about {SPLIT_IDEAL:.2f} from the ideal predictor behind the Bayes ceiling (which weighs all seven ops by how well they fit the examples), in the same measure, which is about {SPLIT_GAP_SHARE:.0%} of the distance that remains under the edit.
 
 {split_table()}
 """
@@ -2028,19 +2044,29 @@ The criteria for every candidate, in three tables.
 
 {decision_table()}
 
-/// admonition | TODO
-What we chose and why, after discussion.
-///
+**What we chose.** For the recipe, one of the three choices changes:
+
+- Slices: every slice stays in the pull, at the plain weight. Every restriction let the edit spill past the gate more often than `hinge` did (E1), at either weight. Which slices the pull needs is still open; pooling over slices, so that training can choose where to hold the op, is the next idea to try.
+- Cap: none. Runs past the gate turn up at every cap from 0.8 to 0.95, and `hinge` stays within the gate on {NUM_WORDS[HINGE_WITHIN]} of its six runs (E2). So at three seeds the cap seems not to buy the selectivity it was meant to, and leaving it out removes a setting.
+- Counts: three examples per context. `k-mixed` falls a little short of `hinge` (H1), its α sits lower (E3), and three examples already give α enough spread to grade at a fixed answer index (E3).
+
+Before confirming these at fresh seeds, we would like to understand the seeds better. One seed takes a slow path on most anchored conditions (E5), and along the caps the spills past the gate come from single runs, all of them runs that trained quickly.
 """
 
 # %%
 
-r"""
+rf"""
 ## Discussion
 
-/// admonition | TODO
-Written once the results are in.
-///
+It seems the recipe of ex-2.2.21 was already close to the best these three changes allow, and what most limits the next step is how much the runs vary from seed to seed.
+
+Leaving slices out of the pull was meant to put the anchor where an inferred op lives. Instead, every restriction let the edit spill onto other ops. At the first slices the states of other ops sat further along e₁ than on `hinge`, most of all where the embedding was left out (E1). Leaving a slice out of the pull also leaves out the term that pushes other ops off e₁ there, so those states may simply have been free to drift onto the axis. Keeping that term on every slice while restricting the pull would tell the two apart.
+
+The cap did less than we hoped. Ex-2.2.21 suggested that a cap keeps the edit selective, but with the runs taken one at a time, spills turn up at every cap, and at these seeds not on the uncapped condition. Along the caps, the spills come from single runs, and only from runs that trained quickly. A run on the slow path may not yet have reached the stage of training where spilling happens, which is part of why the seeds come first.
+
+The edited model looks better pooled over contexts than one context at a time. Counted by op, the mass leaves `{ex.ANCHORED_OP}` and lands on the other ops about where the target null puts it (H2). Context by context, the edit gets a little under half of the way. Nearly all of what remains is on answers another op could give, shared among them differently from the target null, and part of it is the gap the clean model already has from an ideal predictor (E4). So "behaves like the target null, pooled over contexts" seems a fair description of the edited model. We don't yet know how close a model trained without ever seeing a `{ex.ANCHORED_OP}` context would come to the target null, which would say how much of the remaining distance any model would leave.
+
+The anchor follows the evidence. At the example answers α rises with the posterior on every anchored condition, and at a fixed answer index too (E3). At the same posterior, α is higher at earlier answers, which we did not expect and can't yet explain.
 """
 
 # %%
