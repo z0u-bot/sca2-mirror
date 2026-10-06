@@ -543,6 +543,15 @@ class TestRender:
     def test_page_without_math_skips_katex(self):
         assert "katex" not in page(to_html("plain"), title="t")
 
+    def test_toc_marker_lists_the_h2_and_h3_headings(self):
+        """The index asks for a generated ToC; GitHub hides the marker, so only the renderer can fill it in."""
+        html = to_html("# Title\n\n<!-- toc -->\n\n## A *red* one\n\n### Inner\n\n#### Too deep\n\n## B\n")
+        toc = html[html.index('<nav class="toc">') : html.index("</nav>")]
+        assert '<a href="#a-red-one">A <em>red</em> one</a>' in toc
+        assert toc.index("#a-red-one") < toc.index("#inner") < toc.index("#b")
+        assert "#title" not in toc and "#too-deep" not in toc
+        assert "<!--" not in html
+
     def test_markdown_dialect(self):
         html = to_html("/// admonition | T\n    type: note\nbody\n///\n\nx[^1]\n\n[^1]: note\n\n| a |\n|---|\n| 1 |\n")
         assert 'class="admonition note"' in html
@@ -750,3 +759,22 @@ class TestLazyNpz:
 
         z = LazyNpz(path.read_bytes())
         assert total(z) == 3 and total(LazyNpz(path.read_bytes())) == 3 and len(calls) == 1
+
+
+class TestMarkdownPage:
+    """A Markdown page under ``docs/`` goes through the same weave and page as a script."""
+
+    def test_parses_as_one_piece_of_static_prose(self, tmp_path):
+        md = tmp_path / "design.md"
+        md.write_text("# A design\n\nSome text with {braces}.\n")
+        doc = parse(md)
+        assert doc.segments == (Prose(md.read_text(), 1),) and doc.title == "A design"
+
+    def test_renders_with_github_slugs_and_definition_lists(self, tmp_path):
+        """Heading ids match GitHub, which ``check_md_links`` validates a fragment against; the page dialect has definition lists."""
+        md = tmp_path / "design.md"
+        md.write_text("# Title\n\n## Provenance & cost\n\nOps\n: Seven of them.\n")
+        html = render(md, out_dir=tmp_path / "out").html
+        assert 'id="provenance--cost"' in html  # GitHub keeps both hyphens; check_md_links validates against them
+        assert "<dt>Ops</dt>" in html and "<dd>Seven of them.</dd>" in html
+        assert (tmp_path / "out" / "index.md").read_text() == md.read_text()
