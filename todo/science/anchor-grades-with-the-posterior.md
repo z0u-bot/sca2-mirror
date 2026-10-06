@@ -2,6 +2,7 @@
 status: open
 tags: [D2.2, in-context, anchoring, ex-2.2.21]
 opened: 2026-10-01
+priority: high
 ---
 # Does the anchor grade with the posterior on the op?
 
@@ -14,5 +15,7 @@ Second, the stimulus is coarse. At three examples and ρ = 0.3 the posterior on 
 Round 3 already plans a graded stimulus (the [D2.2 route](/docs/m2/d2.2/design-2026-10.md#quick-route)), so this may belong there. The `sampled` arm of ex-2.2.21, which trains the grading, is the trained comparison.
 
 ## Notes
+
+**2026-10-04, PM** — Drafted as part of the ex-2.2.22 preregistration in [PR #246](https://github.com/z0u/sca2/pull/246) (not yet frozen): the control and the hinge arm trained on contexts with 1 to 5 examples, which spreads the posterior on the op over more values than the three a fixed count gives. Shortlisted while that scout is the next step for D2.2 round 3. Close or settle this from its results.
 
 **2026-10-05, Claude** — [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) (E3, in preregistration) takes this up as a first look with no gate: α at the example answers and the query answer against the posterior given the pairs up to and including that answer, on `k-mixed` (example counts drawn from one to five) and on the three-example conditions. A fixed-count context already gives one level of evidence per answer, so the three-example runs have more spread than the query `=` alone suggests. Since the posterior also rises with the position of an answer, E3 compares contexts at the same answer index too.
