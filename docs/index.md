@@ -68,7 +68,7 @@ These experiments were preparation for the main work: exercising the infrastruct
 
 ## D2.1: anchoring in a transformer
 
-D2.1 asked whether SCA works in a transformer at all. We first found a version of the task where a small transformer learns the geometry of color on its own, then anchored _red_ to a chosen direction in its residual stream. With a repulsive term, a schedule for it, and a pull that finds the red operand by itself, _red_ landed where we put it, graded by how red each color is, at no measurable cost to the task.
+D2.1 asked whether SCA works in a transformer at all. We designed a task where a small transformer learns the geometry of color on its own, then anchored _red_ to a chosen direction in its residual stream. With a repulsive term, a schedule for it, and a pull that finds the red operand by itself, _red_ landed where we put it, graded by how red each color is, at no measurable cost to the task.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
@@ -180,17 +180,17 @@ D2.1 asked whether SCA works in a transformer at all. We first found a version o
 
 ## D2.2: anchoring an operation
 
-D2.2 anchors an operation rather than a color. Since the [pivot](./m2/d2.2/pivot.md), the model works out which op a line uses from a few solved examples, so the op has no word of its own, like the concepts we care about in language models. The anchor lands at little or no cost to the task. With the pull capped, so that it stops once a state is close to the anchor direction, removing that direction everywhere takes the op out gradually. But at fresh seeds the removal spilled onto another op in one run, and the edited model moved a little under half way toward an ideal predictor that no longer knows the op, where we had hoped for at least half. Ex-2.2.22 has yet to choose the recipe to carry forward.
+D2.2 anchors an operation rather than a color. Since the [pivot](./m2/d2.2/pivot.md), the model infers which op a line uses from a few solved examples, so the op has no word of its own, like the abstract concepts we care about in language models. The anchor lands at little or no cost to the task. With the pull capped, so that it stops once a state is close to the anchor direction, removing that direction everywhere takes the op out gradually. Under the edit, the model moves its answers onto the other ops about as much as an ideal predictor would, though context by context it doesn't always pick the same ones. Currently refining the recipe (hyperparameters).
 
 ### Removing *red*
 
-D2.1 anchored *red* but never removed it, so D2.2 started there. Projecting out the anchor direction took *red* out, more so the redder the line, at a small cost to lines with no red. Of the edits we tried, the plain projection stayed the best choice.
+D2.1 anchored *red* but never removed it, so D2.2 began by removing it. Projecting out the anchor direction took *red* out, and took out more where the line was redder, at a small cost to lines with no red. Of the edits we tried, the plain projection stayed the best choice.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
 - [2.2.1. Suppressing _red_ in the anchored transformer](./m2/ex-2.2.1/report.py)
 
-    Our first intervention on an anchored transformer: remove the anchor direction from the D2.1 models. _Red_ goes, more so the redder the line, and the damage stays within the bound the geometry sets in advance. A little of the cost lands on lines with no red, through the `+` and `=` tokens, and editing only the color tokens avoids it.
+    Our first intervention on an anchored transformer: remove the anchor direction from the D2.1 models. _Red_ goes, more so the redder the line, and the damage stays within the bound the geometry sets in advance. A little of the cost lands on lines with no red, through the `+` and `=` tokens.
 
     <span class="tags">`word-tokens` `intervention` `suppression` `checkpoints` `eval-contract`</span>
 
@@ -198,7 +198,7 @@ D2.1 anchored *red* but never removed it, so D2.2 started there. Projecting out 
 
 - [2.2.2. A designed response to suppressing _red_](./m2/ex-2.2.2/report.py)
 
-    We brought M1's fallback training to the transformer: a term that teaches the model to answer as though _red_ were _mid-gray_ once _red_ is removed. Every seed gives that answer under the edit it was trained with, though it carries over only partly to the plain projection. The edit also hurt lines with no red, but that came from the edit rather than the new term.
+    We tried the fallback training from M1 on the transformer: a term that teaches the model to answer as though _red_ were _mid-gray_ once _red_ is removed. Every seed gives that answer under the edit it was trained with, though it carries over only partly to the plain projection. That edit also hurt lines with no red, in every anchored model, with or without the new term.
 
     <span class="tags">`word-tokens` `intervention` `fallback` `training` `eval-contract`</span>
 
@@ -206,15 +206,15 @@ D2.1 anchored *red* but never removed it, so D2.2 started there. Projecting out 
 
 - [2.2.8. A survey of the intervention operator on the stored ex-2.2.3 checkpoints](./m2/ex-2.2.8/report.py)
 
-    A survey of edits on stored models, with no training. Projecting out the anchor direction everywhere was already selective enough, so it stays our edit. A threshold that spares weakly aligned states removed less _red_, with no gain we could measure.
+    A survey of edits on stored models, with no training. Projecting out the anchor direction everywhere was already selective enough. A threshold that spares weakly aligned states removed less _red_, and was no more selective that we could measure.
 
     <span class="tags">`survey` `intervention` `eval-contract`</span>
 
     <!-- mini:figures ./m2/ex-2.2.8/report.py -->
 
-- [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py) (done)
+- [How far the answer moves: an RGB-distance readout beside expected exact match](./m2/answer-distance/report.py)
 
-    Exact match gives no partial credit, so we re-scored stored models by how far the answer moves on the color grid. Answers that lose _red_ move between half and three quarters of the way to a random guess, and lines with no red barely move. The distance also varies much less between seeds, so D2.2 scores removal with it from here on.
+    Exact match gives no partial credit, so we re-scored stored models by how far the answer moves on the color grid. Answers that lose _red_ move between half and three quarters of the way to a random guess, and lines with no red barely move. The distance also varies much less between seeds.
 
     <span class="tags">`reanalysis` `probes` `methodology` `intervention`</span>
 
@@ -224,13 +224,13 @@ D2.1 anchored *red* but never removed it, so D2.2 started there. Projecting out 
 
 ### A richer grammar for *red*
 
-To anchor an op we first needed several, so the grammar grew from one op to eleven. We anchored *red* again at each step, and the recipe held. Removal was clean on every op but one, where the model kept about a quarter of the answers that needed red, and we carried that forward as a known side effect.
+Before we could anchor an op, the grammar needed more than one, so it grew from one op to eleven. We anchored *red* again at each step, and the recipe held. Removal was clean on every op but one, where the model kept about a quarter of the answers that needed red.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
 - [2.2.3. The multi-op grammar, with _red_ anchored again](./m2/ex-2.2.3/report.py)
 
-    The grammar grows to six ops named by words (`mix`, `add`, `screen`, and so on), and we check the D2.1 recipe on it. The recipe carried over unchanged. The stronger anchor from the ex-2.1.11 survey also put the anchor direction on the `=` and op-word tokens, so removing it broke lines with no red, and we stayed with the recipe.
+    The grammar grows to six ops (`mix`, `add`, `screen`, `multiply`, `lighten`, and `darken`), and we check the D2.1 recipe on it. The stronger anchor from the ex-2.1.11 survey put the anchor direction on the `=` and op-word tokens, so removing it broke lines with no red, and we stayed with the D2.1 recipe.
 
     <span class="tags">`word-tokens` `multi-op` `regression` `survey-handoff`</span>
 
@@ -246,7 +246,7 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 - [2.2.5. A pilot of stochastic rounding](./m2/ex-2.2.5/report.py)
 
-    A pilot of rounding answers at random, in proportion to where they fall between grid levels. The model learns the coin flip itself, so exact match has a ceiling, and we score the expected match instead. Anchoring is unaffected.
+    A pilot of rounding answers at random, in proportion to where they fall between grid levels. The model learns the coin flip itself, so no model can match every rounded answer, and we score the probability it puts on the right answer instead. Anchoring is unaffected.
 
     <span class="tags">`pilot` `multi-op` `grammar` `eval-contract`</span>
 
@@ -254,7 +254,7 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 - [2.2.6. A pilot of the whole-span labeller](./m2/ex-2.2.6/report.py)
 
-    A pilot of a label that pulls the whole line rather than just the operands. Some of the pull moves onto the answer at no cost, but the answer still doesn't depend on the anchor, because the model reads it out one position earlier.
+    A pilot of a label that pulls the whole line rather than just the operands. Some of the pull moves onto the answer at no cost, but removing the anchor still leaves those answers as they were, because the model has already decided the answer one position earlier.
 
     <span class="tags">`pilot` `multi-op` `anchoring`</span>
 
@@ -262,7 +262,7 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 - [2.2.7. A pilot of the syntax embeddings](./m2/ex-2.2.7/report.py)
 
-    A pilot into why the `=` and op-word tokens pick up part of the anchor direction, which is what makes removal cost something on lines with no red. The output side of the shared token table puts it there. Giving the model a separate output table moves it off those tokens at no cost to the task.
+    Removal costs something on lines with no red because the `=` and op-word tokens pick up part of the anchor direction. This pilot asks why. The output side of the shared token table puts it there. Giving the model a separate output table moves it off those tokens at no cost to the task.
 
     <span class="tags">`pilot` `multi-op` `anchoring` `selectivity`</span>
 
@@ -270,7 +270,7 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 - [2.2.9. The grammar handover](./m2/ex-2.2.9/report.py)
 
-    The changes from the scouting round and the pilots go in together: eleven ops, random rounding, the whole-line label, and a separate output table. _Red_ still lands and the task is unhurt. Removal was clean on eight of the eleven ops but fell short on three that take only the hue, saturation, or value of one operand, so we didn't adopt the combined setup as it stood.
+    The changes from the scouting round and the pilots, together: eleven ops, random rounding, the whole-line label, and a separate output table. _Red_ still lands and the task is unhurt. Removal was clean on eight of the eleven ops but fell short on three that take only the hue, saturation, or value of one operand, so we didn't adopt the combined setup as it stood.
 
     <span class="tags">`prereg` `multi-op` `anchoring` `selectivity`</span>
 
@@ -278,7 +278,7 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 - [2.2.10. Three reads before the handover re-run](./m2/ex-2.2.10/report.py)
 
-    A scouting look at the stored runs of ex-2.2.9, with no new training. The removal misses came from how we chose the lines to score: removal acts on _red_ like a change of hue, and the lines that missed needed only its saturation or brightness. We proposed choosing the scored lines by hue instead.
+    The removal misses came from how we chose the lines to score: removal acts on _red_ like a change of hue, and the lines that missed needed only its saturation or brightness. We proposed choosing the scored lines by hue instead.
 
     <span class="tags">`scouting` `multi-op` `intervention` `anchoring`</span>
 
@@ -292,15 +292,15 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
     <!-- mini:figures ./m2/ex-2.2.11/report.py -->
 
-- [2.2.12. What the stream holds on `hue-hsv`, and a small recipe sweep](./m2/ex-2.2.12/report.py) (scouting, complete)
+- [2.2.12. What the stream holds on `hue-hsv`, and a small recipe sweep](./m2/ex-2.2.12/report.py)
 
-    A scout of what survives removal on `hue-hsv`, and a small sweep of changes to the recipe. The answers that survive come from reds that lean neither toward orange nor toward pink, and the model rebuilds them inside its blocks after the edit. Nothing in the sweep removed more, so the recipe stays as it was.
+    On `hue-hsv`, the answers that survive removal come from reds that lean neither toward orange nor toward pink, and the model rebuilds them inside its blocks after the edit. None of the changes to the recipe in a small sweep removed more.
 
     <span class="tags">`scouting` `multi-op` `anchoring` `selectivity`</span>
 
     <!-- mini:figures ./m2/ex-2.2.12/report.py -->
 
-- [2.2.13. Does a heavier anchor make the leftover predictable?](./m2/ex-2.2.13/report.py) (done)
+- [2.2.13. Does a heavier anchor make the leftover predictable?](./m2/ex-2.2.13/report.py)
 
     Does a heavier anchor make the leftover on `hue-hsv` the same size every time, so we could measure it once and subtract it? It doesn't: across a wide range, the anchor weight hardly changes anything. Anchoring _red_ to a plane instead of a single direction made the leftover a little smaller, but not by enough to justify the extra room, so the leftover stays a known side effect.
 
@@ -328,11 +328,11 @@ To anchor an op we first needed several, so the grammar grew from one op to elev
 
 ### Anchoring an op word, and the pivot
 
-Ex-2.2.14 anchored the op `difference`, and it landed, but almost entirely on the word `difference`, so removing it would be hard to tell apart from deleting the word. The concepts we care about in language models mostly have no word of their own, so we took the op words out: each line now shows a few solved examples and a query, and the model has to work out the op.
+Ex-2.2.14 anchored the op `difference`, and it landed, but almost entirely on the *word* `difference`, so removing it would be hard to tell apart from deleting the word. The concepts we care about in language models mostly have no word of their own, so we took the op words out: each line now shows a few solved examples and a query, and the model has to infer the op.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
-- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py) (done)
+- [2.2.14. Anchoring an operation](./m2/ex-2.2.14/report.py)
 
     Our first anchored operation: `difference` in place of _red_. It lands more firmly than _red_ did and costs the task nothing, and every other op anchors the same way. But nearly all of it sits on the word `difference` itself, and little reaches the positions where the op is used.
 
@@ -340,7 +340,7 @@ Ex-2.2.14 anchored the op `difference`, and it landed, but almost entirely on th
 
     <!-- mini:figures ./m2/ex-2.2.14/report.py -->
 
-- [2.2.15. Lines cut short by the training window](./m2/ex-2.2.15/report.py) (done)
+- [2.2.15. Lines cut short by the training window](./m2/ex-2.2.15/report.py)
 
     Training windows cut lines at their edges, and the anchor asked the visible part of a cut line to carry the whole label, even when it couldn't see the op word. Those cut lines are why the first operand leans toward the anchor, and skipping them removes the lean, so later experiments pull whole lines only.
 
@@ -348,11 +348,11 @@ Ex-2.2.14 anchored the op `difference`, and it landed, but almost entirely on th
 
 - [D2.2 pivot: an operation the model has to infer](./m2/d2.2/pivot.md)
 
-    Adopted after ex-2.2.14. Since the anchor went to the op word, D2.2 now anchors an op the model works out from solved examples, with no word to name it, which is closer to what M3 needs. Covers the new grammar, what could go wrong with it, and how D2.3 changes.
+    Adopted after ex-2.2.14. Since the anchor went to the op word, D2.2 now anchors an op the model infers from solved examples, and no token in the line names the op. That is closer to what M3 needs. Covers the new grammar, what could go wrong with it, and what it changes in the plan for D2.3.
 
 </details>
 
-### Teaching the control the in-context task
+### Teaching the in-context task
 
 Once the op had no word, the first question was whether an un-anchored model could learn the task at all. At first it got a little under halfway from guessing to the best possible score. Changes to training and a smaller set of ops brought it to about nine tenths of the way.
 
@@ -382,7 +382,7 @@ Once the op had no word, the first question was whether an un-anchored model cou
 
 - [2.2.19. Training length and seeds for the seven-op set](./m2/ex-2.2.19/report.py)
 
-    Half the training length keeps most of the skill of the full recipe, a little short of what we asked for, and we adopted it. A [follow-up](./m2/ex-2.2.19/calibration.py) finds the model overconfident where the examples fit several ops.
+    Half the training length keeps most of the skill of the full recipe, a little short of what we asked for. A [follow-up](./m2/ex-2.2.19/calibration.py) finds the model overconfident where the examples fit several ops.
 
     <span class="tags">`in-context` `training`</span>
 
@@ -400,7 +400,7 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
-- [2.2.21. The in-context grammar pilot, on the reworked recipe](./m2/ex-2.2.21/report.py) (done)
+- [2.2.21. The in-context grammar pilot, on the reworked recipe](./m2/ex-2.2.21/report.py)
 
     We anchored `difference` on the reworked recipe. The anchor sits on the example answers, and hardly at all where the query answer is predicted. With the pull capped, so that it stops once a state is close to the anchor direction, an edit at every position takes `difference` out gradually and leaves the other ops as they were.
 
@@ -410,7 +410,7 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
 - [2.2.22. Localized by depth, various pull caps, and contexts of varying length](./m2/ex-2.2.22/report.py)
 
-    A scout of three changes to the capped recipe: keeping the pull off some depths, other caps, and contexts with varying numbers of examples. Keeping the pull off some depths made the edit spill onto other ops. At fresh seeds the capped recipe spilled in one run too, and the edited model moved a little under half way toward an ideal predictor that no longer knows the op, where we had hoped for at least half. The choice of recipe is still to come.
+    A scout of three changes to the capped recipe: keeping the pull off some depths, other caps, and contexts with varying numbers of examples. Keeping the pull off some depths made the edit spill onto other ops. Still in flight.
 
     <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
 

@@ -1,6 +1,6 @@
 # D2.2 design: anchoring an operation the model infers
 
-D2.2 asks whether Sparse Concept Anchoring works for a concept the model has to infer from context, with no token that names it. Each line shows a few solved equations that use the same hidden operation, and the model has to infer the op to answer the last equation. We anchor one op to the first axis of the residual stream, then remove it by editing that axis out.
+D2.2 asks whether Sparse Concept Anchoring works for a concept that is never written down: the model has to infer it from context. Each line shows a few solved equations that use the same hidden operation, and the model has to infer the op to answer the last equation. We anchor one op to the first axis of the residual stream, then remove it by editing that axis out.
 
 Each line of the corpus is one context: three solved examples of one op, then a query under the same op, written `op1 ? op2 = answer` with a constant `?` where the op word would be. The model reads the examples, infers which op fits them, and completes the query. We can compute how strongly each context indicates each op (the posterior over ops), and we evaluate the predictive power of each model against that, with and without being edited to remove the anchored op.
 
@@ -8,7 +8,7 @@ On the best recipe so far, the anchor holds, and any cost to the task is smaller
 
 Still to show: that this holds at fresh seeds, that the removal follows how strongly each context indicates the op, and at which layers of the model it works.
 
-How we got here is in the [index](/docs/index.md#d22-anchoring-an-operation), and the [pivot](pivot.md) says why the op has no word.
+How we got here is in the [index](/docs/index.md#d22-anchoring-an-operation). The [pivot](pivot.md) explains why we took the op words out of the grammar.
 
 ## The setup today
 
@@ -30,7 +30,7 @@ Contexts
     From [ex-2.2.16](../ex-2.2.16/report.py); the varying counts from [ex-2.2.22](../ex-2.2.22/report.py).
 
 Model
-: d64-L4 nGPT, with a readout table of its own (untied from the embedding table) and attention that stops at the line break.
+: d64-L4 simplified nGPT, with a readout table of its own (untied from the embedding table) and attention that stops at the line break.
 
     From [ex-2.2.7](../ex-2.2.7/report.py) (readout) and [ex-2.2.17](../ex-2.2.17/report.py) (mask).
 
@@ -40,7 +40,7 @@ Training
     From [ex-2.2.17](../ex-2.2.17/report.py), [ex-2.2.19](../ex-2.2.19/report.py), and [ex-2.2.20](../ex-2.2.20/report.py).
 
 Anchored op
-: `difference` on e₁, with no *red* anchor beside it.
+: `difference` on e₁, with no *red* anchor.
 
     From [ex-2.2.14](../ex-2.2.14/report.py).
 
@@ -50,9 +50,9 @@ Labels
     From [ex-2.2.14](../ex-2.2.14/report.py) and [ex-2.2.21](../ex-2.2.21/report.py).
 
 Pull
-: On a labelled context, the anchor term pulls every slice (the embedding and the output of each block), and stops pulling a state once its alignment with e₁ reaches 0.8, so no state is asked to be all concept (the `hinge` cap). A context the training window cuts short is not pulled. Pulling fewer slices, and higher caps, were tried and edited less selectively.
+: On a labelled context, the anchor term pulls every slice (the embedding and the output of each block), and stops pulling a state once its alignment with e₁ reaches 0.8, so no state is asked to be all concept (the `hinge` cap). A context the training window cuts short is not pulled. Ex-2.2.22 tried pulling fewer slices and higher caps; whether either helps is undecided.
 
-    From [ex-2.2.21](../ex-2.2.21/report.py) (the cap), [ex-2.2.15](../ex-2.2.15/report.py) (whole contexts), and [ex-2.2.22](../ex-2.2.22/report.py) (the alternatives).
+    From [ex-2.2.21](../ex-2.2.21/report.py) (the cap), [ex-2.2.15](../ex-2.2.15/report.py) (whole contexts), and [ex-2.2.22](../ex-2.2.22/report.py) (the alternatives tried).
 
 Anchor schedule
 : The anchor weight warms up over the first tenth of training, holds, then eases over the last tenth to a tenth of its peak. A second term pushes the states of every other context off e₁; it starts at a few times the anchor weight and eases to a fraction of it before the anchor anneal begins. Unchanged since D2.1.
@@ -82,7 +82,7 @@ Ultimately, we want to see whether SCA works in transformers as a general alignm
 
 The pull puts `difference` contexts on the axis, and the model answers as well as one trained without the anchor.
 
-The anchor sits on the example answers, where the context has shown the most about its op, and hardly at all at the query `=`, where the answer is predicted. At those answers the alignment rises with the posterior, on every anchored condition, while the control stays flat near zero. It does so at a fixed answer index too, so it is not only that evidence builds up along a context. That is what we would hope to see if the anchor holds the op the model inferred, and not a shortcut such as a characteristic answer color, which would not follow the evidence.
+**Observations.** The anchor sits on the example answers, where the context has shown the most about its op, and hardly at all at the query `=`, where the answer is predicted. At those answers the alignment rises with the posterior, on every anchored condition, while the control stays flat near zero. It does so at a fixed answer index too, so it is not only that evidence builds up along a context. That is what we would hope to see if the anchor holds the op the model inferred, and not a shortcut such as a characteristic answer color, which would not follow the evidence.
 
 Whether the anchor costs the task anything is still open. With the pull uncapped, the anchored condition fell short of the control by more than our tolerance of 0.01 and by less than the seeds vary; with the cap, the task score varies more from seed to seed than from condition to condition. One seed takes a slow path through training on most anchored conditions, and five seeds at 200 epochs cannot tell a small cost from a slow start. Also still to show: that the rest of what the model represents is unchanged, which was measured for the op word and not yet for the inferred op.
 
@@ -90,13 +90,13 @@ From [ex-2.2.21](../ex-2.2.21/report.py) (H1, E1), [ex-2.2.22](../ex-2.2.22/repo
 
 ### (b) Removing the op is graded and selective
 
-Graded means that a stronger edit takes out more of `difference`. Selective means that the other ops are left as they were, at every dose. In M1 this was the dose-response curve and the orthogonal colors left untouched.
+Graded means that a stronger edit takes out more of `difference`. Selective means that the other ops are left as they were, at every dose. In M1 this was the dose-response curve: a stronger edit removed more of the concept, and colors unrelated to it stayed as they were.
 
-On the earlier grammar, where the concept was *red*, projecting the axis out removed *red*, more so the redder the line, and some of the cost fell on lines with no red in them. That cost came through the embeddings of syntax tokens, and a readout table of their own cleaned them. With that change, removal was clean on ten of eleven ops.
+**Observations.** On the earlier grammar, where the concept was *red*, projecting the axis out removed *red*, more so the redder the line, and some of the cost fell on lines with no red in them. That cost came through the embeddings of syntax tokens, and a readout table of their own cleaned them. With that change, removal was clean on ten of eleven ops.
 
-On the in-context grammar, an edit at the query `=` has little to act on, since the anchor sits on the example answers, and none met both criteria. The edit at every position does work. On the `hinge` condition, turning it up takes `difference` out step by step. On the first three runs the other ops stayed within the selectivity gate on the seed mean, though one run crossed it on its own. On three more runs of the same condition the seed mean missed both criteria: one run lost some of `darken`, and the drop on `difference` dipped a little at the strongest doses after reaching nearly its full size by half the dose. In each set of three, one run tips the result. Without the cap the edit grades the same way, and crossed the gate by a little at five seeds and stayed within it at three others. Every restriction of the pull to fewer slices let the edit cross the gate by more. Editing the example answers alone takes out most of the op, so the query takes the op from the examples.
+On the in-context grammar, an edit at the query `=` has little to act on, since the anchor sits on the example answers, and none met both criteria. The edit at every position does work. On the `hinge` condition, turning it up takes `difference` out step by step, and the other ops mostly stay as they were, though not yet on every run. Editing the example answers alone takes out most of the op, so it seems the query takes the op from the examples.
 
-Still to show: that the edit stays within the gate on every run, at fresh seeds; whether some cap between 0.8 and none keeps the selectivity with more of the anchor, since the three caps tried did not fall in order; and that the damage on each context follows how much its answer depended on `difference`, which the target null predicts context by context.
+Still to show: that the edit stays within the gate on every run, at fresh seeds; whether a different cap keeps the selectivity with more of the anchor; and that the damage on each context follows how much its answer depended on `difference`, which the target null predicts context by context.
 
 From [ex-2.2.1](../ex-2.2.1/report.py), [ex-2.2.7](../ex-2.2.7/report.py), and [ex-2.2.11](../ex-2.2.11/report.py) (*red*); [ex-2.2.21](../ex-2.2.21/report.py) (E2) and [ex-2.2.22](../ex-2.2.22/report.py) (E1, E2).
 
@@ -104,7 +104,7 @@ From [ex-2.2.1](../ex-2.2.1/report.py), [ex-2.2.7](../ex-2.2.7/report.py), and [
 
 Once `difference` is removed, the model should answer as an ideal predictor that never knew `difference` but still weighs the other ops by how well they fit the examples: the target null. If it does, the edit has a destination we can state in advance, and we may not need to train one.
 
-Looked at after the fact, the edited `hinge` runs answered `difference` contexts much as that predictor does: the mass leaves the `difference` answer and goes to the other ops in about the proportions the posterior gives. Tested on three fresh runs, the edit moved each a little under half of the way to the target null, short of the half we asked for. Counted by op, the mass goes about where the target null puts it. Most of the distance that remains is on answers another op could give, shared among them differently from the target null; the edit moves little mass onto colors no op gives.
+**Observations.** Looked at after the fact, the edited `hinge` runs answered `difference` contexts much as that predictor does: the mass leaves the `difference` answer and goes to the other ops in about the proportions the posterior gives. On three fresh runs, counted by op over all contexts, the mass goes about where the target null puts it. Context by context the match is looser: the edit moved each run a little under half of the way to the target null, short of the half we flat-out guessed at. Most of the distance that remains is on answers another op could give, shared among them differently from the target null; the edit moves little mass onto colors no op gives.
 
 So the anchor alone gives the edit a direction and not the whole distance. Whether a trained fallback, a designed response to the edit, would close the rest, or whether the recipe can be improved so that it does, is open.
 
@@ -112,9 +112,9 @@ From [ex-2.2.21](../ex-2.2.21/report.py) (E2, post hoc) and [ex-2.2.22](../ex-2.
 
 ### (d) The side-effects are bounded by construction, and we know at which layers the op is held
 
-Because we placed the axis, we can say in advance how far an edit at one slice moves each state: the write bound. What the later blocks do with that moved state is a prediction, which the layer sweep tests.
+Because we placed the axis, we can say in advance how far an edit moves each state: the write bound.
 
-The write bound held on *red*: at every slice past the embedding, the move on lines with no red in them stayed within the bound, with a tolerance of a quarter. *Red* was read in the first two blocks, and the last block did not read it. For the inferred op, the alignment on `difference` contexts rises through the stack, and pulling fewer slices kept about as much of the op at the middle slices but edited less selectively, whichever slices were left out.
+**Observations.** The write bound held on *red*: at every slice past the embedding, the move on lines with no red in them stayed within the bound, or at most a quarter over it, as we allowed in advance. *Red* was read in the first two blocks. For the inferred op, the alignment on `difference` contexts rises through the stack.
 
 Still to show: the write bound on the inferred op; which slices the edit needs, by editing at a prefix or suffix of slices on stored checkpoints; and which slices the pull needs.
 
@@ -124,7 +124,7 @@ From [ex-2.2.1](../ex-2.2.1/report.py) (H4) and [ex-2.2.22](../ex-2.2.22/report.
 
 About one `difference` context in fifty is labelled, and the label says only that the context uses `difference`. That is the shape of label we expect to have for a concept in natural language, where labels will be scarce and sometimes wrong.
 
-At that rate the op is anchored, on every condition tried. On the op word, labelling a fiftieth of the lines placed the op as well as labelling every line, and so did the same scarce labeller with a fifth of its labels on the wrong op. The labels here are already wrong in one sense: a label marks the op that generated the context, even when its examples favor another op.
+**Observations.** At that rate the op is anchored, on every condition tried. On the op word, labelling one `difference` line in fifty placed the op as well as labelling every `difference` line, and so did the same scarce labeller with a fifth of its labels on the wrong op. The labels here are already wrong in one sense: a label marks the op that generated the context, even when its examples favor another op.
 
 Still to show: wrong labels on the inferred op.
 
@@ -134,7 +134,7 @@ From [ex-2.2.14](../ex-2.2.14/report.py) (the label arms) and [ex-2.2.21](../ex-
 
 Each step below is written as the opening line we hope to write once it has run.
 
-*Anchoring and removing the op at fresh seeds.* At enough seeds to tell a small cost from a slow start, anchoring `difference` cost the task nothing we could measure, and editing the axis out took the op away gradually on every run while the other ops stayed where they were. Editing the example answers alone did most of the work, and the damage on each context followed how much its answer depended on `difference`.
+*Anchoring and removing the op at fresh seeds.* At enough seeds to tell a small cost from a slow start, anchoring `difference` cost the task nothing we could measure, and editing the axis out took the op away gradually on every run while the other ops stayed where they were. The damage on each context followed how much its answer depended on `difference`.
 
 *Where the edited model ends up.* A fallback trained toward the target null brought the edited model the rest of the way there, with less scatter across seeds than the anchor alone gave; or the anchor alone turned out to be enough once the recipe settled, and no fallback was needed.
 
