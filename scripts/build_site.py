@@ -23,7 +23,7 @@ from pathlib import Path, PurePosixPath
 
 import markdown as md_lib
 
-from mini.lit.page import BASE_CSS_PATH, FONTS, is_lit_page
+from mini.lit.page import BASE_CSS_PATH, FONTS, expand_toc, is_lit_page
 from mini.report_print import print_bundle, print_stamp
 from mini.reports import (
     PDF_LEAF,
@@ -617,13 +617,15 @@ def _rewrite_md_links(text: str, links: LinkResolver, *, from_dir: str, pretty: 
 def render_markdown(text: str) -> str:
     """A Markdown page's HTML body, with a GitHub-compatible ``id`` on every heading.
 
+    A ``<!-- toc -->`` marker becomes a list of the h2 and h3 headings (:func:`mini.lit.page.expand_toc`).
+
     ``toc`` is what puts the ids there — without it a heading renders bare, so a ``#fragment`` into a page works on GitHub and scrolls nowhere here, which no link check can see from the source alone. Its own slugify collapses a run of separators, so it has to be handed :func:`github_slug` instead or the site would speak a third dialect: ``check_md_links`` validates a fragment against GitHub's slugs, and a link that resolves there has to resolve here.
     """
-    return md_lib.markdown(
-        text,
+    md = md_lib.Markdown(
         extensions=["extra", "md_in_html", "toc"],
         extension_configs={"toc": {"slugify": lambda value, separator: github_slug(value)}},
     )
+    return expand_toc(md.convert(text), md.toc_tokens)  # ty: ignore[unresolved-attribute]
 
 
 # A figure-strip marker in a Markdown page: `<!-- mini:figures ./m2/ex-2.1.6/report.py -->`
