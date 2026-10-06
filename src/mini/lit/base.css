@@ -1,8 +1,8 @@
 /* The base sheet: what a woven report page and the site's Markdown pages share —
  * tokens, type, code, tables, images, quotes, heading anchors. It reaches a page three
  * ways: mini.lit.page inlines it ahead of lit.css (the report frame); scripts/build_site.py
- * concatenates it ahead of scripts/md.css into the md.css the site serves; and VS Code's
- * Markdown preview lists both files (.vscode/settings.json). A value changed here
+ * concatenates it ahead of scripts/md-prose.css and scripts/md.css into the md.css the
+ * site serves; and VS Code's Markdown preview lists them all (.vscode/settings.json). A value changed here
  * changes every page, so the report-only and site-only rules live in those two sheets. */
 
 :root {

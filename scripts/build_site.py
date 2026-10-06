@@ -58,6 +58,7 @@ DOCS_DIR = WORKSPACE_ROOT / "docs"
 # mini.reports.set_report_styles). Read from source each build, so editing it restyles
 # every published report with no re-export.
 REPORT_CSS = DOCS_DIR / "report.css"
+MD_PROSE_CSS = WORKSPACE_ROOT / "scripts" / "md-prose.css"  # a Markdown page's prose, on the site and in print
 
 # The relative dir, beside each report's index.html, holding its externalized assets
 # (figures, data blobs) written by mini.reports.Publisher.
@@ -584,17 +585,16 @@ def site_root(dest: Path) -> str:
 
 
 def copy_md_stylesheet():
-    """Write the Markdown pages' stylesheet to ``_site/md.css``: ``mini.lit``'s base sheet, then ``scripts/md.css`` on top.
+    """Write the Markdown pages' stylesheet to ``_site/md.css``: ``mini.lit``'s base sheet, then :data:`MD_PROSE_CSS`, then ``scripts/md.css`` on top.
 
-    The base sheet (tokens, type, code, tables) is what the reports use too, so a Markdown page and a report page agree on it by construction; ``md.css`` holds only the site's own rules.
+    The base sheet (tokens, type, code, tables) is what the reports use too, so a Markdown page and a report page agree on it by construction; ``md-prose.css`` is what a Markdown page's prose looks like, which its print shares; ``md.css`` holds only the site's page chrome.
     """
     print("Copying Markdown stylesheet...")
-    base = BASE_CSS_PATH
-    site = WORKSPACE_ROOT / "scripts" / "md.css"
+    sheets = [BASE_CSS_PATH, MD_PROSE_CSS, WORKSPACE_ROOT / "scripts" / "md.css"]
     css_dest = SITE_DIR / "md.css"
-    css_dest.write_text(f"{base.read_text('utf-8')}\n{site.read_text('utf-8')}", "utf-8")
+    css_dest.write_text("\n".join(s.read_text("utf-8") for s in sheets), "utf-8")
     print(
-        f"  {base.relative_to(WORKSPACE_ROOT)} + {site.relative_to(WORKSPACE_ROOT)} -> {css_dest.relative_to(WORKSPACE_ROOT)}"
+        f"  {' + '.join(str(s.relative_to(WORKSPACE_ROOT)) for s in sheets)} -> {css_dest.relative_to(WORKSPACE_ROOT)}"
     )
 
 

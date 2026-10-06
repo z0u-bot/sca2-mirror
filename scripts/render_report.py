@@ -15,7 +15,7 @@ import sys
 from dataclasses import dataclass
 from pathlib import Path
 
-from build_site import REPORT_CSS, Bundle, LinkResolver, printable
+from build_site import MD_PROSE_CSS, REPORT_CSS, Bundle, LinkResolver, printable
 from export_reports import export_one
 from review_base import export_at, render_md_at, resolve
 
@@ -73,6 +73,8 @@ def review_page(report: Path, bundle: Path, review: Review, links: LinkResolver)
     from_dir = "" if from_dir == "." else from_dir
     key = export_key(report)
     report_css = REPORT_CSS.read_text("utf-8") if REPORT_CSS.exists() else ""
+    if report.suffix == ".md":  # its prose prints the way the site shows it, on top of the report frame
+        report_css += "\n" + MD_PROSE_CSS.read_text("utf-8")
     html = mark_verdicts((bundle / "index.html").read_text("utf-8"))
     page = printable(Bundle(html), links, from_dir=from_dir, key=key, report_css=report_css)
     return review.mark(page, key, root=bundle)
