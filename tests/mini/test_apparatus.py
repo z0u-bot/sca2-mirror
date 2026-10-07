@@ -512,10 +512,12 @@ _LAUNCHED = {"fc_id": "fc-under-test"}
         ),
     ],
 )
-def test_liveness_settled_states(monkeypatch, record, fake, alive):
+def test_liveness_settled_states(monkeypatch, tmp_path, record, fake, alive):
     """A settled failure must read dead; anything ambiguous stays alive."""
+    from mini.memo import MemoStore
+
     monkeypatch.setattr("modal.FunctionCall.from_id", lambda fc_id: fake)
-    assert _make_modal(monkeypatch)._is_task_alive(record) is alive
+    assert _make_modal(monkeypatch)._is_task_alive(record, MemoStore(tmp_path / "exp")) is alive
 
 
 def test_reap_settles_timeout_killed_modal_task(monkeypatch, tmp_path):
