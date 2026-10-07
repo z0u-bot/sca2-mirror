@@ -396,7 +396,7 @@ Once the op had no word, the first question was whether an un-anchored model cou
 
 ### Anchoring and removing the inferred op
 
-With the control near its best, we anchored `difference` on the new grammar. The anchor settles on the example answers, where the context shows the most about the op. With the pull capped, removing the anchor direction everywhere takes `difference` out gradually, though how cleanly that holds at fresh seeds is still in question.
+With the control near its best, we anchored `difference` on the new grammar. The anchor settles on the example answers, where the context shows the most about the op. Removing the anchor direction everywhere takes `difference` out gradually. The other ops mostly stay as they were, though not on every run, and capping the pull does not seem to be what keeps them there.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
@@ -410,8 +410,10 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
 - [2.2.22. Localized by depth, various pull caps, and contexts of varying length](./m2/ex-2.2.22/report.py)
 
-    A scout of three changes to the capped recipe: keeping the pull off some depths, other caps, and contexts with varying numbers of examples. Keeping the pull off some depths made the edit spill onto other ops. Still in flight.
+    A scout of three changes to the capped recipe: keeping the pull off some depths, other caps, and contexts with varying numbers of examples. None improved it. Keeping the pull off some depths made the edit spill onto other ops, the cap made no steady difference, and varying the number of examples cost a little skill. Pooled over contexts, the edited model answers about as an ideal predictor without `difference` would, though context by context it gets less than half of the way there.
 
     <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
+
+    <!-- mini:figures ./m2/ex-2.2.22/report.py -->
 
 </details>

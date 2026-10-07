@@ -15,6 +15,7 @@ import numpy as np
 
 import experiment as ex
 from matplotlib.axes import Axes
+from matplotlib.colors import to_rgba
 from matplotlib.patches import Rectangle
 from mini.lit import memo
 from mini.store import project_store
@@ -37,27 +38,12 @@ def table_html(
     *,
     text_cols: int = 1,
     muted: frozenset[int] = frozenset(),
-    groups: Sequence[tuple[str, int]] = (),
 ) -> str:
     """An authored table in the shared report style; the first *text_cols* columns are text, the rest numeric.
 
     Rows whose index is in *muted* are greyed out, for context rows such as runs reused from another experiment.
-    *groups*, as (label, span) pairs covering every column, adds a header row above *head* that names runs of
-    columns, each underlined by a rule of its own so the groups stand apart.
     """
-    group_row = "".join(
-        f'<th colspan="{n}" style="text-align: center; padding-bottom: 0">'
-        + (
-            f'<span style="display: block; border-bottom: 1px solid; margin: 0 0.5ex">{cell_html(g)}</span>'
-            if g
-            else ""
-        )
-        + "</th>"
-        for g, n in groups
-    )
     ths = "".join(f"<th{' class=num' if i >= text_cols else ''}>{cell_html(h)}</th>" for i, h in enumerate(head))
-    if group_row:
-        ths = f"{group_row}</tr><tr>{ths}"
     body = "".join(
         ('<tr style="opacity: 0.5">' if r in muted else "<tr>")
         + "".join(f"<td{' class=num' if i >= text_cols else ''}>{cell_html(c)}</td>" for i, c in enumerate(row))
@@ -897,7 +883,7 @@ def h1_table() -> str:
 
 def skill_figure() -> str:
     data = {
-        short(c): {"v": SKILL[c].tolist(), "ink": cond_ink(c) if c != "k-mixed" else ink_of("plain")}
+        short(c): {"v": SKILL[c].tolist(), "ink": e3_ink(c), "marker": E3_MARKERS[E3_CONDITIONS.index(c)]}
         for c in SKILL_CONDITIONS
     }
     km = SKILL["k-mixed"].mean(axis=0)
@@ -920,7 +906,7 @@ def skill_draw(data: dict, alt_text: str) -> str:
         caption=f"""
             **Skill at each example count.** The share of the way from the floor to the Bayes ceiling at that count,
             on a held-out set of {ex.HOLDOUT_CONTEXTS:,} contexts per op at each count. Thin lines: one per seed;
-            the ring marks model seed {SLOW}. Heavy lines: the seed mean. `hinge` and the control trained on three
+            the hollow marker marks model seed {SLOW}. Heavy lines: the seed mean. `hinge` and the control trained on three
             examples only.
         """,
     )
@@ -932,8 +918,8 @@ def skill_draw(data: dict, alt_text: str) -> str:
             for i, row in enumerate(v):
                 ax.plot(x, row, "-", color=d["ink"], lw=0.6, alpha=0.5)
                 if i == SLOW - ex.SEED_OFFSET:
-                    ax.plot(x, row, "o", ms=3, mfc="none", color=d["ink"], mew=0.7)
-            ax.plot(x, v.mean(axis=0), "-o", ms=3.5, color=d["ink"], lw=1.6, label=name)
+                    ax.plot(x, row, d["marker"], ms=3, mfc="none", color=d["ink"], mew=0.7)
+            ax.plot(x, v.mean(axis=0), "-", marker=d["marker"], ms=3.5, color=d["ink"], lw=1.6, label=name)
         ax.set_xticks(x)
         ax.set_xlabel("examples per context (k)")
         ax.set_ylabel("skill")
@@ -1587,10 +1573,10 @@ def split_draw(data: dict, alt_text: str) -> str:
                         x,
                         v,
                         bottom=bottom,
-                        facecolor="none" if g == 1 else ink,
+                        facecolor=to_rgba(ink, 0.2) if g == 1 else ink,
                         edgecolor=ink,
                         hatch="////" if g == 1 else None,
-                        lw=0.8 if g == 1 else 0,
+                        lw=0,
                         width=0.8,
                         label=SPLIT_GROUPS[g].replace("`", "") if i == j == 0 else None,
                     )
@@ -1630,7 +1616,12 @@ def split_table() -> str:
     return table_html(
         [
             "model seed",
-            *(["other ops", "only `difference`", "no op"] * 2),
+            "clean: other ops",
+            "only `difference`",
+            "no op",
+            "edited: other ops",
+            "only `difference`",
+            "no op",
             "op weights, r",
             "clean from ideal",
         ],
@@ -1641,7 +1632,6 @@ def split_table() -> str:
         "the mass the edited model puts on the answers of each other op and the mass the target null puts there, "
         "averaged over the six ops. *Clean from ideal*: the mean distance of the clean model from the ideal predictor "
         "behind the Bayes ceiling, on the same contexts.",
-        groups=[("", 1), ("clean", 3), ("edited", 3), ("", 2)],
     )
 
 
