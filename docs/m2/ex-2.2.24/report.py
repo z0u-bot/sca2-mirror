@@ -130,13 +130,14 @@ Ex-2.2.23 found that removing e₁ lowers `darken`, `lighten`, and `value-hsv` a
 r"""
 ## Findings
 
+- [A map of every position (E1)](#a-map-of-every-position-e1) — what we saw.
 - [The op and the color share the example answers (H1)](#the-op-and-the-color-share-the-example-answers-h1) — **verdict**. One sentence.
 - [The spill comes from the example answers (H2)](#the-spill-comes-from-the-example-answers-h2) — **verdict**. One sentence.
-- [A site that removes without spilling (E1)](#a-site-that-removes-without-spilling-e1) — what we saw.
+- [A position that removes without spilling (E2)](#a-position-that-removes-without-spilling-e2) — what we saw.
 - [The anchored direction follows lightness (H3)](#the-anchored-direction-follows-lightness-h3) — **verdict**. One sentence.
-- [The anchor at examples of other ops (E2)](#the-anchor-at-examples-of-other-ops-e2) — what we saw.
-- [The anchor at the query `=` (E3)](#the-anchor-at-the-query-e3) — what we saw.
-- [The schedules at the rise (E4)](#the-schedules-at-the-rise-e4) — what we saw.
+- [The anchor at examples of other ops (E3)](#the-anchor-at-examples-of-other-ops-e3) — what we saw.
+- [The anchor at the query `=` (E4)](#the-anchor-at-the-query-e4) — what we saw.
+- [The schedules at the rise (E5)](#the-schedules-at-the-rise-e5) — what we saw.
 - [Trained for 600 epochs (H4)](#trained-for-600-epochs-h4) — **verdict**. One sentence.
 
 /// admonition | How to read this report
@@ -208,20 +209,32 @@ Lightness tracking
 
 # %%
 
+r"""
+## A map of every position (E1)
+
+Before the scored sections, a map of what each position holds, at every slice. Taking a measurement everywhere costs no more than taking it at one position, so we take three: the alignment with e₁, the op probe, and a probe for the color at that position (its three channels; at a syntax token, the color just before it, and at the query `=`, the answer to come). Each hypothesis below still scores one position, named in advance, so that the map cannot choose where a gate is read. The map is there to show whether the named positions are typical of their neighbors.
+
+/// admonition | TODO
+Three heatmaps per condition and length, position along the context against slice: the alignment with e₁ (seed mean, the control subtracted for the anchored runs), op recovery, and color $R^2$. A row of tokens under each heatmap marks the roles.
+///
+"""
+
+# %%
+
 # REVIEW: the lightness probe is a check, with no gate (review round 0). The state at an answer holds the embedding
 # of its own color token, so a lightness R² above 0.5 could be predicted from the method alone. The op probe is the
 # informative half and carries the verdict.
 rf"""
 ## The op and the color share the example answers (H1)
 
-This tests the premise of the first story on the control, which has never been pulled toward e₁: is the evidence an example gives about the op already present at its answer, along with the color? If it is, the anchor there takes up a place the model uses for both. This is evidence the line itself shows, so a pass would not mean the model has inferred the op there; E3 asks that at the query `=`. We score the first example answer, since there the evidence of that one example and the evidence of the examples so far are the same thing; the example-evidence page found the anchored runs following the first and hardly the second.
+This tests the premise of the first story on the control, which has never been pulled toward e₁: is the evidence an example gives about the op already present at its answer, along with the color? If it is, the anchor there takes up a place the model uses for both. This is evidence the line itself shows, so a pass would not mean the model has inferred the op there; E4 asks that at the query `=`. We score the first example answer, since there the evidence of that one example and the evidence of the examples so far are the same thing; the example-evidence page found the anchored runs following the first and hardly the second.
 
 **What we expect.** At the first example answer of the 400-epoch controls, we expect a linear probe to read the op with a recovery of at least {ex.OP_RECOVERY_GATE:g}, at the best slice after the embedding. That would be a pass, and less a miss. If the seed mean clears the gate while fewer than three-quarters of the seeds do, the result would be outside the plan, and the verdict would be Unresolved.
 
 Beside it, a second probe reads the lightness of the answer color. That the color is there is close to certain, since the state at an answer holds the embedding of its own token, so this is a check on the probes rather than a test.
 
 /// admonition | TODO
-Op recovery and lightness $R^2$ against slice, one panel each, at the three example answers and the query `=` (the readout, for reference), with the recovery at the later answers given against both the one-example posterior and the posterior so far, seed means with the seed range, for the control and the anchored runs at 400 epochs.
+Op recovery and lightness $R^2$ against slice, one panel each, at the three example answers and the query `=` (the readout, for reference), with the recovery at the later answers given against both the one-example posterior and the posterior so far, seed means with the seed range, for the control and the anchored runs at 400 epochs. E1 has the same probes at every position.
 ///
 """
 
@@ -249,12 +262,12 @@ The sites are of different sizes, from one position to many, so a small site tha
 # %%
 
 rf"""
-## A site that removes without spilling (E1)
+## A position that removes without spilling (E2)
 
-Whether any one site gets most of the removal with little of the spill. The removal and the spill of each site, per run, at both lengths. This is a measurement with no gate: H2 says where the spill comes from, and this says whether a narrower edit would be worth scoring as a recipe.
+Whether any one site, or any one position, gets most of the removal with little of the spill. Beside the four sites of H2, the edit acts on each position up to the query `=` alone, at full dose. The removal and the spill of each, per run, at both lengths. This is a measurement with no gate: H2 says where the spill comes from, and this says whether a narrower edit would be worth scoring as a recipe.
 
 /// admonition | TODO
-Removal against spill, one dot per run, a panel per site, with the removal criterion ({ex.GRADING_MIN_DAMAGE:.0%}) and the spill gate ({ex.SELECTIVITY_GATE:g}) drawn as lines, so the selective corner is visible. The half-trained runs are marked.
+Removal and spill at full dose for the edit at each single position, as two strips along the context, seed means for the anchored runs at each length. Below it, removal against spill, one dot per run, a panel per site, with the removal criterion ({ex.GRADING_MIN_DAMAGE:.0%}) and the spill gate ({ex.SELECTIVITY_GATE:g}) drawn as lines, so the selective corner is visible. The half-trained runs are marked.
 ///
 """
 
@@ -278,7 +291,7 @@ Lightness tracking against slice, for the control and the anchored runs at each 
 # %%
 
 rf"""
-## The anchor at examples of other ops (E2)
+## The anchor at examples of other ops (E3)
 
 The example-evidence page looked only at `{ex.ANCHORED_OP}` contexts, where the alignment at an example answer follows how well that example fits `{ex.ANCHORED_OP}`. Here we look at the example answers of the other six ops. If the model judges each example on its own, an example of `darken` or `lighten` whose answer happens to fit `{ex.ANCHORED_OP}` should sit on e₁ too, and the edit would change what the model infers from it. We compare the alignment at those answers with the one-example posterior on `{ex.ANCHORED_OP}`, per op, and ask whether the ops with the most alignment of this kind are the ones that spill.
 
@@ -290,7 +303,7 @@ Alignment at the example answers of each of the six other ops against the one-ex
 # %%
 
 rf"""
-## The anchor at the query `=` (E3)
+## The anchor at the query `=` (E4)
 
 At an example answer, the line itself shows how well that example fits `{ex.ANCHORED_OP}`, so an alignment there need not mean the model has inferred the op. The query `=` is the one position where the line says nothing new about the op: its only evidence is the examples before it. So if the alignment there rises with the posterior on `{ex.ANCHORED_OP}` given the examples, the anchor holds the op the model inferred. This is the test the example-evidence page proposed next, and the one the backlog item on grading with the posterior waits on. Ex-2.2.23 already stores the alignment at the query `=` and the posterior for every held-out context, so it needs no new compute. Earlier experiments found the anchor weak at the query `=`, so a small rise is the likely baseline. The posterior takes only a few distinct values at three examples, so it is binned coarsely.
 
@@ -302,7 +315,7 @@ Alignment at the query `=` against the posterior on `{ex.ANCHORED_OP}` given the
 # %%
 
 r"""
-## The schedules at the rise (E4)
+## The schedules at the rise (E5)
 
 Where the second rise falls on the anchor and anti-subspace schedules, from the trajectories ex-2.2.23 recorded, with no new compute. The time story says the model learns the HSV ops after the anti-subspace term has eased. This shows whether it does, at each length, and how the lean (the mean alignment of the states of every context) moves through training.
 
@@ -344,9 +357,9 @@ rf"""
 
 **The site edits.** Ex-2.2.22's suppression pass, with the edit restricted to the positions of a site by a mask, at every slice and each dose. The target null, the doses, and the scoring are unchanged, so the edit at every position reproduces ex-2.2.23's numbers, which is a check on the pass.
 
-**Probes.** For H1, a multinomial logistic regression (op) and a ridge regression (lightness) on the 64-dimensional state, fitted per run on {ex.PROBE_SPLIT:.0%} of the held-out contexts, split by context and stratified by op, and scored on the rest. The regularization is chosen by cross-validation inside the fitting half. The Bayes accuracy at an answer uses the posterior over ops given the examples up to and including that answer, as ex-2.2.22 computed it. The one-example posterior is the posterior given that example alone, from a uniform prior over the seven ops, as on the example-evidence page; E2 uses it too.
+**Probes.** For E1 and H1, a multinomial logistic regression (op) and a ridge regression (color, or lightness) on the 64-dimensional state at each position and slice, fitted per run on {ex.PROBE_SPLIT:.0%} of the held-out contexts, split by context and stratified by op, and scored on the rest. The regularization is chosen by cross-validation inside the fitting half. The Bayes accuracy at an answer uses the posterior over ops given the examples up to and including that answer, as ex-2.2.22 computed it. The one-example posterior is the posterior given that example alone, from a uniform prior over the seven ops, as on the example-evidence page; E3 uses it too.
 
-**The query `=`.** E3 uses ex-2.2.23's stored eval arrays (the alignment at the query `?` and `=`, and the posterior over ops, per held-out context). The query operands are drawn whatever the op is, which the method checks on the held-out set, so they add no evidence about the op.
+**The query `=`.** E4 uses ex-2.2.23's stored eval arrays (the alignment at the query `?` and `=`, and the posterior over ops, per held-out context). The query operands are drawn whatever the op is, which the method checks on the held-out set, so they add no evidence about the op.
 
 **Lightness tracking.** For H3, the component along e₁ of the state at every operand position of the held-out contexts of the six other ops, and the lightness of the operand color, per slice. The band is the shared one (see the glossary), from the seed spread of each condition at 12 seeds. The rank correlation in (b) is over the 400-epoch anchored runs, using each run's spill from H2's every-position edit.
 

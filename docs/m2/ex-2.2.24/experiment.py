@@ -111,6 +111,10 @@ readout; positions after it cannot reach the answer, since attention is causal. 
 ex-2.2.23 scored it, is repeated beside them as the reference."""
 assert sorted(r for s in SITES for r in s.roles) == list(_UP_TO_READOUT)
 
+SINGLE_POSITION_DOSE = 1.0
+"""E2: the edit at each single position up to the readout alone, at full dose only, as a map beside the sites."""
+SINGLE_POSITIONS: tuple[int, ...] = _UP_TO_READOUT
+
 # --- The measurements --------------------------------------------------------------------------------------
 
 
@@ -154,4 +158,5 @@ N_ARM_RUNS = len(CONDITIONS) * len(ARM_SEEDS)
 
 BUDGET_USD = 8
 """About \\$0.13 for a 200-epoch run on an L4, so about \\$0.40 at 600 epochs; four arm runs, plus the diagnostic
-pass over the 48 checkpoints of ex-2.2.23 (five edits at four doses, and the states at every color position)."""
+pass over the 48 checkpoints of ex-2.2.23 (five edits at four doses, one edit per position at full dose, and the
+states at every position and slice for the probes)."""
