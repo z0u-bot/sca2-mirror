@@ -135,7 +135,8 @@ r"""
 - [A site that removes without spilling (E1)](#a-site-that-removes-without-spilling-e1) — what we saw.
 - [The anchored direction follows lightness (H3)](#the-anchored-direction-follows-lightness-h3) — **verdict**. One sentence.
 - [The anchor at examples of other ops (E2)](#the-anchor-at-examples-of-other-ops-e2) — what we saw.
-- [The schedules at the rise (E3)](#the-schedules-at-the-rise-e3) — what we saw.
+- [The anchor at the query `=` (E3)](#the-anchor-at-the-query-e3) — what we saw.
+- [The schedules at the rise (E4)](#the-schedules-at-the-rise-e4) — what we saw.
 - [Trained for 600 epochs (H4)](#trained-for-600-epochs-h4) — **verdict**. One sentence.
 
 /// admonition | How to read this report
@@ -213,7 +214,7 @@ Lightness tracking
 rf"""
 ## The op and the color share the example answers (H1)
 
-This tests the premise of the first story on the control, which has never been pulled toward e₁: is the op already present at the example answers, along with the color? If it is, the anchor there takes up a place the model uses for both. We score the first example answer, since there the evidence of that one example and the evidence of the examples so far are the same thing; the example-evidence page found the anchored runs following the first and hardly the second.
+This tests the premise of the first story on the control, which has never been pulled toward e₁: is the evidence an example gives about the op already present at its answer, along with the color? If it is, the anchor there takes up a place the model uses for both. This is evidence the line itself shows, so a pass would not mean the model has inferred the op there; E3 asks that at the query `=`. We score the first example answer, since there the evidence of that one example and the evidence of the examples so far are the same thing; the example-evidence page found the anchored runs following the first and hardly the second.
 
 **What we expect.** At the first example answer of the 400-epoch controls, we expect a linear probe to read the op with a recovery of at least {ex.OP_RECOVERY_GATE:g}, at the best slice after the embedding. That would be a pass, and less a miss. If the seed mean clears the gate while fewer than three-quarters of the seeds do, the result would be outside the plan, and the verdict would be Unresolved.
 
@@ -288,8 +289,20 @@ Alignment at the example answers of each of the six other ops against the one-ex
 
 # %%
 
+rf"""
+## The anchor at the query `=` (E3)
+
+At an example answer, the line itself shows how well that example fits `{ex.ANCHORED_OP}`, so an alignment there need not mean the model has inferred the op. The query `=` is the one position where the line says nothing new about the op: its only evidence is the examples before it. So if the alignment there rises with the posterior on `{ex.ANCHORED_OP}` given the examples, the anchor holds the op the model inferred. This is the test the example-evidence page proposed next, and the one the backlog item on grading with the posterior waits on. Ex-2.2.23 already stores the alignment at the query `=` and the posterior for every held-out context, so it needs no new compute. Earlier experiments found the anchor weak at the query `=`, so a small rise is the likely baseline. The posterior takes only a few distinct values at three examples, so it is binned coarsely.
+
+/// admonition | TODO
+Alignment at the query `=` against the posterior on `{ex.ANCHORED_OP}` given the examples, over the held-out contexts of every op, in a few bins, per slice, seed means for the anchored runs and the control at each length.
+///
+"""
+
+# %%
+
 r"""
-## The schedules at the rise (E3)
+## The schedules at the rise (E4)
 
 Where the second rise falls on the anchor and anti-subspace schedules, from the trajectories ex-2.2.23 recorded, with no new compute. The time story says the model learns the HSV ops after the anti-subspace term has eased. This shows whether it does, at each length, and how the lean (the mean alignment of the states of every context) moves through training.
 
@@ -332,6 +345,8 @@ rf"""
 **The site edits.** Ex-2.2.22's suppression pass, with the edit restricted to the positions of a site by a mask, at every slice and each dose. The target null, the doses, and the scoring are unchanged, so the edit at every position reproduces ex-2.2.23's numbers, which is a check on the pass.
 
 **Probes.** For H1, a multinomial logistic regression (op) and a ridge regression (lightness) on the 64-dimensional state, fitted per run on {ex.PROBE_SPLIT:.0%} of the held-out contexts, split by context and stratified by op, and scored on the rest. The regularization is chosen by cross-validation inside the fitting half. The Bayes accuracy at an answer uses the posterior over ops given the examples up to and including that answer, as ex-2.2.22 computed it. The one-example posterior is the posterior given that example alone, from a uniform prior over the seven ops, as on the example-evidence page; E2 uses it too.
+
+**The query `=`.** E3 uses ex-2.2.23's stored eval arrays (the alignment at the query `?` and `=`, and the posterior over ops, per held-out context). The query operands are drawn whatever the op is, which the method checks on the held-out set, so they add no evidence about the op.
 
 **Lightness tracking.** For H3, the component along e₁ of the state at every operand position of the held-out contexts of the six other ops, and the lightness of the operand color, per slice. The band is the shared one (see the glossary), from the seed spread of each condition at 12 seeds. The rank correlation in (b) is over the 400-epoch anchored runs, using each run's spill from H2's every-position edit.
 
