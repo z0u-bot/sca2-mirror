@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, anchoring, selectivity, intervention, ex-2.2.21]
 opened: 2026-10-02
-priority: high
+closed: 2026-10-06
 ---
 # A higher hinge cap
 
@@ -11,3 +11,5 @@ In [ex-2.2.21](/docs/m2/ex-2.2.21/report.py) the hinge arm (the whole-line pull,
 ## Notes
 
 **2026-10-04, PM** — Drafted as part of the ex-2.2.22 preregistration in [PR #246](https://github.com/z0u/sca2/pull/246) (not yet frozen): hinge arms at caps of 0.9 and 0.95, at 3 seeds paired with the ex-2.2.21 hinge and whole-line arms. Shortlisted while that scout is the next step for D2.2 round 3. Close or settle this from its results.
+
+**2026-10-06, Claude** — Settled by [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) (E2). The selectivity does not fall off steadily with the cap: runs past the gate turn up at 0.8, 0.9, and 0.95, each from a single run, and the uncapped condition stays within the gate at its three paired seeds (though not on its seed mean over five in ex-2.2.21). The decision there drops the cap from the recipe, to be confirmed at fresh seeds.

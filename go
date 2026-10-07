@@ -48,7 +48,8 @@ show_help() {
 		                       Read-only; the upgrade check is a --dry-run
 		  render  <report> -o FILE [-o FILE ...] [--since REF]:
 		                       weave a report (mini.lit: a .py with string prose between
-		                       cells) to each FILE, in the format its extension names:
+		                       cells, or a Markdown page under docs/) to each FILE, in
+		                       the format its extension names:
 		                       .md, .html, or .pdf; figures go beside each under _assets/.
 		                       A PDF is the print to review on paper or e-ink (a few
 		                       seconds more): made from the report's export bundle as the
