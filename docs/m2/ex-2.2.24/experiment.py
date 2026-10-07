@@ -131,7 +131,7 @@ PROBE_SLICES: tuple[int, ...] = (1, 2, 3, 4)
 embedding of its color token alone, which holds no op."""
 
 OP_RECOVERY_GATE = 0.5
-"""H1: at the third example answer, the op probe recovers at least this share of what the Bayes posterior gets
+"""H1: at the first example answer, the op probe recovers at least this share of what the Bayes posterior gets
 above chance: (probe accuracy − 1/7) / (Bayes accuracy − 1/7)."""
 
 SITE_SHARE = 0.5

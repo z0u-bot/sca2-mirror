@@ -134,7 +134,8 @@ r"""
 - [The spill comes from the example answers (H2)](#the-spill-comes-from-the-example-answers-h2) — **verdict**. One sentence.
 - [A site that removes without spilling (E1)](#a-site-that-removes-without-spilling-e1) — what we saw.
 - [The anchored direction follows lightness (H3)](#the-anchored-direction-follows-lightness-h3) — **verdict**. One sentence.
-- [The schedules at the rise (E2)](#the-schedules-at-the-rise-e2) — what we saw.
+- [The anchor at examples of other ops (E2)](#the-anchor-at-examples-of-other-ops-e2) — what we saw.
+- [The schedules at the rise (E3)](#the-schedules-at-the-rise-e3) — what we saw.
 - [Trained for 600 epochs (H4)](#trained-for-600-epochs-h4) — **verdict**. One sentence.
 
 /// admonition | How to read this report
@@ -156,6 +157,8 @@ The first is about where the anchor lands. The label marks a whole context, but 
 {lightness_figure()}
 
 So a model that learns to put "this context uses `{ex.ANCHORED_OP}`" on e₁ at the answers might also learn to put "this answer is dark" there, since in `{ex.ANCHORED_OP}` contexts the two go together. Removing e₁ would then shift the lightness the model sees in the examples, or in the query.
+
+A re-analysis of ex-2.2.22 (the example-evidence page) has since made the picture at the answers sharper. There, the alignment at an example answer follows how well that one example fits `{ex.ANCHORED_OP}`, given its operands, and hardly depends on the examples before it; the answer color alone explains little of it. So if lightness reaches e₁ at the answers, it would come through that judgement of fit rather than through the color. And a judgement of fit could also fire on examples of other ops whose answers happen to look like `{ex.ANCHORED_OP}`, so that removing e₁ reaches those ops by another route.
 
 The second is about time. The anti-subspace term keeps everything except `{ex.ANCHORED_OP}` off e₁, and its weight eases off over training. The model learns the HSV ops late, while the term is easing off, and a 400-epoch run spends more steps learning while it is weak. The schedules are those of ex-2.1.10, chosen when *red* was anchored in a grammar of one equation per line, and have not been revisited since the in-context grammar.
 
@@ -210,14 +213,14 @@ Lightness tracking
 rf"""
 ## The op and the color share the example answers (H1)
 
-This tests the premise of the first story on the control, which has never been pulled toward e₁: is the op already present at the example answers, along with the color? If it is, the anchor there takes up a place the model uses for both.
+This tests the premise of the first story on the control, which has never been pulled toward e₁: is the op already present at the example answers, along with the color? If it is, the anchor there takes up a place the model uses for both. We score the first example answer, since there the evidence of that one example and the evidence of the examples so far are the same thing; the example-evidence page found the anchored runs following the first and hardly the second.
 
-**What we expect.** At the third example answer of the 400-epoch controls, we expect a linear probe to read the op with a recovery of at least {ex.OP_RECOVERY_GATE:g}, at the best slice after the embedding. That would be a pass, and less a miss. If the seed mean clears the gate while fewer than three-quarters of the seeds do, the result would be outside the plan, and the verdict would be Unresolved.
+**What we expect.** At the first example answer of the 400-epoch controls, we expect a linear probe to read the op with a recovery of at least {ex.OP_RECOVERY_GATE:g}, at the best slice after the embedding. That would be a pass, and less a miss. If the seed mean clears the gate while fewer than three-quarters of the seeds do, the result would be outside the plan, and the verdict would be Unresolved.
 
 Beside it, a second probe reads the lightness of the answer color. That the color is there is close to certain, since the state at an answer holds the embedding of its own token, so this is a check on the probes rather than a test.
 
 /// admonition | TODO
-Op recovery and lightness $R^2$ against slice, one panel each, at the three example answers and the query `=` (the readout, for reference), seed means with the seed range, for the control and the anchored runs at 400 epochs.
+Op recovery and lightness $R^2$ against slice, one panel each, at the three example answers and the query `=` (the readout, for reference), with the recovery at the later answers given against both the one-example posterior and the posterior so far, seed means with the seed range, for the control and the anchored runs at 400 epochs.
 ///
 """
 
@@ -267,14 +270,26 @@ This looks at e₁ at positions whose token says nothing about the op: the opera
 **What we expect.** We expect (a) the lightness tracking at the operands, averaged over slices, to be higher on the 400-epoch anchored runs than on the controls, by more than [the band](term:band); and (b) across the 400-epoch anchored runs, a rank correlation of at least {ex.TRACKING_RANK_GATE:g} between lightness tracking and spill. Both would be a pass, (a) alone a partial, and neither a miss. If (b) holds and (a) does not, e₁ would follow lightness about as much in the control, and the anchor would only decide how much that matters to the edit; that would be outside the plan, and the verdict would be Unresolved.
 
 /// admonition | TODO
-Lightness tracking against slice, for the control and the anchored runs at each length, seed means with the seed range, with the half-trained runs drawn on their own. Beside it, spill against lightness tracking, one dot per anchored run, at each length (the 200-epoch runs for comparison). A second panel shows the same at the example answers, with the posterior on `difference` partialled out, since there the color is also evidence.
+Lightness tracking against slice, for the control and the anchored runs at each length, seed means with the seed range, with the half-trained runs drawn on their own. Beside it, spill against lightness tracking, one dot per anchored run, at each length (the 200-epoch runs for comparison). A second panel shows the same at the example answers, with the one-example posterior on `difference` partialled out, since there the color is also evidence.
+///
+"""
+
+# %%
+
+rf"""
+## The anchor at examples of other ops (E2)
+
+The example-evidence page looked only at `{ex.ANCHORED_OP}` contexts, where the alignment at an example answer follows how well that example fits `{ex.ANCHORED_OP}`. Here we look at the example answers of the other six ops. If the model judges each example on its own, an example of `darken` or `lighten` whose answer happens to fit `{ex.ANCHORED_OP}` should sit on e₁ too, and the edit would change what the model infers from it. We compare the alignment at those answers with the one-example posterior on `{ex.ANCHORED_OP}`, per op, and ask whether the ops with the most alignment of this kind are the ones that spill.
+
+/// admonition | TODO
+Alignment at the example answers of each of the six other ops against the one-example posterior on `{ex.ANCHORED_OP}`, in bins, seed means for the anchored runs and the control at 400 epochs. Beside it, per op, the mean alignment at those answers against the spill on that op, one dot per op and run.
 ///
 """
 
 # %%
 
 r"""
-## The schedules at the rise (E2)
+## The schedules at the rise (E3)
 
 Where the second rise falls on the anchor and anti-subspace schedules, from the trajectories ex-2.2.23 recorded, with no new compute. The time story says the model learns the HSV ops after the anti-subspace term has eased. This shows whether it does, at each length, and how the lean (the mean alignment of the states of every context) moves through training.
 
@@ -316,7 +331,7 @@ rf"""
 
 **The site edits.** Ex-2.2.22's suppression pass, with the edit restricted to the positions of a site by a mask, at every slice and each dose. The target null, the doses, and the scoring are unchanged, so the edit at every position reproduces ex-2.2.23's numbers, which is a check on the pass.
 
-**Probes.** For H1, a multinomial logistic regression (op) and a ridge regression (lightness) on the 64-dimensional state, fitted per run on {ex.PROBE_SPLIT:.0%} of the held-out contexts, split by context and stratified by op, and scored on the rest. The regularization is chosen by cross-validation inside the fitting half. The Bayes accuracy at an answer uses the posterior over ops given the examples up to and including that answer, as ex-2.2.22 computed it.
+**Probes.** For H1, a multinomial logistic regression (op) and a ridge regression (lightness) on the 64-dimensional state, fitted per run on {ex.PROBE_SPLIT:.0%} of the held-out contexts, split by context and stratified by op, and scored on the rest. The regularization is chosen by cross-validation inside the fitting half. The Bayes accuracy at an answer uses the posterior over ops given the examples up to and including that answer, as ex-2.2.22 computed it. The one-example posterior is the posterior given that example alone, from a uniform prior over the seven ops, as on the example-evidence page; E2 uses it too.
 
 **Lightness tracking.** For H3, the component along e₁ of the state at every operand position of the held-out contexts of the six other ops, and the lightness of the operand color, per slice. The band is the shared one (see the glossary), from the seed spread of each condition at 12 seeds. The rank correlation in (b) is over the 400-epoch anchored runs, using each run's spill from H2's every-position edit.
 
