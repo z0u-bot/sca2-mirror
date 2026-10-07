@@ -31,13 +31,33 @@ def cell_html(text: str) -> str:
 
 
 def table_html(
-    head: list[str], rows: list[list[str]], caption: str, *, text_cols: int = 1, muted: frozenset[int] = frozenset()
+    head: list[str],
+    rows: list[list[str]],
+    caption: str,
+    *,
+    text_cols: int = 1,
+    muted: frozenset[int] = frozenset(),
+    groups: Sequence[tuple[str, int]] = (),
 ) -> str:
     """An authored table in the shared report style; the first *text_cols* columns are text, the rest numeric.
 
     Rows whose index is in *muted* are greyed out, for context rows such as runs reused from another experiment.
+    *groups*, as (label, span) pairs covering every column, adds a header row above *head* that names runs of
+    columns, each underlined by a rule of its own so the groups stand apart.
     """
+    group_row = "".join(
+        f'<th colspan="{n}" style="text-align: center; padding-bottom: 0">'
+        + (
+            f'<span style="display: block; border-bottom: 1px solid; margin: 0 0.5ex">{cell_html(g)}</span>'
+            if g
+            else ""
+        )
+        + "</th>"
+        for g, n in groups
+    )
     ths = "".join(f"<th{' class=num' if i >= text_cols else ''}>{cell_html(h)}</th>" for i, h in enumerate(head))
+    if group_row:
+        ths = f"{group_row}</tr><tr>{ths}"
     body = "".join(
         ('<tr style="opacity: 0.5">' if r in muted else "<tr>")
         + "".join(f"<td{' class=num' if i >= text_cols else ''}>{cell_html(c)}</td>" for i, c in enumerate(row))
@@ -234,6 +254,11 @@ SLICE_GROUPS = {s: (s, f"{s}-matched") for s in ("no-emb", "no-last", "middle")}
 CAP_LADDER = {ex.HINGE_CAP: ex.BASE, 0.9: "cap-0.9", 0.95: "cap-0.95", None: WHOLE}
 ANCHORED = [c.name for c in (*ex.REFERENCES, *ex.CONDITIONS) if c.anchored]
 ALL_CONDITIONS = [CONTROL, *ANCHORED]
+
+
+def slice_name(s: int) -> str:
+    """The label a table or figure gives slice *s*: "emb" for the token embedding."""
+    return "emb" if s == 0 else f"slice {s}"
 
 
 def short(name: str) -> str:
@@ -527,7 +552,7 @@ CRITERIA_NOTE = (
 
 
 def margin_table(conds: list[str], caption: str) -> str:
-    head = ["condition", *(f"slice {s}" for s in SLICES)]
+    head = ["condition", *(slice_name(s) for s in SLICES)]
     rows = []
     for c in conds:
         pulled = set(ex.SLICE_SETS[ex.by_name(c).slices]) if c != CONTROL else set()
@@ -665,7 +690,7 @@ def e1_align_draw(data: dict, alt_text: str) -> str:
                 ax.plot(SLICES, d["anchored"], "-o", ms=3, color=d["ink"], lw=1.2, label=name)
                 ax.plot(SLICES, d["other"], "--", color=d["ink"], lw=0.9)
             ax.set_title(f"slices: {s}", fontsize=9)
-            ax.set_xticks(SLICES)
+            ax.set_xticks(SLICES, ["emb", *map(str, SLICES[1:])])
             ax.set_xlabel("slice", fontsize=8)
             ax.set_xlim(-0.5, SLICES[-1] + 0.5)
             ax.legend(frameon=False, fontsize=6.5, loc="upper left")
@@ -740,7 +765,7 @@ def e2_draw(data: dict, alt_text: str) -> str:
         shades = plt.get_cmap("viridis")(np.linspace(0.85, 0.1, len(SLICES)))
         m = np.array(data["margin"])
         for s, color in zip(SLICES, shades, strict=True):
-            axes[3].plot(x, m[:, s], "-o", ms=2.5, lw=1.0, color=color, label=f"slice {s}")
+            axes[3].plot(x, m[:, s], "-o", ms=2.5, lw=1.0, color=color, label=slice_name(s))
         axes[3].set_ylabel("op margin", fontsize=8)
         axes[3].legend(frameon=False, fontsize=6, loc="center right")
         for ax in axes:
@@ -988,10 +1013,15 @@ def e3_ink(c: str) -> str:
     return ink_of("plain") if c == "k-mixed" else cond_ink(c)
 
 
+E3_MARKERS = ("s", "o", "^", "x")
+# One marker per condition of `E3_CONDITIONS`, so the E3 figures read without color.
+
+
 def e3_figure() -> str:
     data = {
         "curves": {short(c): {s: v.tolist() for s, v in E3[c].items()} for c in E3_CONDITIONS},
         "inks": [e3_ink(c) for c in E3_CONDITIONS],
+        "markers": list(E3_MARKERS),
     }
     alt = f"""
         A grid of two rows (the example answers, the query answer) and {len(SLICES)} columns (slices 0 to
@@ -1024,10 +1054,12 @@ def e3_draw(data: dict, alt_text: str) -> str:
             for s in SLICES:
                 ax = axes[row][s]
                 ax.axhline(0, color=rule_color(), lw=0.5)
-                for (name, curves), ink in zip(data["curves"].items(), data["inks"], strict=True):
-                    ax.plot(BIN_MID, np.array(curves[site])[:, s], "-o", ms=2.2, lw=1.0, color=ink, label=name)
+                for (name, curves), ink, mk in zip(data["curves"].items(), data["inks"], data["markers"], strict=True):
+                    ax.plot(
+                        BIN_MID, np.array(curves[site])[:, s], "-", marker=mk, ms=3.2, lw=1.0, color=ink, label=name
+                    )
                 if row == 0:
-                    ax.set_title(f"slice {s}", fontsize=9)
+                    ax.set_title(slice_name(s), fontsize=9)
                 if row == 1:
                     ax.set_xlabel("posterior", fontsize=8)
             axes[row][0].set_ylabel(f"α, {site}", fontsize=8)
@@ -1041,6 +1073,7 @@ def e3_index_figure() -> str:
     data = {
         "curves": {short(c): E3_INDEX[c].tolist() for c in E3_CONDITIONS},
         "inks": [e3_ink(c) for c in E3_CONDITIONS],
+        "markers": list(E3_MARKERS),
     }
     alt = f"""
         A grid of four rows (the answers of the first, second, and third example, then the query answer) and
@@ -1072,10 +1105,10 @@ def e3_index_draw(data: dict, alt_text: str) -> str:
             for s in SLICES:
                 ax = axes[j][s]
                 ax.axhline(0, color=rule_color(), lw=0.5)
-                for (name, v), ink in zip(data["curves"].items(), data["inks"], strict=True):
-                    ax.plot(BIN_MID, np.array(v)[j, :, s], "-o", ms=2.2, lw=1.0, color=ink, label=name)
+                for (name, v), ink, mk in zip(data["curves"].items(), data["inks"], data["markers"], strict=True):
+                    ax.plot(BIN_MID, np.array(v)[j, :, s], "-", marker=mk, ms=3.2, lw=1.0, color=ink, label=name)
                 if j == 0:
-                    ax.set_title(f"slice {s}", fontsize=9)
+                    ax.set_title(slice_name(s), fontsize=9)
                 if j == rows - 1:
                     ax.set_xlabel("posterior", fontsize=8)
             axes[j][0].set_ylabel(f"α, {names[j]}", fontsize=8)
@@ -1122,9 +1155,9 @@ def e3_points_draw(data: dict, alt_text: str) -> str:
         fig, b = plt.subplots(figsize=(4.2, 2.6), layout="constrained")
         inks = [ink_of("plain"), ink_of("base")]
         x = np.linspace(0, 1, 401)
-        for (name, v), ink in zip(data.items(), inks, strict=True):
+        for (name, v), ink, ls in zip(data.items(), inks, ("--", "-"), strict=True):
             v = np.asarray(v)
-            b.plot(x, np.searchsorted(np.sort(v), x, side="right") / len(v), color=ink, lw=1.4, label=name)
+            b.plot(x, np.searchsorted(np.sort(v), x, side="right") / len(v), color=ink, lw=1.4, ls=ls, label=name)
         b.set_xlabel("posterior", fontsize=8)
         b.set_ylabel("share at or below", fontsize=8)
         b.set_xlim(0, 1)
@@ -1597,12 +1630,7 @@ def split_table() -> str:
     return table_html(
         [
             "model seed",
-            "clean: other ops",
-            "only `difference`",
-            "no op",
-            "edited: other ops",
-            "only `difference`",
-            "no op",
+            *(["other ops", "only `difference`", "no op"] * 2),
             "op weights, r",
             "clean from ideal",
         ],
@@ -1613,6 +1641,7 @@ def split_table() -> str:
         "the mass the edited model puts on the answers of each other op and the mass the target null puts there, "
         "averaged over the six ops. *Clean from ideal*: the mean distance of the clean model from the ideal predictor "
         "behind the Bayes ceiling, on the same contexts.",
+        groups=[("", 1), ("clean", 3), ("edited", 3), ("", 2)],
     )
 
 
@@ -1946,11 +1975,11 @@ First, how the answers spread over the posterior. Each point is one answer of a 
 
 Past the embedding, α at the example answers rises with the posterior on every anchored condition, and the control stays flat near zero. The rise is uneven: the bin from 0.6 to 0.8 sits above the top bin. Most of the points in that bin are answers of the first example, and the next figure suggests why that matters. `k-mixed` sits lower than the two three-example conditions in most bins past the embedding, and at the embedding itself.
 
-The posterior also rises along a context, so the next figure holds the answer index fixed.
+The posterior also rises along a context, so the next figure plots each answer index separately.
 
 {e3_index_figure()}
 
-At a fixed index, α rises with the posterior at every example answer. At the same posterior, it sits higher at earlier answers: at the first answer, α in the bin from 0.6 to 0.8 is about as high as it gets anywhere. So the bump in the pooled figure above seems to come from mixing answer indices, with the first answers crowded into that one bin.
+At a fixed index, α rises with the posterior at every example answer. At the same posterior, it sits higher at earlier answers: at the first answer, α in the bin from 0.6 to 0.8 is about as high as it gets anywhere. So the bump in the pooled figure above seems to come from mixing answer indices, with the first answers crowded into that one bin. The first answer has few posterior levels: about two thirds of its points sit at 0.69 and most of the rest at 0.05, so its two middle points rest on a few dozen contexts each, and its line rises in steps.
 """
 
 # %%
@@ -2024,19 +2053,7 @@ The margin shows no matching split: on most conditions the slow run ends with th
 rf"""
 ## Decision
 
-Three choices for the recipe: which slices the pull acts on, and at what weight; the cap; and whether the corpus mixes example counts. The candidates are the conditions of this scout and the ex-2.2.21 conditions they pair with.
-
-The criteria, reported for every candidate (in more than one table, if one would be too wide):
-
-- task score net of the control (a hard gate: a candidate whose seed-mean shortfall exceeds both {ex.TASK_COST_TOL:g} and the seed band cannot be adopted; at three seeds against three, the seed band in ex-2.2.21 was several times {ex.TASK_COST_TOL:g}, so in practice the band decides);
-- the op margin at each slice;
-- whether the edit at every position meets ex-2.2.21's two criteria;
-- the selective reach;
-- the landing measurements of H2.
-
-The counts choice also weighs H1 and how much spread E3 finds. The choice is made with the results in hand, to be confirmed at fresh seeds.
-
-The criteria for every candidate, in three tables.
+Three choices for the recipe: which slices the pull acts on, and at what weight; the cap; and whether the corpus mixes example counts. The tables below score every candidate (the conditions of this scout and the ex-2.2.21 conditions they pair with) on the criteria frozen with the plan, and the choice follows them.
 
 {criteria_table(NET_ORDER, "**The edit criteria for every candidate.** " + CRITERIA_NOTE)}
 
