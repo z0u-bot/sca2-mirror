@@ -432,4 +432,10 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
     <!-- mini:figures ./m2/ex-2.2.23/report.py -->
 
+- [2.2.24. Where the edit spills from](./m2/ex-2.2.24/report.py) (preregistration draft)
+
+    A diagnostic on the checkpoints of ex-2.2.23, with no new training. It asks whether the example answers hold both the op and the color in the control, which positions the spill of the edit comes from, and whether e₁ follows how light a color is where it carries no evidence about the op. An optional arm trains two seeds for 600 epochs.
+
+    <span class="tags">`in-context` `anchoring` `intervention`</span>
+
 </details>
