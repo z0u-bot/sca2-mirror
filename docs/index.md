@@ -440,4 +440,12 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
     <!-- mini:figures ./m2/example-evidence/report.py -->
 
+- [Where the spill of the edit comes from](./m2/spill-by-position/report.py)
+
+    A re-analysis of the ex-2.2.23 checkpoints, editing one set of positions at a time. On most runs the edit removes `difference` and spills onto other ops at the same positions, the example answers, so no set of positions gives the removal without the spill; the other positions add spill of their own. Most anchored runs also latch one syntax embedding onto e₁, and where that token is the separator it carries most of the spill.
+
+    <span class="tags">`reanalysis` `in-context` `anchoring` `intervention`</span>
+
+    <!-- mini:figures ./m2/spill-by-position/report.py -->
+
 </details>
