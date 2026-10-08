@@ -432,10 +432,12 @@ With the control near its best, we anchored `difference` on the new grammar. The
 
     <!-- mini:figures ./m2/ex-2.2.23/report.py -->
 
-- [2.2.24. Where the edit spills from](./m2/ex-2.2.24/report.py) (preregistration draft)
+- [What the anchor follows at the example answers](./m2/example-evidence/report.py)
 
-    A diagnostic on the checkpoints of ex-2.2.23, with no new training. It asks whether the example answers hold both the op and the color in the control, which positions the spill of the edit comes from, and whether e₁ follows how light a color is where it carries no evidence about the op. An optional arm trains two seeds for 600 epochs.
+    A re-analysis of the stored ex-2.2.22 runs, asking why the anchor sat higher at earlier example answers for the same posterior. At an example answer, the anchor follows the posterior given that example alone, and the earlier examples barely count. So the rise of the anchor with the posterior comes from each example that fits, and it doesn't yet show the anchor holding an inferred op.
 
-    <span class="tags">`in-context` `anchoring` `intervention`</span>
+    <span class="tags">`reanalysis` `in-context` `anchoring`</span>
+
+    <!-- mini:figures ./m2/example-evidence/report.py -->
 
 </details>
