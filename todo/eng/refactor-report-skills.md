@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [reports, skills, agents, methodology]
 opened: 2026-09-02
+closed: 2026-10-09
 bundle: skills-workflow
 ---
 
@@ -31,3 +32,7 @@ These skills are the backbone of our work and they're worth getting right.
 - The pointer to `exemplar-ex-2.2.18.md` "for the register": the register is evolving, so that exemplar may no longer be the one to point at.
 - `template-explore.py`: drop "a backlog item" from where the question came from; find another word for "yardstick"; drop the placeholder for runs left out; and say that what we do next is left unstated in the report, as well as being for the human to decide.
 - `exemplar-example-evidence.md`: reword "bear on" (in the quoted Discussion).
+
+**2026-10-09, skills refactor** — Steps 1 and 2 done on paper: the map of the current workflow, then a redesigned flowchart drawn in review (inception, preregistration, and execution phases, with reviews split into assumptions, claims, and style). The rewrite stays in `.claude/skills/` and `.claude/agents/`, with no plugin (see the [reorg item](skills-agents-reorg.md)).
+
+**2026-10-09, skills refactor** — Steps 3 to 5 done in PR #261. The `science` skill is now the lead's process (the flowchart, the phases, running review rounds, the paper round), and a new `sci-report` skill holds what a report is. Three reviewers ask one question each: `sci-review-assumptions` and `sci-review-claims` on Fable, and `sci-review-style` on Opus after the lead runs `prose-simplifier` and `report-restructure` (subagents can't start agents of their own). `report-review`, `review-passes.md`, the `report-restructure` skill, and the `prereg-reviewer`, `results-reviewer`, and `report-structure` agents are gone. Two fresh-context reviews, one for correctness and one for style, ran over the rewrite before it went up.
