@@ -135,7 +135,9 @@ rf"""
 On the runs of ex-2.2.23, the edit that removes `{ex.ANCHORED_OP}` spills onto other ops, and the spill comes from the first two slices. At those slices the model has not yet read the context, so it meets the pull with a stand-in: either lightness loaded onto e₁ in the color embedding table, or a syntax token latched to e₁. The edit at those slices then takes the lightness away from every op. Editing only the later blocks removes `{ex.ANCHORED_OP}` with almost no spill.
 ///
 
-[Spill-by-position](/docs/m2/spill-by-position/report.py) found that the removal and the spill share the example answers, and that a syntax token latched onto e₁ shapes the spill. The [τ × λ_a sweep](https://github.com/z0u/sca2/pull/260) found that the spill persists with no latch at all. That left two open questions. What causes the spill when there is no latch? And why does the anti-subspace term do nothing about it? This report re-analyzes the stored checkpoints of [ex-2.2.23](/docs/m2/ex-2.2.23/report.py) ({len(ANCHORED)} anchored and {len(CONTROLS)} control runs, at {SHORT} and {LONG} epochs) and the no-emb trials of the sweep near the recipe τ ({len(SWEEP_NO_EMB)} trials), with no new training.
+[Spill-by-position](/docs/m2/spill-by-position/report.py) found that the removal and the spill share the example answers, and that a syntax token latched onto e₁ shapes the spill. The [τ × λ_a sweep](https://github.com/z0u/sca2/pull/260) found that the spill persists with no latch at all. That left two questions: what causes the spill when there is no latch, and why the anti-subspace term does nothing about it.
+
+This report re-analyzes the stored checkpoints of [ex-2.2.23](/docs/m2/ex-2.2.23/report.py) ({len(ANCHORED)} anchored and {len(CONTROLS)} control runs, at {SHORT} and {LONG} epochs) and the no-emb trials of the sweep near the recipe τ ({len(SWEEP_NO_EMB)} trials), with no new training.
 """
 
 # %%
@@ -150,11 +152,17 @@ rf"""
 
 ## Scope
 
-This is a re-analysis with no preregistration and no gate. It covers every run of ex-2.2.23: {len(by_length(LONG))} anchored runs at {LONG} epochs and {len(by_length(SHORT))} at {SHORT}, each with its control at the same model seed, scored on ex-2.2.21's held-out contexts. The {LONG}-epoch runs are the ones that have learned every op, so the prose quotes them, and the {SHORT}-epoch runs are shown beside them. The sweep trials are the no-emb trials with τ between {DESIGN["sweep_tau"][0]:g} and {DESIGN["sweep_tau"][1]:g}, measured on the tables and states only.
+This is a re-analysis with no preregistration and no gate. It covers every run of ex-2.2.23: {len(by_length(LONG))} anchored runs at {LONG} epochs and {len(by_length(SHORT))} at {SHORT}, each with its control at the same model seed, scored on ex-2.2.21's held-out contexts. The prose quotes the {LONG}-epoch runs, since they have learned every op, and the {SHORT}-epoch runs are shown beside them.
 
-The measurements are the ones ex-2.2.23 and spill-by-position use. The task score of an op is the expected exact match of the answer on held-out contexts of that op. Removal is the drop in the `{ex.ANCHORED_OP}` score under the edit, net of the same edit on the paired control run. It is expressed as a share of the way from the clean score to the target null (the score of an ideal predictor that had lost the op). Spill is the largest net drop on any other op; the selectivity criterion is {CRITERION:g}. In E4 the edit is restricted to a set of slices. Otherwise it is the full edit: it removes the whole e₁ component at every position. The alignment α is the cosine of the state with e₁, averaged over slices 2 to {ex.N_SLICES - 1} where a section says so.
+The sweep trials are the no-emb trials with τ between {DESIGN["sweep_tau"][0]:g} and {DESIGN["sweep_tau"][1]:g}, measured on the tables and states only.
 
-Three cautions. The checkpoints are the ones the recipe was tuned on, so the seed-to-seed spread here is the spread the recipe has, with nothing held out. The slice-restricted edits of E4 are on models trained with every slice pulled. So they say where the removable part of the concept sits in those models. Only a new run can say whether a pull kept off the early slices would put the concept in the later blocks. And the comparison of the two regularizer weights in the discussion is a rough estimate, good to a factor of a few.
+The measurements follow ex-2.2.23 and spill-by-position. The task score of an op is the expected exact match of the answer on held-out contexts of that op. Removal is the drop in the `{ex.ANCHORED_OP}` score under the edit, net of the same edit on the paired control run, as a share of the way from the clean score to the target null. Spill is the largest net drop on any other op; the selectivity criterion is {CRITERION:g}.
+
+The full edit removes the whole e₁ component at every position and slice; E4 restricts it to a set of slices. The alignment α is the cosine of the state with e₁,[^cosine] averaged over slices 2 to {ex.N_SLICES - 1} where a section says so.
+
+[^cosine]: Cosine similarity: how closely two vectors point the same way, ignoring length. 1 means the state lies along e₁, 0 means it is perpendicular to it.
+
+The checkpoints are the ones the recipe was tuned on, so the seed-to-seed spread here is the spread the recipe has, with nothing held out. The slice-restricted edits of E4 are on models trained with every slice pulled, so they say where the removable part of the concept sits in those models. Only a new run can say whether a pull kept off the early slices would put the concept in the later blocks.
 """
 
 # %%
@@ -186,15 +194,17 @@ def nfit_table() -> str:
 rf"""
 ## What e₁ holds on the other ops (E1)
 
-Is the spill the concept itself firing on contexts that are not `{ex.ANCHORED_OP}`? The [example-evidence report](/docs/m2/example-evidence/report.py) showed that at an example answer, the anchor follows the posterior given that one example. So a `mix` context whose first example happens to be consistent with `{ex.ANCHORED_OP}` should have some alignment there.
+Is the spill the concept itself firing on contexts that are not `{ex.ANCHORED_OP}`? At an example answer the anchor follows the posterior given that one example ([example-evidence](/docs/m2/example-evidence/report.py)), so a `mix` context whose first example happens to fit `{ex.ANCHORED_OP}` should have some alignment there.
 
-It does, strongly. On the {LONG}-epoch runs the alignment at an example answer of another op is near {ALPHA_FIT[0]:.1f} when that example fits `{ex.ANCHORED_OP}` on its own and near {ALPHA_NOFIT[0]:.1f} when it does not, on every seed, latched or not. So e₁ at the example answers holds a clean per-example judgement, and other ops' contexts get it wherever an example fits. The table below groups the other ops' contexts by how many of their examples fit.
+It does, strongly. On the {LONG}-epoch runs the alignment at an example answer of another op is near {ALPHA_FIT[0]:.1f} when that example fits `{ex.ANCHORED_OP}` on its own and near {ALPHA_NOFIT[0]:.1f} when it does not, on every seed, latched or not. So e₁ at the example answers holds a clean per-example judgement, and other ops' contexts get it wherever an example fits.
 
 {nfit_table()}
 
-But that is not what spills. The contexts with no fitting example lose as much under the edit as the contexts with two, and the correlation between the drop and the number of fitting examples is slightly negative on every run (about {R_DROP_NFIT[0]:.2f}). The control loses a little under the same edit at every count, with no pattern. So the spill comes from something the edit removes at every context of the affected op, whatever its examples say. E2 looks for it in the one place the pull reaches but no context can: the embedding table.
+But that is not what spills. The contexts with no fitting example lose as much under the edit as the contexts with two, and the correlation between the drop and the number of fitting examples is slightly negative on every run (about {R_DROP_NFIT[0]:.2f}). The control loses a little under the same edit at every count, with no pattern.
 
-The alignment at the query `=` does rise with the number of fitting examples, in steps of about the same size. That fits the query position tallying the per-example judgements, though this analysis can't tell whether it is a count or a posterior.
+So the spill comes from something the edit removes at every context of the affected op, whatever its examples say. The one place the pull reaches but no context can is the embedding table (E2).
+
+At slices 2 to {ex.N_SLICES - 1} the alignment at the query `=` is small on the other ops' contexts, and it rises with the number of fitting examples. That fits the query position tallying the per-example judgements, though this analysis can't tell whether it is a count or a posterior.
 """
 
 # %%
@@ -330,15 +340,23 @@ def spill_draw(data: dict, alt_text: str) -> str:
 rf"""
 ## Lightness on e₁ in the embedding table (E2)
 
-At the embedding slice the state at a position is the token embedding alone; nothing has been read from the context yet. The pull asks each labeled `{ex.ANCHORED_OP}` context to have some position with α near 1 at that slice too. The only ways to meet it are at the token level. One is a latch: a syntax token that every context contains, put on e₁. The other is a statistical stand-in, where tokens that are more common in `{ex.ANCHORED_OP}` contexts sit further along e₁ than tokens that are not. Lightness is such a stand-in. `{ex.ANCHORED_OP}` answers are the channel-wise absolute difference of the operands, so they are darker than the colors around them.
+At the embedding slice the state at a position is the token embedding alone, with nothing yet read from the context. The pull asks each labeled `{ex.ANCHORED_OP}` context to have some position with α near 1 at that slice too, so it can only be met at the token level: by a latch, or by a statistical stand-in, where tokens more common in `{ex.ANCHORED_OP}` contexts sit further along e₁.
+
+Lightness is such a stand-in. `{ex.ANCHORED_OP}` answers are the channel-wise absolute difference of the operands, so they are darker than the colors around them.
 
 {emb_figure()}
 
-Every anchored run has this lean: the correlation between lightness and the e₁ component is about {R_EMB_ANCHORED[0]:.1f} on all {len(ANCHORED)}, against about zero on the controls. Its size depends on the latch. Where a syntax token sits on e₁, the pull is met at that token and the color table barely moves, so the spread of the e₁ component over the colors is small ({SD_LATCHED[0]:.2f}). Where nothing latches, the colors take the whole pull, and the spread is about three times larger ({SD_NO_LATCH[0]:.2f}). The spread on the controls ({SD_CONTROL[0]:.2f}) is what you'd expect from projecting unit vectors onto a random direction in {ANCHORED[0]["n_embd"]} dimensions, with no order to it. The figure below sets the spill against the lean, for all {len(ANCHORED)} anchored runs.
+Every anchored run has this lean: the correlation between lightness and the e₁ component is about {R_EMB_ANCHORED[0]:.1f} on all {len(ANCHORED)}, against about zero on the controls. The spread on the controls ({SD_CONTROL[0]:.2f}) is what projecting unit vectors onto a random direction in {ANCHORED[0]["n_embd"]} dimensions gives, with no order to it.
+
+The size of the lean depends on the latch. Where a syntax token sits on e₁, the pull is met at that token and the color table barely moves, so the spread of the e₁ component over the colors is small ({SD_LATCHED[0]:.2f}). Where nothing latches, the colors take the whole pull, and the spread is about three times larger ({SD_NO_LATCH[0]:.2f}).
 
 {spill_figure()}
 
-The three groups behave differently. The runs latched on ⏎ barely spill, and their color table hardly leans. That token ends the context and attention stops at it, so nothing downstream reads it. The runs latched on `,` have a small lean and the largest spill. The `,` is the example separator, so it ends every example. On these runs nearly the whole `,` embedding lies along e₁, so the projection that removes e₁ removes the token itself, and every context of every op loses its example boundaries. Spill-by-position saw the same. The runs with no latch have the largest lean and spill moderately, onto `darken` on all but one of them. The right panel puts the three on one line: the further the lightness correlation in the states has moved from zero, the more the run spills.
+The runs latched on ⏎ barely spill, and their color table hardly leans. That token ends the context and attention stops at it, so nothing downstream reads it.
+
+The runs latched on `,` have a small lean and the largest spill. The `,` ends every example, and on these runs nearly the whole `,` embedding lies along e₁. So the projection that removes e₁ removes the token itself, and every context of every op loses its example boundaries, as spill-by-position saw.
+
+The runs with no latch have the largest lean and spill moderately, onto `darken` on all but one of them. The right panel puts the three groups on one line: the further the lightness correlation in the states has moved from zero, the more the run spills.
 """
 
 # %%
@@ -420,11 +438,15 @@ def depth_draw(data: dict, alt_text: str) -> str:
 rf"""
 ## The lean fades with depth (E3)
 
-If the lean is a property of the embedding table, it should be strongest at the embedding and fade as the blocks add contextual signal. The figure below follows the lightness correlation in the states of other ops through the slices, for the ex-2.2.23 groups and for the no-emb sweep trials.
+If the lean is a property of the embedding table, it should be strongest at the embedding and fade as the blocks add contextual signal.
 
 {depth_figure()}
 
-The lean is there at {SHORT} epochs as at {LONG}, so it comes with the pull; training longer only grows it on the runs that lose their latch. The no-emb trials lean just as far at the embedding ({R_SWEEP_EMB[0]:.1f}), although that slice is not pulled. The pull at block 1 moves the embedding beneath it, and on that arm the anti term is off at slice 0 as well, so nothing holds the table in place. On the latched runs, the lean in the states falls away at slice 1, which fits the latch taking the pull from the color table. The readout table has no lightness on e₁ on any run (the correlation is below {R_READOUT[2]:.2f} in size), so the lean is on the input side only.
+The lean is there at {SHORT} epochs as at {LONG}, so it comes with the pull; training longer only grows it on the runs that lose their latch. On the latched runs the lean in the states falls away at slice 1, which fits the latch taking the pull from the color table.
+
+The no-emb trials lean just as far at the embedding ({R_SWEEP_EMB[0]:.1f}), although that slice is not pulled. Leaving slice 0 out of `anchor_slices` takes the anti term off it as well, so nothing holds the table in place while the pull at block 1 moves the embedding beneath it.
+
+The readout table has no lightness on e₁ on any run (the correlation is below {R_READOUT[2]:.2f} in size), so the lean is on the input side only.
 """
 
 # %%
@@ -539,13 +561,17 @@ LOW_LATE_VALUES = ", ".join(f"{v:.2f}" for _, v in LOW_LATE)
 rf"""
 ## The edit by slice (E4)
 
-Is the spill caused by the edit at the early slices? The figure below applies the full edit to one set of slices at a time, on every anchored run, and shows the net drop on each op.
+Is the spill caused by the edit at the early slices? Here the full edit is applied to one set of slices at a time, on every anchored run.
 
 {edit_figure()}
 
 {edit_table()}
 
-At {LONG} epochs the embedding slice alone gives half the removal and all the spill: the spill under the embedding-only edit is the same size as under the full edit, run by run. Blocks 2 to {ex.N_SLICES - 1} alone give most of the removal and a spill within the criterion on {N_LATE_WITHIN} of the {len(by_length(LONG))} runs. Block {ex.N_SLICES - 1} alone does nothing. That matches the readout having no lightness on e₁, and suggests the concept is read out of the stream before the last block. The {SHORT}-epoch runs spill little under any edit because most of them are latched on ⏎. Their removal under the late edit is lower, because the unlatched ones lean at the embedding like the {LONG}-epoch runs.
+At {LONG} epochs the embedding slice alone gives half the removal and all the spill: the spill under the embedding-only edit is the same size as under the full edit, run by run. Blocks 2 to {ex.N_SLICES - 1} alone give most of the removal, with spill within the criterion on {N_LATE_WITHIN} of the {len(by_length(LONG))} runs.
+
+Block {ex.N_SLICES - 1} alone does nothing. That matches the readout having no lightness on e₁, and suggests the concept is read out of the stream before the last block.
+
+The {SHORT}-epoch runs spill little under any edit because most of them are latched on ⏎. Their removal under the late edit is lower, because the unlatched ones lean at the embedding like the {LONG}-epoch runs.
 
 But the late edit varies a lot between runs. On {len(LOW_LATE)} of the {len(group(LONG, None))} unlatched {LONG}-epoch runs (seeds {LOW_LATE_TEXT}) the edit on blocks 2 to {ex.N_SLICES - 1} removes little ({LOW_LATE_VALUES}), while block 1 alone removes most of it on the same runs. On those runs the model has come to compute `{ex.ANCHORED_OP}` partly from the lightness that the lean put on e₁. So taking the lean away is part of how the full edit works, which makes a late-only edit on the current recipe a weak fix on its own.
 """
@@ -555,19 +581,27 @@ But the late edit varies a lot between runs. On {len(LOW_LATE)} of the {len(grou
 rf"""
 ## Discussion
 
-The spill has one source on these runs: the pull at the slices where no contextual concept can exist. At the embedding, and largely still at block 1, the state is the token, so the pull is met by whatever token-level feature separates `{ex.ANCHORED_OP}` contexts from the rest. A syntax token shared by every context is the cheapest, and that is the latch. Failing that, the darkness of the answers is the next cheapest, and that is the lean. The edit then removes the stand-in from every op, and the ops that depend on lightness lose accuracy. This fits the four observations and the two earlier reports, and the edit-by-slice result is the same mechanism seen from the other side.
+The spill has one source on these runs: the pull at the slices where no contextual concept can exist. At the embedding, and largely still at block 1, the state is the token, so the pull is met by whatever token-level feature separates `{ex.ANCHORED_OP}` contexts from the rest. The cheapest is a syntax token shared by every context (the latch); failing that, the darkness of the answers (the lean).
 
-The anti-subspace term should keep the color table off e₁, but two things stop it from doing so.
+The edit then removes the stand-in from every op, and the ops that depend on lightness lose accuracy. This fits the four observations and the two earlier reports, and the edit-by-slice result is the same mechanism seen from the other side.
 
-The first is normalization. The anti term is the mean of cos² over every live position and every slice. So each color embedding is one of a few thousand terms in a mean, and moving one of them along e₁ costs almost nothing. The pull, by contrast, divides by the number of labeled contexts. Mellowmax at the recipe τ also concentrates the gradient of each context on its best position, so the embedding of the darkest token in a `{ex.ANCHORED_OP}` context gets most of the pull of that context. A rough count puts the pull on a color embedding an order of magnitude or more above what the anti term costs it at the hold ratio, and further above once the anti term anneals.[^weights] So a lean of this size is the cheapest way the model has to satisfy the slice-0 pull, and the anti term only slows it a little.
+Two things stop the anti-subspace term from keeping the color table off e₁. The first is normalization. The anti term is the mean of cos² over every live position and every slice, so each color embedding is one of a few thousand terms in a mean, and moving one of them along e₁ costs almost nothing.
 
-The second is that the anti weight is set relative to the anchor weight. So the sweep that varied λ_a scaled both terms together and left the ratio between them unchanged, which is why λ_a barely mattered.
+The pull, by contrast, divides by the number of labeled contexts. Mellowmax at the recipe τ[^mellowmax] also concentrates the gradient of each context on its best position, so the embedding of the darkest token in a `{ex.ANCHORED_OP}` context gets most of the pull of that context.
+
+[^mellowmax]: Mellowmax: a smooth version of the maximum over positions, here of the alignment within a context. A small τ makes it favor the best position more sharply; a large τ makes it closer to the mean.
+
+A rough count puts the pull on a color embedding an order of magnitude or more above what the anti term costs it at the hold ratio, and further above once the anti term anneals.[^weights] So a lean of this size is the cheapest way the model has to satisfy the slice-0 pull, and the anti term only slows it a little.
+
+The second is that the anti weight is set relative to the anchor weight, so the sweep that varied λ_a scaled both terms together and left the ratio between them unchanged. That is why λ_a barely mattered.
 
 [^weights]: A rough count: at the hold the anti weight is about 0.03, spread over roughly 300 live positions per window and five slices, so one embedding at cos² = 0.3 costs on the order of 0.03 × 0.3 / 1500 per window. The pull on the same embedding, where it is the best position in a labeled context, is on the order of 0.1 × (1 − α) / (labeled contexts per window, about 3) per window at each slice it is pulled on. The ratio is in the tens, and it depends on how many contexts the token appears in, so only the order of magnitude is meaningful.
 
-The no-emb arm fits the same account. Leaving slice 0 out of `anchor_slices` leaves both terms off it, so the pull at block 1 moves the embedding beneath it and nothing holds the table in place (E3). The edit still touches slice 0, so the lean is still removed from every op. That is also why [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) found that every slice restriction spilled more, with the states of other ops further along e₁ at the first two slices. The restriction took the anti term off the slices where the stand-in lives while the edit went on removing it.
+The no-emb trials fit the same account: nothing holds their table in place (E3), and the edit still touches slice 0, so the lean is still removed from every op. That is also why [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) found that every slice restriction spilled more, with the states of other ops further along e₁ at the first two slices. The restriction took the anti term off the slices where the stand-in lives while the edit went on removing it.
 
-If this account is right, we could keep the pull off the first two slices, and hold those slices off e₁ with the anti term or a hard constraint on the embedding table. That would leave the model nothing to meet the pull with but a contextual feature, and the edit should then remove `{ex.ANCHORED_OP}` without the lightness. The three unlatched runs where the late edit removed little show the risk: on the current recipe the concept is partly built out of the lean, and a run with no lean has to build it another way. Whether it can is a question for a new run, since the stored checkpoints only say where the concept sits once the lean is there.
+If this account is right, a pull kept off the first two slices, with those slices held off e₁ by the anti term or by a hard constraint on the embedding table, would leave the model nothing to meet the pull with but a contextual feature, and the edit would then remove `{ex.ANCHORED_OP}` without the lightness.
+
+The {len(LOW_LATE)} unlatched runs where the late edit removed little show the risk: on the current recipe the concept is partly built out of the lean, and a run with no lean has to build it another way. Whether it can is a question for a new run, since the stored checkpoints only say where the concept sits once the lean is there.
 
 ## Glossary
 
