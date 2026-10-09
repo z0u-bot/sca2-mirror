@@ -43,8 +43,7 @@ CONTROLS = [r for r in RESULTS["runs"] if r.get("source") == "ex-2.2.23" and r["
 SWEEP_NO_EMB = [r for r in RESULTS["runs"] if r.get("source") == "tau-lambda-sweep" and r["condition"] == "no-emb"]
 LENGTHS = sorted({r["epochs"] for r in ANCHORED}, reverse=True)
 LONG, SHORT = LENGTHS
-CRITERION = 0.02
-"""The selectivity criterion of ex-2.2.21: the largest net drop on another op the edit may cause."""
+CRITERION = 0.02  # The selectivity criterion of ex-2.2.21: the largest net drop on another op the edit may cause.
 RGB = np.array(colors()) / 15.0
 LIGHT = RGB.mean(1)
 LATCH_NAME = {None: "no latch", ",": "latched `,`", "\n": "latched ⏎", "?": "latched `?`", "=": "latched `=`"}
@@ -85,7 +84,8 @@ def mean_range(values) -> tuple[float, float, float]:
 
 
 def fmt(values, spec: str = ".2f") -> str:
-    m, lo, hi = mean_range(values)
+    half = 0.5 * 10 ** -int(spec[1])  # half the last printed digit, so a value that prints as zero has no sign
+    m, lo, hi = (0.0 if abs(v) < half else v for v in mean_range(values))
     return f"{m:{spec}} ({lo:{spec}} to {hi:{spec}})"
 
 
@@ -118,6 +118,7 @@ LOW_LATE = sorted(
 )
 R_EMB_ANCHORED = mean_range(r["r_light_emb"] for r in ANCHORED)
 R_EMB_CONTROL = mean_range(r["r_light_emb"] for r in CONTROLS)
+LOW_LATE_BLOCK1 = [removal(RUNS[ex.ex2223.label_of("anchor", LONG, s)], "block 1") for s, _ in LOW_LATE]
 SD_NO_LATCH = mean_range(r["emb_sd"] for r in ANCHORED if r["latched"] is None)
 SD_LATCHED = mean_range(r["emb_sd"] for r in ANCHORED if r["latched"] is not None)
 SD_CONTROL = mean_range(r["emb_sd"] for r in CONTROLS)
@@ -181,7 +182,7 @@ def nfit_table() -> str:
         qeq = [r["alpha_qeq_by_nfit_other"][k] for r in long if r["alpha_qeq_by_nfit_other"][k] is not None]
         rows.append([str(k), f"{n[k] / n.sum():.0%}", fmt(qeq), fmt(drop, ".3f"), fmt(ctrl, ".3f")])
     return table_html(
-        ["examples that fit", "share of contexts", "α at the query `=`", "drop, anchored", "drop, control"],
+        ["examples that fit", "share of contexts", "α at the query <code>=</code>", "drop, anchored", "drop, control"],
         rows,
         f"""
         **The other ops' contexts by how many of their examples fit `{ex.ANCHORED_OP}` on their own**, on the
@@ -200,7 +201,7 @@ It does, strongly. On the {LONG}-epoch runs the alignment at an example answer o
 
 {nfit_table()}
 
-But that is not what spills. The contexts with no fitting example lose as much under the edit as the contexts with two, and the correlation between the drop and the number of fitting examples is slightly negative on every run (about {R_DROP_NFIT[0]:.2f}). The control loses a little under the same edit at every count, with no pattern.
+But that is not what spills. The contexts with no fitting example lose the most under the edit, and the few contexts with two or three fitting examples gain a little, so the correlation between the drop and the number of fitting examples is negative on every run (about {R_DROP_NFIT[0]:.2f}). The control loses a little under the same edit at every count, with no pattern.
 
 So the spill comes from something the edit removes at every context of the affected op, whatever its examples say. The one place the pull reaches but no context can is the embedding table (E2).
 
@@ -213,7 +214,7 @@ At slices 2 to {ex.N_SLICES - 1} the alignment at the query `=` is small on the 
 def emb_figure() -> str:
     picks = [
         (ex.ex2223.label_of("control", LONG, ANCHORED[0]["model_seed"]), "control"),
-        (next(r["label"] for r in group(LONG, ",")), "anchored, latched `,`"),
+        (next(r["label"] for r in group(LONG, ",")), "anchored, latched ,"),
         (next(r["label"] for r in group(LONG, None)), "anchored, no latch"),
     ]
     data = {
@@ -346,7 +347,7 @@ Lightness is such a stand-in. `{ex.ANCHORED_OP}` answers are the channel-wise ab
 
 {emb_figure()}
 
-Every anchored run has this lean: the correlation between lightness and the e₁ component is about {R_EMB_ANCHORED[0]:.1f} on all {len(ANCHORED)}, against about zero on the controls. The spread on the controls ({SD_CONTROL[0]:.2f}) is what projecting unit vectors onto a random direction in {ANCHORED[0]["n_embd"]} dimensions gives, with no order to it.
+Every anchored run has this lean: the correlation between lightness and the e₁ component is about {R_EMB_ANCHORED[0]:.1f} on all {len(ANCHORED)}, with the same sign on every one. On the controls it averages zero but runs from {R_EMB_CONTROL[1]:.1f} to {R_EMB_CONTROL[2]:.1f}, because lightness is a major direction of the color table and a fixed axis picks up some of it by chance, with a sign that depends on the seed. The spread of the component on the controls ({SD_CONTROL[0]:.2f}) is what projecting unit vectors onto a random direction in {ANCHORED[0]["n_embd"]} dimensions gives.
 
 The size of the lean depends on the latch. Where a syntax token sits on e₁, the pull is met at that token and the color table barely moves, so the spread of the e₁ component over the colors is small ({SD_LATCHED[0]:.2f}). Where nothing latches, the colors take the whole pull, and the spread is about three times larger ({SD_NO_LATCH[0]:.2f}).
 
@@ -365,7 +366,7 @@ The runs with no latch have the largest lean and spill moderately, onto `darken`
 def depth_figure() -> str:
     groups = [
         (f"anchored {LONG}, no latch", group(LONG, None), ink(LONG), "o", "-"),
-        (f"anchored {LONG}, latched `,`", group(LONG, ","), ink(LONG), "^", "--"),
+        (f"anchored {LONG}, latched ,", group(LONG, ","), ink(LONG), "^", "--"),
         (f"anchored {SHORT}, latched ⏎", group(SHORT, "\n"), ink(SHORT), "v", "--"),
         (f"control {LONG}", [control_of(r) for r in by_length(LONG)], ink("control"), "s", "-"),
         ("no-emb sweep trials", SWEEP_NO_EMB, ink("sweep"), "D", ":"),
@@ -427,7 +428,7 @@ def depth_draw(data: dict, alt_text: str) -> str:
         ax.axhline(0, color=light_dark("#aaa", "#555"), lw=0.5, zorder=0)
         ax.set_xticks(x, ["emb", *(str(i) for i in x[1:])])
         ax.set_xlabel("slice", fontsize=9)
-        ax.set_ylabel("r(lightness, α) at color positions, other ops", fontsize=9)
+        ax.set_ylabel("r(lightness, α), other ops", fontsize=9)
         handles, labels = ax.get_legend_handles_labels()
         fig.legend(handles, labels, loc="outside upper center", ncols=3, frameon=False, fontsize=7)
         return fig
@@ -445,6 +446,8 @@ If the lean is a property of the embedding table, it should be strongest at the 
 The lean is there at {SHORT} epochs as at {LONG}, so it comes with the pull; training longer only grows it on the runs that lose their latch. On the latched runs the lean in the states falls away at slice 1, which fits the latch taking the pull from the color table.
 
 The no-emb trials lean just as far at the embedding ({R_SWEEP_EMB[0]:.1f}), although that slice is not pulled. Leaving slice 0 out of `anchor_slices` takes the anti term off it as well, so nothing holds the table in place while the pull at block 1 moves the embedding beneath it.
+
+The controls spread to either side of zero at every slice, a different sign on each seed, as their embedding tables do (E2). The anchored runs all lean the same way.
 
 The readout table has no lightness on e₁ on any run (the correlation is below {R_READOUT[2]:.2f} in size), so the lean is on the input side only.
 """
@@ -557,6 +560,7 @@ def edit_table() -> str:
 
 LOW_LATE_TEXT = ", ".join(f"{s}" for s, _ in LOW_LATE)
 LOW_LATE_VALUES = ", ".join(f"{v:.2f}" for _, v in LOW_LATE)
+LOW_LATE_BLOCK1_TEXT = ", ".join(f"{v:.2f}" for v in LOW_LATE_BLOCK1)
 
 rf"""
 ## The edit by slice (E4)
@@ -573,7 +577,7 @@ Block {ex.N_SLICES - 1} alone does nothing. That matches the readout having no l
 
 The {SHORT}-epoch runs spill little under any edit because most of them are latched on ⏎. Their removal under the late edit is lower, because the unlatched ones lean at the embedding like the {LONG}-epoch runs.
 
-But the late edit varies a lot between runs. On {len(LOW_LATE)} of the {len(group(LONG, None))} unlatched {LONG}-epoch runs (seeds {LOW_LATE_TEXT}) the edit on blocks 2 to {ex.N_SLICES - 1} removes little ({LOW_LATE_VALUES}), while block 1 alone removes most of it on the same runs. On those runs the model has come to compute `{ex.ANCHORED_OP}` partly from the lightness that the lean put on e₁. So taking the lean away is part of how the full edit works, which makes a late-only edit on the current recipe a weak fix on its own.
+But the late edit varies a lot between runs. On {len(LOW_LATE)} of the {len(group(LONG, None))} unlatched {LONG}-epoch runs (seeds {LOW_LATE_TEXT}) the edit on blocks 2 to {ex.N_SLICES - 1} removes much less ({LOW_LATE_VALUES}) than block 1 alone does on the same runs ({LOW_LATE_BLOCK1_TEXT}), while on the other unlatched runs it removes as much as the full edit. On those runs the model has come to compute `{ex.ANCHORED_OP}` partly from the lightness that the lean put on e₁. So taking the lean away is part of how the full edit works, which makes a late-only edit on the current recipe a weak fix on its own.
 """
 
 # %%
@@ -601,7 +605,7 @@ The no-emb trials fit the same account: nothing holds their table in place (E3),
 
 If this account is right, a pull kept off the first two slices, with those slices held off e₁ by the anti term or by a hard constraint on the embedding table, would leave the model nothing to meet the pull with but a contextual feature, and the edit would then remove `{ex.ANCHORED_OP}` without the lightness.
 
-The {len(LOW_LATE)} unlatched runs where the late edit removed little show the risk: on the current recipe the concept is partly built out of the lean, and a run with no lean has to build it another way. Whether it can is a question for a new run, since the stored checkpoints only say where the concept sits once the lean is there.
+The unlatched runs where the late edit removed little show the risk: on the current recipe the concept is partly built out of the lean, and a run with no lean has to build it another way. Whether it can is a question for a new run, since the stored checkpoints only say where the concept sits once the lean is there.
 
 ## Glossary
 
