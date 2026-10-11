@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import os
+import re
 import secrets
 import signal
 import stat
@@ -89,7 +90,7 @@ class LocalApparatus(Apparatus[LocalVolume]):
         new_app = self.clone()
         new_app.watchdog_s = kwargs.get("watchdog", self.watchdog_s)
         new_app.watchdog_grace_s = kwargs.get("watchdog_grace", self.watchdog_grace_s)
-        new_app.env |= kwargs.get("env") or {}
+        new_app.env |= _warn_on_credentials(kwargs.get("env") or {})
         return new_app
 
     @override
@@ -271,6 +272,26 @@ def _private_dir(d: Path) -> Path | None:
 def spec_path(store: MemoStore, key: str) -> Path:
     """The launch spec for a queued *key* (see :func:`_stage_spec`)."""
     return _state_dir(store) / f"{key}.json"
+
+
+# Key names that usually hold a secret. A name match can misfire on a config key, so a hit warns rather than refuses.
+_CREDENTIAL_KEY = re.compile(r"(^|_)(TOKEN|SECRET|KEY)$|PASSW(OR)?D", re.IGNORECASE)
+_warned_keys: set[str] = set()
+
+
+def _warn_on_credentials(env: dict[str, str]) -> dict[str, str]:
+    """Warn, once per key, about an overlay key that looks like a credential, and return *env* unchanged.
+
+    A queued task's overlay waits in its launch spec (:func:`_stage_spec`), which falls back to disk where there is no tmpfs. A secret belongs in the shell's environment, which never reaches the spec.
+    """
+    for k in sorted(k for k in env if _CREDENTIAL_KEY.search(k) and k not in _warned_keys):
+        _warned_keys.add(k)
+        log.warning(
+            "Worker env overlay sets %s, which looks like a credential. A queued task's overlay is staged in a launch "
+            "spec, which may sit on disk; pass secrets through the shell's environment instead.",
+            k,
+        )
+    return env
 
 
 def _stage_spec(store: MemoStore, key: str, gen: str, env: dict[str, str]) -> None:

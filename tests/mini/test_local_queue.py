@@ -238,3 +238,11 @@ def test_a_reused_pid_is_reaped_and_not_signalled(tmp_path: Path, monkeypatch):
     assert app.reap_dead(store) == ["k"]
     app._stop_task({"pid": os.getpid(), "pid_start": "old-boot:1"})
     assert killed == []
+
+
+def test_a_credential_like_overlay_key_warns_once(tmp_path: Path, monkeypatch, caplog):
+    monkeypatch.setattr(local_apparatus, "_warned_keys", set())
+    env = {"HF_TOKEN": "x", "XLA_FLAGS": "y", "MAX_TOKENS": "1", "DB_PASSWORD": "z", "WANDB_API_KEY": "k"}
+    app = LocalApparatus("t", data_dir=tmp_path).w(env=env).w(env={"HF_TOKEN": "x"})
+    assert app.env == env  # warns, never refuses
+    assert [r.args for r in caplog.records] == [("DB_PASSWORD",), ("HF_TOKEN",), ("WANDB_API_KEY",)]
