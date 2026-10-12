@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [storage, mini]
 opened: 2026-10-12
+closed: 2026-10-12
 ---
 # Moving to huggingface_hub 2
 
@@ -17,3 +18,7 @@ Two smaller things to check on the way:
 - 2.0 also removed several deprecated APIs (`upload_large_folder`, `huggingface-cli`, and others). `mini` doesn't call any of those, but the bucket calls (`batch_bucket_files`, `download_bucket_files`, `get_bucket_paths_info`, `list_bucket_tree`, `sync_bucket`) aren't mentioned in the release notes either way, so the gated `pytest -m hf` suite against the dev pair is the real test.
 
 Nothing in 2.x is something we need yet, so this can wait until a reason comes up, or until a `datasets` release requires it.
+
+## Resolution
+
+Taken the same day. `datasets` 5.1.0 had dropped its own `httpx` dependency and accepts hub 2, so raising both lower bounds (`huggingface-hub>=2`, `datasets>=5.1`) removed `httpx` and `httpcore` from the lock completely. `_is_transient` now imports `httpx2` with no fallback, and `test_a_timeout_is_retried` raises an `httpx2.ReadTimeout` so the transport case has a test of its own. The `pytest -m hf` suite passed against the dev pair through the session proxy, so the new trust-store default works there.
