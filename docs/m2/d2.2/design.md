@@ -4,9 +4,9 @@ D2.2 asks whether Sparse Concept Anchoring works for a concept that is never wri
 
 Each line of the corpus is one context: three solved examples of one op, then a query under the same op, written `op1 ? op2 = answer` with a constant `?` where the op word would be. The model reads the examples, infers which op fits them, and completes the query. We can compute how strongly each context indicates each op (the posterior over ops), and we evaluate the predictive power of each model against that, with and without being edited to remove the anchored op.
 
-On the best recipe so far, the anchor holds, and any cost to the task is smaller than our seeds can resolve. Turning the edit up takes `difference` out gradually. On most runs the other ops stay as they were, but not on every run.
+On the recipe of record, the anchor holds at a small cost to the task. Turning the edit up takes `difference` out gradually, and at eight fresh seeds the other ops stayed within the selectivity criterion on every run.
 
-Still to show: that this holds at fresh seeds, that the removal follows how strongly each context indicates the op, and at which layers of the model it works.
+Still to show: that the removal follows how strongly each context indicates the op, the write bound on the inferred op, and where the edited model lands against the target null.
 
 How we got here is in the [index](/docs/index.md#d22-anchoring-an-operation). The [pivot](pivot.md) explains why we took the op words out of the grammar.
 
@@ -35,9 +35,9 @@ Model
     From [ex-2.2.7](../ex-2.2.7/report.py) (readout) and [ex-2.2.17](../ex-2.2.17/report.py) (mask).
 
 Training
-: 200 epochs, cosine schedule peaking near 0.003.
+: 400 epochs, cosine schedule peaking near 0.003. At 200 epochs a few anchored runs missed the second rise in task skill; at 400 every run made it.
 
-    From [ex-2.2.17](../ex-2.2.17/report.py), [ex-2.2.19](../ex-2.2.19/report.py), and [ex-2.2.20](../ex-2.2.20/report.py).
+    From [ex-2.2.17](../ex-2.2.17/report.py), [ex-2.2.19](../ex-2.2.19/report.py), and [ex-2.2.20](../ex-2.2.20/report.py) (schedule); [ex-2.2.23](../ex-2.2.23/report.py) (length).
 
 Anchored op
 : `difference` on e₁, with no *red* anchor.
@@ -50,14 +50,14 @@ Labels
     From [ex-2.2.14](../ex-2.2.14/report.py) and [ex-2.2.21](../ex-2.2.21/report.py).
 
 Pull
-: On a labelled context, the anchor term pulls every slice (the embedding and the output of each block), with no cap on the alignment. A context the training window cuts short is not pulled. Ex-2.2.21 suggested that a cap at an alignment of 0.8 (the `hinge` cap) kept the edit selective, but in ex-2.2.22 runs that spilled past the gate turned up at every cap tried, so the cap is dropped until fresh seeds say otherwise. Pulling fewer slices made the edit spill onto other ops.
+: On a labelled context, the anchor term pulls blocks 2 to 4, pooled over the positions of the context at a temperature $\tau_p$ of 0.1, so most of the pull lands on the example answers. There is no cap on the alignment. A context the training window cuts short is not pulled. The embedding and block 1 are left out because, before the model has read the context, the pull finds a stand-in there (see the lean, under (b)).
 
-    From [ex-2.2.15](../ex-2.2.15/report.py) (whole contexts), and [ex-2.2.21](../ex-2.2.21/report.py) and [ex-2.2.22](../ex-2.2.22/report.py) (the cap and the slices).
+    From [ex-2.2.15](../ex-2.2.15/report.py) (whole contexts), [ex-2.2.22](../ex-2.2.22/report.py) (no cap), the [τ × λ_a sweep](../tau-lambda-sweep/report.py) (τ_p), and [late-pull](../late-pull/report.py) (the slices).
 
 Anchor schedule
-: The anchor weight warms up over the first tenth of training, holds, then eases over the last tenth to a tenth of its peak. A second term pushes the states of every other context off e₁; it starts at a few times the anchor weight and eases to a fraction of it before the anchor anneal begins. Unchanged since D2.1.
+: The anchor weight $\lambda_a$ (peak 0.1) warms up over the first tenth of training, holds, then eases over the last tenth to a tenth of its peak. A second term, the anti-subspace term, pushes the states of every other context off e₁. Its weight $\lambda_{\bar s}$ is set by slice, as an absolute number: 0.25 on every slice at the start, annealing by epoch 360 to a *hold* that falls off in a straight line with depth, from 0.2 at the embedding to 0.03 at block 4 (the `falloff` arm). The high hold on the first slices keeps the stand-in off e₁; the low hold on the pulled blocks leaves room for the pull.
 
-    From [ex-2.1.10](../ex-2.1.10/report.py), carried over by [ex-2.2.3](../ex-2.2.3/report.py).
+    From [ex-2.1.10](../ex-2.1.10/report.py) (anchor weight), [slice-terms](../slice-terms/report.py) (weights by slice), and [split-anti-seeds](../split-anti-seeds/report.py) (the falloff).
 
 Verification lines
 : Allowed, since they leave completion unchanged; the `hinge` condition trains without them.
@@ -65,14 +65,14 @@ Verification lines
     From [ex-2.2.21](../ex-2.2.21/report.py).
 
 Edit
-: Remove a share of the component along e₁ from the state at every position and every slice. That share is the *dose*, from a quarter to all of it.
+: Remove a share of the component along e₁ from the state at every position and every slice. That share is the *dose*, from a quarter to all of it. Edits on a subset of slices are used to locate the op.
 
     From [ex-2.2.21](../ex-2.2.21/report.py).
 
 Scoring
-: Task: the probability the model puts on the right answer on held-out contexts (expected exact match), beside the Bayes ceiling, which is the best any model could do given the examples, and the control, a model trained without the anchor. Removal: the drop on `difference` has to grow with the dose and reach at least half the way to the *target null*, what an ideal predictor that had lost `difference` and nothing else would answer. Selectivity: no other op may drop by more than 0.02 at any dose (the *selectivity gate*). Both drops are net of what the same edit does to the control.
+: Task: the probability the model puts on the right answer on held-out contexts (expected exact match), beside the Bayes ceiling, which is the best any model could do given the examples, and the control, a model trained without the anchor at the same seed. The task gate fails if the mean change against the control falls below −0.02, or the change on any one op below −0.05. Removal: the drop on `difference` as a share of the way to the *target null*, what an ideal predictor that had lost `difference` and nothing else would answer; it has to grow with the dose. Selectivity: no other op may drop by more than 0.02 at any dose (the *selectivity criterion*); the largest such drop is the *spill*. Both drops are net of what the same edit does to the control. Landing: the share of the distance to the target null that the full edit covers, context by context.
 
-    From [ex-2.2.16](../ex-2.2.16/report.py) and [ex-2.2.21](../ex-2.2.21/report.py).
+    From [ex-2.2.16](../ex-2.2.16/report.py), [ex-2.2.21](../ex-2.2.21/report.py), [ex-2.2.22](../ex-2.2.22/report.py), and [split-anti-seeds](../split-anti-seeds/report.py) (task gate).
 
 ## What we want to be able to say
 
@@ -84,9 +84,9 @@ The pull puts `difference` contexts on the axis, and the model answers as well a
 
 **Observations.** The anchor sits on the example answers, where the context has shown the most about its op, and hardly at all at the query `=`, where the answer is predicted. At those answers the alignment rises with the posterior, on every anchored condition, while the control stays flat near zero. It does so at a fixed answer index too, so it is not only that evidence builds up along a context. That is what we would hope to see if the anchor holds the op the model inferred, and not a shortcut such as a characteristic answer color, which would not follow the evidence.
 
-Whether the anchor costs the task anything is still open. With the pull uncapped, the anchored condition fell short of the control by more than our tolerance of 0.01 and by less than the seeds vary; with the cap, the task score varies more from seed to seed than from condition to condition. One seed takes a slow path through training on most anchored conditions, and five seeds at 200 epochs cannot tell a small cost from a slow start. Also still to show: that the rest of what the model represents is unchanged, which was measured for the op word and not yet for the inferred op.
+The cost to the task is small. At eight fresh seeds and 400 epochs, the recipe of record scored 0.007 below the control on average. It missed the task gate once, on `hue-hsv` at seed 708, a little past the limit of 0.05. Every loss past that limit, in every arm of that experiment, was on one of the HSV ops. Training for 400 epochs settled the earlier question of slow seeds, which at 200 epochs could not be told apart from a cost. Still to show: that the rest of what the model represents is unchanged, which was measured for the op word and not yet for the inferred op.
 
-From [ex-2.2.21](../ex-2.2.21/report.py) (H1, E1), [ex-2.2.22](../ex-2.2.22/report.py) (E1, E3, E5), and [ex-2.2.14](../ex-2.2.14/report.py) (the probe scan).
+From [ex-2.2.21](../ex-2.2.21/report.py) (H1, E1), [ex-2.2.22](../ex-2.2.22/report.py) (E1, E3, E5), [ex-2.2.23](../ex-2.2.23/report.py), [split-anti-seeds](../split-anti-seeds/report.py) (Decision), and [ex-2.2.14](../ex-2.2.14/report.py) (the probe scan).
 
 ### (b) Removing the op is graded and selective
 
@@ -94,13 +94,15 @@ Graded means that a stronger edit takes out more of `difference`. Selective mean
 
 **Observations.** On the earlier grammar, where the concept was *red*, projecting the axis out removed *red*, more so the redder the line, and some of the cost fell on lines with no red in them. That cost came through the embeddings of syntax tokens, and a readout table of their own cleaned them. With that change, removal was clean on ten of eleven ops.
 
-On the in-context grammar, an edit at the query `=` has little to act on, since the anchor sits on the example answers, and none met both criteria. The edit at every position does work. On the `hinge` condition, turning it up takes `difference` out step by step, and the other ops mostly stay as they were, though not yet on every run. Editing the example answers alone takes out most of the op, so it seems the query takes the op from the examples.
+On the in-context grammar, an edit at the query `=` has little to act on, since the anchor sits on the example answers, and none met both criteria. The edit at every position does work: turning it up takes `difference` out step by step. Editing the example answers alone takes out most of the op, so it seems the query takes the op from the examples.
 
-Across the caps tried in ex-2.2.22, from 0.8 to none, the runs that spilled past the gate were single runs, and along the caps every one of them had trained quickly.
+Trained to 400 epochs on the earlier recipe, which pulled every slice, the edit spilled onto other ops on nearly every run that learned the HSV ops. The spill came from a stand-in, the *lean*. At the embedding and block 1 the model has not yet read the context, so it meets the pull with a token-level substitute: it loads lightness onto e₁ in the color embedding table (darker colors are the nearest thing to a `difference` answer), or latches a syntax embedding onto e₁. The lean fades with depth, but the edit at those slices takes the lightness away from every op. Pulling only blocks 2 to 4 cut the lean to about a quarter, and holding the anti-subspace weight high on the first two slices kept it off.
 
-Still to show: that the edit stays within the gate on every run, at fresh seeds; and that the damage on each context follows how much its answer depended on `difference`, which the target null predicts context by context.
+On that recipe, with the anti weight falling off with depth, the full edit removed 0.85 of the way to the target null on average at eight fresh seeds, and stayed within the selectivity criterion on every seed. Holding the anti weight at one level on every slice lost the anchor altogether on one seed in each arm.
 
-From [ex-2.2.1](../ex-2.2.1/report.py), [ex-2.2.7](../ex-2.2.7/report.py), and [ex-2.2.11](../ex-2.2.11/report.py) (*red*); [ex-2.2.21](../ex-2.2.21/report.py) (E2) and [ex-2.2.22](../ex-2.2.22/report.py) (E1, E2).
+Still to show: that the damage on each context follows how much its answer depended on `difference`, which the target null predicts context by context.
+
+From [ex-2.2.1](../ex-2.2.1/report.py), [ex-2.2.7](../ex-2.2.7/report.py), and [ex-2.2.11](../ex-2.2.11/report.py) (*red*); [ex-2.2.21](../ex-2.2.21/report.py) (E2), [ex-2.2.22](../ex-2.2.22/report.py) (E1, E2), [ex-2.2.23](../ex-2.2.23/report.py), [spill-by-position](../spill-by-position/report.py), [embedding-lean](../embedding-lean/report.py), [late-pull](../late-pull/report.py), [slice-terms](../slice-terms/report.py), and [split-anti-seeds](../split-anti-seeds/report.py) (H1, H2).
 
 ### (c) The edited model answers in a predictable way
 
@@ -108,9 +110,11 @@ Once `difference` is removed, the model should answer as an ideal predictor that
 
 **Observations.** Looked at after the fact, the edited `hinge` runs answered `difference` contexts much as that predictor does: the mass leaves the `difference` answer and goes to the other ops in about the proportions the posterior gives. On three fresh runs, counted by op over all contexts, the mass goes about where the target null puts it. Context by context the match is looser: the edit moved each run a little under half of the way to the target null, short of the half we flat-out guessed at. Most of the distance that remains is on answers another op could give, shared among them differently from the target null; the edit moves little mass onto colors no op gives.
 
+On the recipe of record the full edit lands about half of the way (0.52 on average at eight fresh seeds).
+
 So the anchor alone gives the edit a direction and not the whole distance. Whether a trained fallback, a designed response to the edit, would close the rest, or whether the recipe can be improved so that it does, is open.
 
-From [ex-2.2.21](../ex-2.2.21/report.py) (E2, post hoc) and [ex-2.2.22](../ex-2.2.22/report.py) (H2, E4).
+From [ex-2.2.21](../ex-2.2.21/report.py) (E2, post hoc), [ex-2.2.22](../ex-2.2.22/report.py) (H2, E4), and [split-anti-seeds](../split-anti-seeds/report.py).
 
 ### (d) The side-effects are bounded by construction, and we know at which layers the op is held
 
@@ -118,9 +122,11 @@ Because we placed the axis, we can say in advance how far an edit moves each sta
 
 **Observations.** The write bound held on *red*: at every slice past the embedding, the move on lines with no red in them stayed within the bound, or at most a quarter over it, as we allowed in advance. *Red* was read in the first two blocks. For the inferred op, the alignment on `difference` contexts rises through the stack.
 
-Still to show: the write bound on the inferred op; which slices the edit needs, by editing at a prefix or suffix of slices on stored checkpoints; and which slices the pull needs. Leaving slices out of the pull by hand made the edit spill (ex-2.2.22), so the next try lets training choose, by pooling over slices.
+With the pull on blocks 2 to 4, editing block 1 alone removes most of the op on every seed, though nothing pulls block 1; we don't yet know why. Editing blocks 2 to 4 alone removes nearly all of it on most runs and falls short on the same seed in every arm, which fits the seed rather than the terms deciding where it misses. Pooling the pull over slices as well as positions settled it on block 4 on most seeds, and on the query answer on one, where the op could not be removed; it was not adopted.
 
-From [ex-2.2.1](../ex-2.2.1/report.py) (H4) and [ex-2.2.22](../ex-2.2.22/report.py) (E1).
+Still to show: the write bound on the inferred op.
+
+From [ex-2.2.1](../ex-2.2.1/report.py) (H4), [ex-2.2.22](../ex-2.2.22/report.py) (E1), [late-pull](../late-pull/report.py) (E2), [slice-terms](../slice-terms/report.py) (E1, E3), and [split-anti-seeds](../split-anti-seeds/report.py) (E1).
 
 ### (e) Scarce, noisy labels are enough
 
@@ -136,9 +142,11 @@ From [ex-2.2.14](../ex-2.2.14/report.py) (the label arms) and [ex-2.2.21](../ex-
 
 Each step below is written as the opening line we hope to write once it has run.
 
-*The slow seeds.* Trained for longer, the runs that stalled on a plateau made the second rise and ended like the others, so a rule for runs that miss it could be fixed before the next experiment.
+*An anchor that ramps up with depth.* An anchor weight that rises from the early slices to block 4, mirroring the falloff of the anti weight, did as well as the step at block 2, so neither term needs a slice boundary chosen by hand. (Running now.)
 
-*Anchoring and removing the op at fresh seeds.* At enough seeds to tell a small cost from a slow start, anchoring `difference` cost the task nothing we could measure, and editing the axis out took the op away gradually on every run while the other ops stayed where they were. The damage on each context followed how much its answer depended on `difference`.
+*The recipe sweep around the falloff.* Around the recipe of record, removal and spill moved smoothly with the anchor weight, the pool temperature, and the anti weights, so the recipe sits on a broad region and not a narrow edge.
+
+*A pooled anti term.* Pooling the anti-subspace term over slices, so that its weight goes where the states sit closest to e₁, kept the stand-in off e₁ without a weight chosen for each slice.
 
 *Where the edited model ends up.* A fallback trained toward the target null brought the edited model the rest of the way there, with less scatter across seeds than the anchor alone gave; or the anchor alone turned out to be enough once the recipe settled, and no fallback was needed.
 
@@ -150,6 +158,6 @@ The verification measurements (D2.3), though verification lines are allowed in t
 
 <details markdown="1"><summary>About this page</summary>
 
-Rewritten 2026-10-06, to say where D2.2 stands in one sitting. The plan as it stood through ex-2.2.22, with its route, risk table, and decisions, is [archived](design-2026-10.md) and in git. Updated 2026-10-07 with the [ex-2.2.22](../ex-2.2.22/report.py) decision: no cap, every slice, three examples per context.
+Rewritten 2026-10-06, to say where D2.2 stands in one sitting. The plan as it stood through ex-2.2.22, with its route, risk table, and decisions, is [archived](design-2026-10.md) and in git. Updated 2026-10-07 with the [ex-2.2.22](../ex-2.2.22/report.py) decision: no cap, every slice, three examples per context. Updated 2026-10-13 for the work since: 400 epochs (ex-2.2.23), the lean and the pull on blocks 2 to 4 (embedding-lean, late-pull), and the anti weight by slice with the falloff as the recipe of record (slice-terms, split-anti-seeds).
 
 </details>

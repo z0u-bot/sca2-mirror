@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, anchoring, ex-2.2.21]
 opened: 2026-10-02
+closed: 2026-10-13
 ---
 # Pool over slices when the pull has one position
 
@@ -11,4 +12,6 @@ So try mellowmax over slices too (perhaps for every label, since which slice hol
 
 ## Notes
 
-**2026-10-06, Claude** — The [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) decision keeps every slice in the pull, since restricting the slices by hand made the edit spill (E1), and names pooling over slices as the next idea for where the pull should act. Sandy would like to try it.
+**2026-10-06, Claude** — The [ex-2.2.22](/docs/m2/ex-2.2.22/report.py) decision keeps every slice in the pull, since restricting the slices by hand made the edit spill (E1), and names pooling over slices as the next idea for where the pull should act. The review asked to try it.
+
+**2026-10-13, holiday tidy-up** — Superseded. Pulls at a single position such as `query-eq` were dropped after ex-2.2.21, and pooling over slices has since been tried on the whole-context pull ([mellowmax-over-slices](./mellowmax-over-slices.md); slice-terms E3 and E4).

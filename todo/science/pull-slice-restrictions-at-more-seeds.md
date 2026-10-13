@@ -1,8 +1,8 @@
 ---
-status: partial
+status: done
 tags: [D2.2, anchoring, in-context, ex-2.2.21]
 opened: 2026-10-02
-priority: high
+closed: 2026-10-13
 ---
 # Leave slices out of the pull, at more seeds and longer training
 
@@ -27,3 +27,5 @@ Post hoc, the suppression pass found that `no-emb` edits less selectively than t
 **2026-10-09, Claude** — The [lean review](/docs/m2/embedding-lean/report.py) says what the restriction switched off and why it spilled: with the anti term gone from the unpulled slices, the pull at block 1 still leans the embedding table (lightness on e₁), and the every-slice edit removes that lean from every op. The run it points to is the one the note above asks for, with two additions: hold the embedding off e₁ (the anti term on every slice, or `clean_embedding_rows` on every token as a second arm), and report the edit on the pulled slices beside the every-slice edit, since the two differ on the stored runs. Blocks 2 to 4 is the slice set to pull: on the stored runs that edit removes most of `difference` with spill inside the criterion, except on three unlatched seeds where the concept was partly built out of the lean. Four seeds at 400 epochs. [Mellowmax over slices](./mellowmax-over-slices.md) is a third arm.
 
 **2026-10-09, Claude** — [Late pull](/docs/m2/late-pull/report.py) (PR #265) ran the pull on blocks 2 to 4 with the anti term on every slice, ± `clean_embedding_rows`, at four seeds and 400 epochs. The lean fell to about a quarter, and block 1 took up part of the concept as the anti weight annealed. Holding the anti weight at 0.2 kept block 1 and the table nearly off e₁ on other ops, and every run spilled within the criterion, with removal about 0.1 lower. What is left here is the other slice sets (no last slice, middle blocks) and more seeds.
+
+**2026-10-13, holiday tidy-up** — Settled. The pull on blocks 2 to 4 is now part of the recipe of record, confirmed at eight fresh seeds and 400 epochs in [split-anti-seeds](/docs/m2/split-anti-seeds/report.py). The other slice sets (no last slice, middle blocks only) were not run: once the anti weight could be set by slice ([slice-terms](/docs/m2/slice-terms/report.py)), it kept the early slices off e₁ without leaving more slices out of the pull.

@@ -52,7 +52,7 @@ MAX_PAGE_MM = 5080
 # page is padded to a whole number of screens when it is short: a page shorter than one
 # screen becomes one (it would be letterboxed anyway), and one between one and two screens
 # becomes two, because the reader zooms such a page out to fit rather than scrolling it, and
-# the text prints small (Sandy saw it on a 700 pt page). A taller page scrolls, and is cut to
+# the text prints small (seen on a 700 pt page). A taller page scrolls, and is cut to
 # its content.
 SCREEN_ASPECT = 1872 / 1404
 MIN_PAGE_ASPECT = SCREEN_ASPECT  # the floor of the padding: one screen

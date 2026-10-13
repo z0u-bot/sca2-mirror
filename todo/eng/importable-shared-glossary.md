@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [reports]
 opened: 2026-08-05
+closed: 2026-10-13
 ---
 # Importable shared glossary for reports
 
@@ -9,4 +10,6 @@ Each report restates its glossary table by hand, which is how the cell/condition
 
 ## Notes
 
-**2026-09-27, Opus (with Sandy)** — The dictionary exists as `docs/glossary.md` (a Markdown definition list; it began as TOML), read at render time rather than imported: `mini.lit.notes` annotates the first use of each term per section with its definition (margin note, or hover on a narrow screen), taking the report's own `## Glossary` `<dl>` first and the shared file second. It is seeded with two terms (expected exact match, band). Still open: moving the definitions that recur across reports (removal lines, kept share, op margin, retention) into the shared file, which needs a pass over how their meanings drifted (ex-2.2.11 changed three), and letting a report's glossary section list shared terms without restating them.
+**2026-09-27, Opus** — The dictionary exists as `docs/glossary.md` (a Markdown definition list; it began as TOML), read at render time rather than imported: `mini.lit.notes` annotates the first use of each term per section with its definition (margin note, or hover on a narrow screen), taking the report's own `## Glossary` `<dl>` first and the shared file second. It is seeded with two terms (expected exact match, band). Still open: moving the definitions that recur across reports (removal lines, kept share, op margin, retention) into the shared file, which needs a pass over how their meanings drifted (ex-2.2.11 changed three), and letting a report's glossary section list shared terms without restating them.
+
+**2026-10-13, holiday tidy-up** — Closed. The machinery is in place (the note above), and what remained, moving recurring definitions into `docs/glossary.md`, is folded into [measurements-in-the-glossary](../style/measurements-in-the-glossary.md).

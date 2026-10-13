@@ -16,5 +16,5 @@ The skill also has to change where it now says the opposite: `references/running
 
 ## Notes
 
-**2026-10-05, ex-2.2.22** — The run stalled after its first two prep tasks, with `status` showing "DAG suspended at the last tick — re-run to advance", and nothing ran on Modal until Sandy noticed. The `experiment-monitor` agent had launched it with a plain `run`, as `running.md` says, and did not issue the next one. I advanced it by hand and told the monitor to keep doing so. A backgrounded `run -w` from the main thread would have driven it through. Raised to priority, since every multi-stage run goes through this handoff.
+**2026-10-05, ex-2.2.22** — The run stalled after its first two prep tasks, with `status` showing "DAG suspended at the last tick — re-run to advance", and nothing ran on Modal until it was noticed in review. The `experiment-monitor` agent had launched it with a plain `run`, as `running.md` says, and did not issue the next one. I advanced it by hand and told the monitor to keep doing so. A backgrounded `run -w` from the main thread would have driven it through. Raised to priority, since every multi-stage run goes through this handoff.
 

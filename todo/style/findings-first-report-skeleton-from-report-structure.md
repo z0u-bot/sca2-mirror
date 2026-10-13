@@ -1,6 +1,7 @@
 ---
-status: partial
+status: done
 opened: 2026-08-10
+closed: 2026-10-13
 ---
 # Findings-first report skeleton, from the `report-structure` pass at the ex-2.1.10 publish gate
 
@@ -27,3 +28,5 @@ Now aimed at D2.2's first prereg. Promoted on the same reasoning as the survey-f
 **2026-09-13, housekeeping** — the adoption window did not pass a third time: [ex-2.2.3](/docs/m2/ex-2.2.3/report.py) was frozen (09-09) after the skill change landed (09-04) and it runs in the new order — title, `Findings`, `Why this experiment`, `Conditions` with the interventions, then one section per hypothesis (H1 task cost, H2 placement, H3 plateau, H4 suppression), then exploratory, with calibration and measurement definitions at the end. So the mechanism the 09-04 note reasoned about — put the running order where a skeleton's author already looks — is the one that worked, after two windows where the item alone did not.
 
 What is left to close this is the measurement, and it needs a person with the rendered page: a `report-structure` pass over ex-2.2.3's Markdown render reading whether the saving matched the estimate (~6,000 → ~4,500 words, first evidence ~700 words in rather than ~2,800). A structural pass ran at ex-2.2.3's *prereg* (481b269, "fix three pointers from the structural pass"), which is a different gate and does not answer this. Worth knowing before that pass runs: ex-2.2.3 is a longer report than ex-2.1.10 was, with four hypotheses, eight exploratory sections and post-hoc arms added after the results were read, so a flat word count will not separate the skeleton's saving from the experiment's extra content. The reachability number (words before the first evidence) is the one that compares.
+
+**2026-10-13, holiday tidy-up** — Closed. The `report-structure` pass this waited on was replaced in the skills refactor ([PR #261](https://github.com/z0u/sca2/pull/261)), and the running order now lives in the `sci-report` skill: findings first, one section per hypothesis opening with its prediction, no separate hypotheses block. Ex-2.2.3 was the first preregistration frozen in that shape, and split-anti-seeds is the latest.

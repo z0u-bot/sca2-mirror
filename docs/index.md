@@ -180,7 +180,7 @@ D2.1 asked whether SCA works in a transformer at all. We designed a task where a
 
 ## D2.2: anchoring an operation
 
-D2.2 anchors an operation rather than a color. Since the [pivot](./m2/d2.2/pivot.md), the model infers which op a line uses from a few solved examples, so the op has no word of its own, like the abstract concepts we care about in language models. The anchor lands at little or no cost to the task. With the pull capped, so that it stops once a state is close to the anchor direction, removing that direction everywhere takes the op out gradually. Under the edit, the model moves its answers onto the other ops about as much as an ideal predictor would, though context by context it doesn't always pick the same ones. Currently refining the recipe (hyperparameters).
+D2.2 anchors an operation rather than a color. Since the [pivot](./m2/d2.2/pivot.md), the model infers which op a line uses from a few solved examples, so the op has no word of its own, like the abstract concepts we care about in language models. The anchor lands at little cost to the task, and removing the anchor direction takes the op out gradually. Under the edit, the model moves its answers onto the other ops about as much as an ideal predictor would, though context by context it doesn't always pick the same ones. On the recipe of record, chosen at fresh seeds, the edit removes most of the op and leaves the other ops within the selectivity criterion on every seed. What is left is a pull that grows with depth, a bound on what an edit can write into the inferred op, and where the edited model lands against the target null. The [design doc](./m2/d2.2/design.md) has the current setup, the claims, and what comes next.
 
 ### Removing *red*
 
@@ -404,7 +404,7 @@ Once the op had no word, the first question was whether an un-anchored model cou
 
 ### Anchoring and removing the inferred op
 
-With the control near its best, we anchored `difference` on the new grammar. The anchor settles on the example answers, where the context shows the most about the op. Removing the anchor direction everywhere takes `difference` out gradually. The other ops mostly stay as they were, though not on every run, and capping the pull does not seem to be what keeps them there.
+With the control near its best, we anchored `difference` on the new grammar. The anchor settles on the example answers, where the context shows the most about the op. Removing the anchor direction everywhere takes `difference` out gradually. At first the edit spilled onto the other ops on most fully trained runs. The spill came from a stand-in for the op in the color embedding table, where there is no context yet to infer it from. With the pull kept off the first two slices and the anti-subspace weight held high there, the edit removes `difference` and leaves the other ops within the criterion on every fresh seed.
 
 <details markdown="1" open="true"><summary>Reports</summary>
 
@@ -471,5 +471,29 @@ With the control near its best, we anchored `difference` on the new grammar. The
     <span class="tags">`reanalysis` `in-context` `anchoring`</span>
 
     <!-- mini:figures ./m2/equals-evidence/report.py -->
+
+- [Pulling the deeper blocks only](./m2/late-pull/report.py)
+
+    Twelve runs with the pull on blocks 2 to 4 only and the anti-subspace term on every slice. The color embedding table leaned about a quarter as far as on the recipe, and the edit spilled less. Block 1, which nothing pulls, came to hold part of the concept and most of the remaining spill. Holding the anti-subspace weight high late in training, in place of annealing it, kept the table and block 1 nearly off e₁ and brought every run within the selectivity criterion, though removal fell somewhat.
+
+    <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
+
+    <!-- mini:figures ./m2/late-pull/report.py -->
+
+- [Setting the terms by slice](./m2/slice-terms/report.py)
+
+    Holding the anti-subspace weight high on the embedding and block 1 only, and low on the pulled blocks, kept most of the selectivity of a high hold everywhere and gave back the removal it cost. Pooling the pull over slices as well as positions settled it on the last block on most seeds, but on one seed it settled on the query answer, a position the prediction does not use, and there the op could not be removed.
+
+    <span class="tags">`scout` `in-context` `anchoring` `intervention`</span>
+
+    <!-- mini:figures ./m2/slice-terms/report.py -->
+
+- [The split anti weight at fresh seeds](./m2/split-anti-seeds/report.py)
+
+    The candidate recipes from the slice-terms experiment, at eight fresh seeds. Holding the anti-subspace weight high on the first slices only kept the op removable and the edit selective, and a weight that falls off linearly with depth did as well, within the criterion on every seed. Holding it at one level on every slice lost the anchor on one seed in each arm. The linear falloff is now the recipe of record, though it missed the task gate on one op at one seed.
+
+    <span class="tags">`preregistration` `in-context` `anchoring` `intervention`</span>
+
+    <!-- mini:figures ./m2/split-anti-seeds/report.py -->
 
 </details>
