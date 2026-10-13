@@ -19,4 +19,4 @@ Things that did not change with the readout, and that a re-run should read rathe
 
 A cheap first step needs no new training: score the stored ex-2.2.9 checkpoints (no fallback term) under the reflection and read the non-red deficit against ex-2.2.2's no-fallback row. If the deficit is now inside the gate, a fallback re-run on the recipe is worth its budget. If it is not, E7's breakdown of what the non-red lines decode to says which rows are responsible. The [repulsion-onto-the-fallback item](./repulsion-onto-the-fallback.md) already names a fallback re-run on the adopted point as the thing that makes its whole-sequence version testable, so the two could share one run.
 
-From a conversation with Sandy, after revisiting ex-2.2.2's findings.
+From a discussion in review, after revisiting ex-2.2.2's findings.

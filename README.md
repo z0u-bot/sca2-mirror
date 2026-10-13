@@ -26,9 +26,11 @@ M2 trains a small transformer to do vector math. The vectors are colors, in a sy
 
   Done. See [D2.1 blog post](/references/d2.1-anchored-transformer.md).
 
-- D2.2: Abstract concepts and steering
+- D2.2: Abstract concepts and steering. [Reports](/docs/index.md#d22-anchoring-an-operation)
 
   Anchor an abstract _operation_ that the model infers from solved examples in its context (e.g. _difference_, rather than a concrete attribute like _redness_); sweep over layers; confirm task performance is intact and that suppression scales as it did in the autoencoders.
+
+  In progress. A recipe of record holds at fresh seeds; see the [D2.2 design doc](/docs/m2/d2.2/design.md) for where it stands and what comes next.
 
 - D2.3: Engineering asymmetry
 

@@ -9,4 +9,8 @@ Ex-2.2.22 trained `k-mixed` (the `hinge` recipe with 1 to 5 examples per context
 
 The [example-evidence re-analysis](/docs/m2/example-evidence/report.py) (E4) gives a reason to look again. `k-mixed` handles every count from one to five about equally, where the control and `hinge` fall away outside the three examples they were trained on, and on `hinge` one run collapses at four and five. But `k-mixed` stays further below the ideal predictor than `hinge` does with three examples (0.69 against 0.88 in the top bin). If it closed that gap at 400 epochs, it would be a candidate for the recipe of record, since the query could then come after any number of examples.
 
-A small arm: `k-mixed` at 400 epochs on the seeds of ex-2.2.23, scored with the by-count pass (EEM by count against the ceiling, α at the example answers and at every `=`) and the edit criteria, beside the 400-epoch `hinge` runs of ex-2.2.23.
+A small arm: `k-mixed` on the recipe of record (`falloff`, from [split-anti-seeds](/docs/m2/split-anti-seeds/report.py)) at 400 epochs, at the split-anti-seeds seeds, scored with the by-count pass (EEM by count against the ceiling, α at the example answers and at every `=`) and the edit criteria, beside the `falloff` runs at the same seeds.
+
+## Notes
+
+**2026-10-13, holiday tidy-up** — The comparison is now `falloff`, the recipe of record, in place of `hinge`, which pulled every slice and spilled at 400 epochs.

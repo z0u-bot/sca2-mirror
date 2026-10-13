@@ -11,7 +11,7 @@ Caveat at very low τ: on steps where the favorite is masked, the pull concentra
 
 No implementation exists on the anchoring path today — `dropout` appears nowhere in `src/sca` or the m2 experiment modules — so this begins in `src/sca/anchoring.py`, as an extra path inside `pooled_anchor_term` keyed on a `drop_rate` argument that `make_anchored_train_step` forwards.
 
-Split from the older ex-2.1.9 follow-ups item on 2026-08-23. Raised in ex-2.1.9's 2026-08-07 review round, round 3.
+Split from the older ex-2.1.9 follow-ups item on 2026-08-23. Raised in the third review round of ex-2.1.9, on 2026-08-07.
 
 ## Notes
 

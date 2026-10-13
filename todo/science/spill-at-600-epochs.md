@@ -3,10 +3,14 @@ status: open
 tags: [D2.2, anchoring, intervention, selectivity, ex-2.2.23]
 opened: 2026-10-08
 ---
-# The spill at 600 epochs
+# Does `falloff` hold at 600 epochs?
 
-Ex-2.2.23 found more spill at 400 epochs than at 200. A longer run might let the model separate the op from lightness again, or mix them further. Both conditions at two seeds (700 and 701) for 600 epochs is four runs, about \$2.
+Ex-2.2.23 found more spill at 400 epochs than at 200, on a recipe that pulled every slice. The [embedding-lean review](/docs/m2/embedding-lean/report.py) traced that spill to lightness leaning onto e₁ in the color embedding table, and on runs that lost their latch the lean was larger at 400 epochs than at 200. The recipe of record (`falloff`, from [split-anti-seeds](/docs/m2/split-anti-seeds/report.py)) holds the early slices off e₁ with the anti term and stays within the spill criterion at 400 epochs. Whether that still holds with more training is open: a longer run might give the lean more time to build, or the hold might keep it off.
 
-Waiting on [which positions the spill comes from](spill-by-position.md) and [what e₁ holds besides the op](what-e1-holds-beside-the-op.md), so that the runs are measured with whatever those find informative.
+A few `falloff` runs at 600 epochs with their controls, at seeds that already have 400-epoch runs, scored with removal, spill at every dose, and the slope of the color embedding table, as in split-anti-seeds.
 
 Split from the withdrawn ex-2.2.24 draft (its H4; see [PR #255](https://github.com/z0u/sca2/pull/255)).
+
+## Notes
+
+**2026-10-13, holiday tidy-up** — Reworded for the recipe of record. The two items this waited on are done ([spill-by-position](/docs/m2/spill-by-position/report.py), and the lean review for what e₁ holds), and the question was first asked of a recipe that spilled at 400 epochs already.

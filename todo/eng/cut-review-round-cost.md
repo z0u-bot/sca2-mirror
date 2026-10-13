@@ -3,9 +3,11 @@ status: open
 tags: [agents, reports, review]
 opened: 2026-07-31
 ---
-# Cut the cost of a review round, but guard the right half
+# Computed comparisons and single-sourced constants in reports
 
-Ex-2.1.7's `results-reviewer` pass spent ~97k tokens, and by its own account most of it went on recomputing every quoted number from the store: all seven conditions' margins, ᾱ, EM, NLL; every grading ρ and R²; per-seed retention and peak epochs; margin-by-layer; geometry; the corpus nulls. A second round would redo all of it. Three rounds is not itself the problem — each round found real defects — but the cost per round is mostly spent in the wrong place, and it scales with the report rather than with what changed.
+The cost half of this item is answered: the skills refactor ([PR #261](https://github.com/z0u/sca2/pull/261)) replaced `results-reviewer` with `sci-review-claims`, which spot-checks the numbers an argument rests on rather than recomputing every one. What is left is the defect half, below.
+
+The background, from ex-2.1.7: its `results-reviewer` pass spent ~97k tokens, mostly on recomputing every quoted number from the store.
 
 Which half broke: every quoted number was already correct, because reports read them from the store through f-strings at render time, so there is no transcription step to get wrong. All four real defects were natural-language relations wrapped around correct numbers: "well under" a null the value sits above; a span/op1 seam the rendered list contradicts; "far above" a ceiling cleared by 0.05; an effect attributed to the factor with the smaller main effect. Re-deriving numbers catches none of these.
 
@@ -24,3 +26,7 @@ Suggestions (but think carefully before implementing):
   ... but this needs more design and a cost/benefit analysis.
 
 - Single-source the cross-experiment constants. These are the only numbers a reviewer must visit another experiment's store to check, and they are currently pasted and duplicated: `_EX216_MARGIN` = 0.2732 appears in ex-2.1.7's report four times under three names, plus `_REFS` for ex-2.1.3. They should live in `experiment.py` once, with provenance (ref, cells, statistic) in the docstring. Then it is one block to verify instead of a hunt, and it is the natural thing for a ledger to key on.
+
+## Notes
+
+**2026-10-13, holiday tidy-up** — Restated after PR #261: retitled to the two suggestions that still apply (comparisons rendered or asserted in code, and cross-experiment constants defined once), since the claims review no longer recomputes every number.

@@ -9,4 +9,4 @@ We score the edited model against the *target null*: the answers of an ideal pre
 
 So we don't know how much of the remaining distance a model could close at all. A model trained on the same corpus with no `difference` contexts would answer them as a model that never learned the op, and its distance from the target null would be a reference for the edit: a landing near that model, rather than near the ideal, may be as far as an edit could go. It would also show whether such a model behaves like the target null itself, which is the assumption behind using the target null as the destination.
 
-It needs one condition (the control recipe on a corpus without `difference`, at a few seeds) and the landing measurements of ex-2.2.22, scored on its held-out `difference` contexts. Sandy raised it in review of ex-2.2.22.
+It needs one condition (the control recipe on a corpus without `difference`, at a few seeds) and the landing measurements of ex-2.2.22, scored on its held-out `difference` contexts. Raised in review of ex-2.2.22.

@@ -41,10 +41,9 @@ docs/
 │                            its @media print block shapes each report's report.pdf)
 ├── publish.lock             Export key → pinned publish-tier revision (written by ./go publish)
 ├── index.md                 Built as _site/index.html
-├── overview.py              Literate script → exported bundle, served at _site/overview/
-└── ex-9.9/                  An experiment, split into definition + report
+└── m2/ex-9.9/               An experiment, split into definition + report
     ├── experiment.py        Importable main(ctx) DAG — not a report, so the build ignores it
-    └── report.py            Literate script → served at _site/ex-9.9/
+    └── report.py            Literate script → served at _site/m2/ex-9.9/
 ```
 
 Exported bundles live (gitignored) under `.mini/exports/<key>/` locally; their durable home is the bucket. Nothing under `docs/` holds generated HTML.
