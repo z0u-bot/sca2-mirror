@@ -58,12 +58,12 @@ For the backlogs, prefer `./go todo --grep anneal`, which skips settled items.
 
 For recon on an earlier report (what it found, how it reads), read its Markdown render instead of the `.py`: `./go render docs/<key>/report.py -o .mini/lit/<key>/index.md`, with figures beside it. The render caches are shared between the project's cloud threads, so it's quick. Open the `.py` only to see how something was computed.
 
-If `uv` is too old, the session-start hook probably didn't run. Run it manually.
+If the Skill tool doesn't know a repo skill, `.claude/` didn't load (some cloud sessions): read `.agents/skills/<name>/SKILL.md` and `.claude/agents/<name>.md` directly, and run `.claude/hooks/session-start.sh` by hand (see its header).
 
 ### Storage
 
 Two Hugging Face pairs (bucket + dataset repo): production by default, and a `dev` pair under `MINI_PROFILE=dev` — use it for engineering and prototypes. A dev run has its own memo state as well as its own bucket. See the `mi-ni` storage reference.
 
-Prototype science code on either pair, but whatever a published report reads must be on production. Re-run there before the freeze if it was developed on dev. A report uses the active environment; a bucket name written into a file under `docs/` is a bug. Avoid expensive compute in dev, because it will need to be re-run.
+Prototype science code on either pair, but whatever a published report reads must be on production. Re-run there before the freeze if it was developed on dev. A report uses the active environment; a bucket name written into a file under `docs/` is a bug. Avoid expensive compute in dev, because it will need to be re-run. Render published reports without `MINI_PROFILE`: their results are only on production.
 
 Take care to not leak secrets into the chat transcript. To see which environment variables are set (e.g. "is there an `HF_*` token?"), use `compgen -v HF_` (bash builtin).
