@@ -24,6 +24,9 @@ Expected exact match
 Band {.manual}
 :   Our measurement precision, the smallest gap between seed means that we call resolved. Two seed means are told apart only when they differ by more than 2σ√(1/n_a + 1/n_b), with σ the per-run spread and n the seed counts; smaller differences are reported as unresolved.
 
+Pooling temperature
+:   How sharply the anchor pull picks its positions. The pull on a context is a softmin-weighted mix over its positions, and the temperature (τ_p) sets how peaked the weights are: at 0.1 nearly all the weight goes to the position closest to e₁, and at 1 it is spread over many.
+
 Spill
 :   The side effect of an edit on the other ops: the largest drop in the score of any op other than the one removed, net of what the same edit does to a control trained without the anchor. The selectivity criterion of D2.2 allows at most 0.02 at any dose.
 
@@ -33,4 +36,3 @@ Target null
 Total variation
 Total variation distance
 :   A distance between two answer distributions: half the summed absolute difference, from 0 (identical) to 1 (no overlap). Mass a model puts on tokens that are not colors counts as distance.
-
