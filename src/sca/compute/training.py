@@ -221,6 +221,11 @@ class _Window:
         return dict(self.last)
 
 
+def kept_checkpoint_dir(checkpoint_dir: Path, epoch: int) -> Path:
+    """Where `train_anchored` keeps the checkpoint after *epoch* epochs (*keep_epochs*), for `load_checkpoint`."""
+    return checkpoint_dir / "along" / f"epoch-{epoch:03d}"
+
+
 def train_anchored(  # noqa: C901 — one loop with two optional terms; the branches are the options
     config: TrainingConfig,
     data_dir: Path,
@@ -247,6 +252,7 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
     min_line_tokens: int = LINE_TOKENS,
     loss_mask: np.ndarray | None = None,
     stop_epoch: int | None = None,
+    keep_epochs: tuple[int, ...] = (),
 ) -> tuple[LanguageModel, list[TrainingMetrics], dict[str, np.ndarray]]:
     """Train with a concept anchor, recording the alignment trajectory as it goes.
 
@@ -314,6 +320,12 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
         stop_epoch: stop after this many epochs of the full-length schedule,
             or None to train to its end. The learning rate, the term weights
             and the batches up to the stop are those of the full run.
+        keep_epochs: epochs after which to keep a checkpoint of the model as it
+            stands, each in its own directory under *checkpoint_dir*
+            (`kept_checkpoint_dir`). Epochs at or
+            past the end are skipped, since the end checkpoint already holds
+            that model. Saving draws nothing from the random streams, so the
+            run is the same with or without them.
     """
     if crop is not None and (anchor.tau is None or fallback is not None):
         raise ValueError("a crop policy needs a pooled anchor (tau set) and no fallback spec")
@@ -476,6 +488,8 @@ def train_anchored(  # noqa: C901 — one loop with two optional terms; the bran
         )
         if epoch > 0 and epoch % checkpoint_every == 0:
             save_checkpoint(model, config, all_metrics[-1], checkpoint_dir)
+        if epoch + 1 in keep_epochs and epoch + 1 < end:
+            save_checkpoint(model, config, all_metrics[-1], kept_checkpoint_dir(checkpoint_dir, epoch + 1))
 
     record(
         step,

@@ -1,7 +1,8 @@
 ---
-status: partial
+status: done
 tags: [anchoring, experiments, measurement]
 opened: 2026-10-09
+closed: 2026-10-24
 ---
 # Record α per slice and per role along the trajectory
 
@@ -12,3 +13,5 @@ Add α per slice, per role, and per op to each trajectory record, plus the e₁ 
 ## Notes
 
 **2026-10-13, holiday tidy-up** — Partly landed. Since late-pull, the trajectory of each run (the `alpha_map` records of the ex-2.2.21 experiment module) keeps the mean alignment at every slice and every position of the probe set, separately for `difference` and for the other ops pooled, and the e₁ component of every color embedding, from which the lightness slope can be computed. Still missing: alignment split by each of the other ops, and the e₁ component of the syntax embeddings, which is where a latch such as ⏎ would show.
+
+**2026-10-24, closing** — The two missing parts landed with soft-pool (#274): with `alpha_map` on, each record keeps `alpha_by_op`, the alignment map at every slice and position split by each op, and `emb_axis_syntax`, the e₁ component of every embedding that is not a color. So any experiment that trains through `train_one` with `alpha_map=True` records everything this item asked for. Runs can now keep checkpoints along training too (`keep_epochs`), which covers questions that need more than the recorded measurements.
