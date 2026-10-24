@@ -31,7 +31,8 @@ from sca.anchoring import (
     softmin_weights,
 )
 from sca.compute.data_pipelines import save_data
-from sca.compute.training import train_anchored
+from sca.compute.model import load_checkpoint
+from sca.compute.training import kept_checkpoint_dir, train_anchored
 from sca.config import (
     CorpusMetadata,
     DataConfig,
@@ -772,6 +773,41 @@ def test_anchoring_moves_the_labeled_color_toward_the_axis(data_dir, tmp_path):
     assert anchored["alpha_op1"][-1] > 0.5  # and the stream moved onto the axis
     assert anchored["alpha_op1"][-1] > control["alpha_op1"][-1] + 0.4
     assert anchored["m_op1"][-1] > control["m_op1"][-1]  # the labeled color leads the rest
+
+
+def test_kept_checkpoints_leave_the_run_unchanged(data_dir, tmp_path):
+    """Checkpoints kept along the way hold the model after their epoch, and keeping them changes nothing else."""
+    label_p = np.zeros(64)
+    label_p[COLORS[0]] = 0.5
+    tokens, weights = probe_set()
+    ends = {}
+    for keep in ((), (4, 8, 15, 30)):
+        ends[keep] = train_anchored(
+            training_config(),
+            data_dir,
+            anchor=AnchorSpec(peak=1.0, warmup_epochs=2, anneal_start=13, anneal_end=15),
+            label_p=label_p,
+            probe_tokens=tokens,
+            probe_weights=weights,
+            checkpoint_dir=tmp_path / f"ckpt-{len(keep)}",
+            traj_stride=20,
+            keep_epochs=keep,
+        )
+    (plain, _, plain_traj), (kept, metrics, kept_traj) = ends.values()
+
+    def leaves(model) -> list:
+        return jax.tree.leaves(eqx.filter(model, eqx.is_array))
+
+    for a, b in zip(leaves(plain), leaves(kept), strict=True):
+        np.testing.assert_array_equal(a, b)
+    np.testing.assert_array_equal(plain_traj["alpha_op1"], kept_traj["alpha_op1"])
+
+    along = tmp_path / "ckpt-4" / "along"
+    assert sorted(p.name for p in along.iterdir()) == ["epoch-004", "epoch-008"]  # the end and past it are skipped
+    model, _, at = load_checkpoint(kept_checkpoint_dir(tmp_path / "ckpt-4", 8))
+    assert at is not None and at.epoch == 7  # zero-based: the metrics of the eighth epoch
+    assert at.val_loss == metrics[7].val_loss
+    assert any(not np.array_equal(a, b) for a, b in zip(leaves(model), leaves(kept), strict=True))  # an earlier model
 
 
 def test_pooled_training_runs_and_records_the_weight_profile(data_dir, tmp_path):

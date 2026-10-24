@@ -554,6 +554,7 @@ def train_one(
     alpha_map: bool = False,
     stop_epoch: int | None = None,
     record_extra=None,
+    keep_epochs: tuple[int, ...] = (),
 ) -> dict:
     """Train one run over the op set *ops*: ex-2.2.16's context-keyed anchor (crop policy `whole`, the label variant
     and slices given), recording every *traj_stride* steps both ex-2.2.16's trajectory on the probe set (the op
@@ -573,7 +574,14 @@ def train_one(
     *record_extra*, if given, is called once before training as `record_extra(config, ops, k, holdout, workdir)` and
     returns a measurement `model -> dict`; each record appends every value it returns to the trajectory under its key
     (a later experiment's measurements along training, without a copy of this function).
+
+    *keep_epochs* keeps a checkpoint after each of those epochs that falls before the end (`KEEP_EPOCHS` is the usual
+    choice), all in one artifact (`kept_checkpoints`, with the epochs in `kept_epochs`), so a later question about
+    when something appears can be scored on the stored run; `kept_checkpoint` loads one. Empty, the result is as it
+    was without the argument.
     """
+    import shutil
+
     from sca.anchoring import AnchorSpec, AntiSpec, LabelSpec, alignment
     from sca.compute.training import train_anchored
     from sca.data.named_colors import WordTokenizer
@@ -583,6 +591,7 @@ def train_one(
 
     n_ops = len(ops)
     workdir = get_data_dir() / "cells" / label
+    shutil.rmtree(workdir / "along", ignore_errors=True)  # kept checkpoints of an earlier attempt
     corpus_dir = get(corpus, workdir / "corpus")
     tokenizer = WordTokenizer(config.tokenizer)
     a_id = ops.index(ANCHORED_OP)
@@ -695,9 +704,19 @@ def train_one(
         loss_mask=loss_mask,
         on_record=on_record,
         stop_epoch=stop_epoch,
+        keep_epochs=keep_epochs,
     )
     epoch_train_loss = np.asarray([m.train_loss for m in metrics], dtype=np.float64)
     epoch_axis = np.arange(1, len(epoch_train_loss) + 1, dtype=np.float64)
+    end = config.scheduler.epochs if stop_epoch is None else stop_epoch
+    kept = sorted(e for e in set(keep_epochs) if e < end)
+    if kept:
+        kept_out = {
+            "kept_epochs": kept,
+            "kept_checkpoints": put(workdir / "along", name=f"ex-2.2.21-{label}-kept"),
+        }
+    else:
+        kept_out = {}
     return {
         "label": label,
         "val_loss": [m.val_loss for m in metrics],
@@ -711,7 +730,25 @@ def train_one(
         | {"train_loss": np.interp(np.asarray(traj["epoch"], dtype=np.float64), epoch_axis, epoch_train_loss).tolist()}
         | extra,
         "checkpoint": put(workdir / "model", name=f"ex-2.2.21-{label}-ckpt"),
-    }
+    } | kept_out
+
+
+KEEP_EPOCHS = (16, 32, 64, 128, 256)
+"""The epochs a run keeps a checkpoint after (`train_one`'s *keep_epochs*), beside the end one: doubling, so the
+early epochs, where the anchor settles, are spaced closer than the late ones."""
+
+
+def kept_checkpoint(kept_checkpoints, epoch: int, workdir):
+    """The model a run kept after *epoch* epochs, with its training config and metrics as `load_checkpoint` returns
+    them; *kept_checkpoints* is the run's `kept_checkpoints` from `train_one`, fetched into *workdir* once.
+    """
+    from sca.compute.model import load_checkpoint
+    from sca.compute.training import kept_checkpoint_dir
+    from mini.store import get
+
+    if not (workdir / "along").exists():
+        get(kept_checkpoints, workdir / "along")
+    return load_checkpoint(kept_checkpoint_dir(workdir, epoch))
 
 
 # --- Evaluation and the suppression pass ----------------------------------------------------------
