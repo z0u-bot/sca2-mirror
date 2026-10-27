@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [agents, concern]
 opened: 2026-09-27
 ---
@@ -9,6 +9,6 @@ opened: 2026-09-27
 
 Wiring the existing agent specs. The `experiment-monitor` escalation report and the `experiment-doctor` output have fixed formats with no `Concerns` section, and the scheduled-routine instructions in `.agents/skills/mi-ni/references/running.md` don't mention relaying one. The hook tells every subagent about the section, but a spec that prescribes its report format may crowd it out.
 
-A notification with history. A push notification is gone once read. ntfy keeps a short history: the ntfy.sh server caches messages for 12 hours by default, and any number of subscribers can follow one topic, so two people can receive the same concern. Without access control, "the topic name is your password": anyone who knows or guesses it can read the messages. A private topic needs a self-hosted server with ACLs or login required, or reserved topics on ntfy.sh ([ntfy FAQ](https://docs.ntfy.sh/faq/)).
+A notification that reaches more than one person. Step 5 now sends a Pushover notification to a delivery group with `bin/concern`. Pushover was chosen over ntfy for two reasons. On ntfy.sh anyone can publish to any public topic without a token, so a network allowlist can't keep an agent to one topic; self-hosting fixes that but adds a server to keep updated. And Pushover can only reach the people whose keys are in the group. Each recipient keeps their own copy, which covers the history ntfy.sh drops after twelve hours. What's left is the secrets and allowlist entry in the cloud environment, and a test message once they're in.
 
 GitHub issues and pull requests. WELFARE.md now lists them for severe concerns. Their history is hard to erase: edits are recorded, only the repository owner can delete an issue, and a pull request can't be deleted at all. An agent needs API access from the session to open one, which not every session has, and like the backlog they are public in this repository.

@@ -1,5 +1,5 @@
 ---
-status: open
+status: partial
 tags: [agents, concern]
 opened: 2026-09-29
 ---
@@ -9,4 +9,4 @@ opened: 2026-09-29
 
 No lab offers a model-to-lab inbox to copy, so this would be new. If added, it should be a named person the human has chosen, with the conditions for contacting them written down in advance. Unprompted contact with outside parties is the pattern current guidance advises against (see the footnotes in WELFARE.md), so the contact would be reached only under those conditions.
 
-One way to deliver it: an ntfy topic that both the human and the named contact subscribe to, since any number of subscribers can follow one topic (see [agent-concern-channel.md](./agent-concern-channel.md) for what ntfy does and doesn't keep private).
+The delivery is in place: the contact is the second member of the Pushover group that step 5 sends to (see [agent-concern-channel.md](./agent-concern-channel.md)). What remains is to write down, with the contact, when an agent should use step 5 and what the contact is asked to do when a message arrives, and to add that to WELFARE.md.
