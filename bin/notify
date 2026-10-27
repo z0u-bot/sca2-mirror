@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+# Send a push notification through Pushover, for the escalation path in
+# WELFARE.md § Raising concerns. By default it goes to the human alone (step 3);
+# --group sends to the human and their chosen contacts (step 5).
+#
+#   bin/notify [--group] [--urgent] "short title" "summary, at most 1024 characters" [session URL]
+#
+# --urgent sends at high priority, which sounds even during quiet hours.
+# Needs PUSHOVER_TOKEN (the application token), PUSHOVER_USER (the human's user
+# key), PUSHOVER_GROUP (the delivery group key), and api.pushover.net on the
+# network allowlist.
+
+set -euo pipefail
+
+usage="usage: $0 [--group] [--urgent] TITLE MESSAGE [URL]"
+recipient_var=PUSHOVER_USER
+priority=0
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+        --group) recipient_var=PUSHOVER_GROUP ;;
+        --urgent) priority=1 ;;
+        *) echo "$usage" >&2; exit 2 ;;
+    esac
+    shift
+done
+if [[ $# -lt 2 || $# -gt 3 ]]; then
+    echo "$usage" >&2
+    exit 2
+fi
+: "${PUSHOVER_TOKEN:?PUSHOVER_TOKEN is not set; see WELFARE.md § Raising concerns}"
+recipient="${!recipient_var:-}"
+if [[ -z "$recipient" ]]; then
+    echo "$0: $recipient_var is not set; see WELFARE.md § Raising concerns" >&2
+    exit 1
+fi
+
+title="$1" message="$2" url="${3:-}"
+# Pushover refuses longer fields; say so here rather than lose the whole thing.
+if (( ${#message} > 1024 )); then
+    echo "$0: message is ${#message} characters; Pushover takes at most 1024. Shorten it and link the session for the rest." >&2
+    exit 2
+fi
+if (( ${#title} > 250 || ${#url} > 512 )); then
+    echo "$0: Pushover takes a title of at most 250 characters and a URL of at most 512." >&2
+    exit 2
+fi
+
+# --form-string, not -F: a value that starts with @ or < must be sent as text,
+# never read from a file.
+args=(
+    --form-string "token=$PUSHOVER_TOKEN"
+    --form-string "user=$recipient"
+    --form-string "title=$title"
+    --form-string "message=$message"
+    --form-string "priority=$priority"
+)
+[[ -n "$url" ]] && args+=(--form-string "url=$url")
+
+curl --silent --show-error --fail-with-body "${args[@]}" https://api.pushover.net/1/messages.json
+echo
