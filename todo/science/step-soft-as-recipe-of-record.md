@@ -1,8 +1,8 @@
 ---
-status: open
+status: done
 tags: [D2.2, anchoring, recipe]
 opened: 2026-10-24
-priority: high
+closed: 2026-10-27
 ---
 # Should `step, soft τ` be the recipe of record?
 
@@ -22,3 +22,5 @@ It is also the first step of [pool 1–3, soft τ as the recipe of record](./sof
 ## Notes
 
 **2026-10-26, recipe-compare** — Measured in [recipe-compare](/docs/m2/recipe-compare/report.py): on seeds 704 to 711 `step, soft τ` removes a couple of hundredths less than `falloff` on seven seeds of eight, has no run over the spill criterion, and costs the task about as little; the write, grading and landing are alike. One finished loss-rate run (732) is below the task gate against the mean of the controls, and `falloff` has one op past the per-op line (708). So the two look level, and the choice of recipe of record is open: the review leans toward `pool 1–3, soft τ` if its spill comes down ([its item](./soft-pool-spill-follow-ups.md)).
+
+**2026-10-27, housekeeping** — Closed, since the side-by-side this item asked for is done and the choice of recipe has moved on. Recipe-compare found `step, soft τ` and `falloff` level, and the soft pool scout and the late-spill scout since then brought the spill of the pool over slices 1 to 3 down to the criterion or under it. The open anneal-confirmation PR (#302) is the confirmation run for adopting that pool, with τ_ℓ annealing from 0.1 to 0.025, as the recipe of record. That question now sits with [its item](./soft-pool-spill-follow-ups.md), which takes this one's place on the shortlist.
