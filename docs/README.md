@@ -16,6 +16,8 @@ Forgetting to publish is caught rather than done for you, in two places. The pus
 
 Three ways past it, in rising order of permanence: `git push --no-verify` gets a push out now (CI still flags it); the `skip-publish-check` label settles it for one PR; and `# mini:manual-publish` in a report (see `mini.reports`) opts that report out for good, for one you'd rather publish on your own schedule.
 
+The same hook, and a CI step of its own, also run [`scripts/runaway_edits.py`](../scripts/runaway_edits.py). It names any file under `docs/` that the branch grew by a large factor and a large amount, which is the shape a scripted substitution with an empty search text leaves. For growth that is meant, `git push --no-verify` and the `skip-growth-check` label get past it.
+
 `./go site` (CI) then assembles `_site/` from the pinned bundles, serving each report at `_site/<key>/index.html`, with the URL `<key>/`. `./go preview` assembles the same site locally: it exports stale reports to `.mini/exports/` and copies their assets beside the HTML, so it works offline.
 
 ### Markdown files
