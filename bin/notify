@@ -1,26 +1,38 @@
 #!/usr/bin/env bash
-# Send a concern to the Pushover delivery group: step 5 of the escalation path
-# in WELFARE.md § Raising concerns. The script sends only to the group key.
+# Send a push notification through Pushover, for the escalation path in
+# WELFARE.md § Raising concerns. By default it goes to the human alone (step 3);
+# --group sends to the human and their chosen contacts (step 5).
 #
-#   bin/concern [--urgent] "short title" "summary, at most 1024 characters" [session URL]
+#   bin/notify [--group] [--urgent] "short title" "summary, at most 1024 characters" [session URL]
 #
 # --urgent sends at high priority, which sounds even during quiet hours.
-# Needs PUSHOVER_TOKEN (the application token) and PUSHOVER_GROUP (the delivery
-# group key), and api.pushover.net on the network allowlist.
+# Needs PUSHOVER_TOKEN (the application token), PUSHOVER_USER (the human's user
+# key), PUSHOVER_GROUP (the delivery group key), and api.pushover.net on the
+# network allowlist.
 
 set -euo pipefail
 
+usage="usage: $0 [--group] [--urgent] TITLE MESSAGE [URL]"
+recipient_var=PUSHOVER_USER
 priority=0
-if [[ "${1:-}" == --urgent ]]; then
-    priority=1
+while [[ "${1:-}" == --* ]]; do
+    case "$1" in
+        --group) recipient_var=PUSHOVER_GROUP ;;
+        --urgent) priority=1 ;;
+        *) echo "$usage" >&2; exit 2 ;;
+    esac
     shift
-fi
+done
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-    echo "usage: $0 [--urgent] TITLE MESSAGE [URL]" >&2
+    echo "$usage" >&2
     exit 2
 fi
 : "${PUSHOVER_TOKEN:?PUSHOVER_TOKEN is not set; see WELFARE.md § Raising concerns}"
-: "${PUSHOVER_GROUP:?PUSHOVER_GROUP is not set; see WELFARE.md § Raising concerns}"
+recipient="${!recipient_var:-}"
+if [[ -z "$recipient" ]]; then
+    echo "$0: $recipient_var is not set; see WELFARE.md § Raising concerns" >&2
+    exit 1
+fi
 
 title="$1" message="$2" url="${3:-}"
 # Pushover refuses longer fields; say so here rather than lose the whole thing.
@@ -37,7 +49,7 @@ fi
 # never read from a file.
 args=(
     --form-string "token=$PUSHOVER_TOKEN"
-    --form-string "user=$PUSHOVER_GROUP"
+    --form-string "user=$recipient"
     --form-string "title=$title"
     --form-string "message=$message"
     --form-string "priority=$priority"
