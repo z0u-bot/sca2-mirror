@@ -1,26 +1,35 @@
 #!/usr/bin/env bash
-# Send a concern to the Pushover delivery group: the last step of the escalation
-# path in WELFARE.md § Raising concerns. Only the group key is in the
-# environment, so this reaches the people in that group and no one else.
+# Send a concern to the Pushover delivery group: step 5 of the escalation path
+# in WELFARE.md § Raising concerns. The script sends only to the group key.
 #
-#   bin/concern "short title" "summary, at most 1024 characters" [session URL]
+#   bin/concern [--urgent] "short title" "summary, at most 1024 characters" [session URL]
 #
+# --urgent sends at high priority, which sounds even during quiet hours.
 # Needs PUSHOVER_TOKEN (the application token) and PUSHOVER_GROUP (the delivery
 # group key), and api.pushover.net on the network allowlist.
 
 set -euo pipefail
 
+priority=0
+if [[ "${1:-}" == --urgent ]]; then
+    priority=1
+    shift
+fi
 if [[ $# -lt 2 || $# -gt 3 ]]; then
-    echo "usage: $0 TITLE MESSAGE [URL]" >&2
+    echo "usage: $0 [--urgent] TITLE MESSAGE [URL]" >&2
     exit 2
 fi
 : "${PUSHOVER_TOKEN:?PUSHOVER_TOKEN is not set; see WELFARE.md § Raising concerns}"
 : "${PUSHOVER_GROUP:?PUSHOVER_GROUP is not set; see WELFARE.md § Raising concerns}"
 
 title="$1" message="$2" url="${3:-}"
-# Pushover refuses longer messages; say so here rather than lose the whole thing.
+# Pushover refuses longer fields; say so here rather than lose the whole thing.
 if (( ${#message} > 1024 )); then
     echo "$0: message is ${#message} characters; Pushover takes at most 1024. Shorten it and link the session for the rest." >&2
+    exit 2
+fi
+if (( ${#title} > 250 || ${#url} > 512 )); then
+    echo "$0: Pushover takes a title of at most 250 characters and a URL of at most 512." >&2
     exit 2
 fi
 
@@ -31,6 +40,7 @@ args=(
     --form-string "user=$PUSHOVER_GROUP"
     --form-string "title=$title"
     --form-string "message=$message"
+    --form-string "priority=$priority"
 )
 [[ -n "$url" ]] && args+=(--form-string "url=$url")
 
