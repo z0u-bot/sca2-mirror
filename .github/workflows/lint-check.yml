@@ -66,6 +66,34 @@ jobs:
         if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: ./go test -v
 
+      - name: No runaway edits in docs
+        # A scripted substitution with an empty search text writes its replacement between
+        # every pair of characters, and the result looks like an ordinary large addition
+        # (todo/eng/guard-against-runaway-edits-in-docs.md). This names any file under docs/
+        # that grew by a large factor and a large amount. Pure git, like the step below.
+        # For a growth that is meant, the `skip-growth-check` label lets the PR through.
+        if: >-
+          !cancelled() && steps.install.outcome == 'success'
+          && github.event_name == 'pull_request'
+          && !contains(github.event.pull_request.labels.*.name, 'skip-growth-check')
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin "+refs/heads/$BASE:refs/remotes/origin/$BASE"
+          grown="$(uv run scripts/runaway_edits.py "origin/$BASE")"
+          if [[ -z "$grown" ]]; then exit 0; fi
+          {
+            echo "### Files under docs/ that grew implausibly"
+            echo
+            echo "An empty-pattern substitution (\`re.sub('', ...)\`) looks like this. Check the diff of each:"
+            sed 's/^/- /' <<< "$grown"
+            echo
+            echo "If the growth is meant, add the \`skip-growth-check\` label."
+          } >> "$GITHUB_STEP_SUMMARY"
+          echo "::error::Files under docs/ grew implausibly — see the job summary."
+          exit 1
+
       - name: Reports published
         # A report changed without its pin moving means the merged site would serve the
         # previous export's figures — a quiet failure, so it gets a loud check. Pure git

@@ -67,6 +67,22 @@ fi
 # offline or slow, the fetch is skipped and the check runs against whatever ref is there.
 timeout 20 git fetch --quiet origin main >/dev/null 2>&1 || true
 base="$(git rev-parse --verify --quiet origin/main 2>/dev/null || true)"
+
+# Files under docs/ that grew by a large factor and a large amount: the shape an
+# empty-pattern substitution leaves (todo/eng/guard-against-runaway-edits-in-docs.md).
+if [[ -n "$base" && -x .venv/bin/python ]] \
+    && grown="$(.venv/bin/python scripts/runaway_edits.py "$base" 2>/dev/null)" \
+    && [[ -n "$grown" ]]; then
+    {
+        echo 'Files under docs/ grew implausibly — an empty-pattern substitution looks like this:'
+        sed 's/^/  - /' <<< "$grown"
+        echo
+        echo 'Check the diff of each. If the growth is meant, push with `git push --no-verify`'
+        echo 'and add the `skip-growth-check` label to the PR.'
+    } >&2
+    exit 2
+fi
+
 if [[ -n "$base" && -x .venv/bin/python ]] \
     && stale="$(.venv/bin/python scripts/unpublished_reports.py "$base" 2>/dev/null)" \
     && [[ -n "$stale" ]]; then

@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [ci, tooling, docs]
 opened: 2026-09-22
+closed: 2026-10-27
 ---
 # A tripwire for runaway edits to files under `docs/`
 
@@ -15,3 +16,7 @@ Two possible responses, and they are not exclusive:
 - **A convention for scripted edits.** Any substitution run over a file from a script asserts its match count before writing — one match expected, one match found. This is the more general lesson, and it belongs in the Python style skill rather than in CI.
 
 The tripwire is the one worth building: it holds regardless of which tool made the edit, and the class of failure it catches (a quiet, enormous, plausible-looking write) is exactly the kind that survives to a push.
+
+## Notes
+
+**2026-10-27, tech debt** — Built the tripwire. [`scripts/runaway_edits.py`](../../scripts/runaway_edits.py) names any file under `docs/` that the branch grew at least tenfold and by at least 3,000 lines or 250 KB (both floors sit above the largest report). It runs in the pre-push hook and as its own CI step, and the `skip-growth-check` label lets a PR through when the growth is meant. Over the history a fresh clone holds (back to early October) it flags nothing. Files new on the branch are skipped, since they have no base to compare with. The convention for scripted edits (assert the match count before writing) is not part of this change.
