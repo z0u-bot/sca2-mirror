@@ -10,3 +10,7 @@ opened: 2026-10-30
 In the fixed-labels experiment this failed loudly: the smoke run kept epochs 2, 4 and 7, so the real run's epoch 16 was missing and the task raised. Had the smoke run kept the same epochs, the real run would have scored the smoke run's checkpoints in silence. Deleting the directory from the volume and retrying fixed it.
 
 Two fixes, either enough. The cheap one is a habit: give a smoke run its own experiment name, as the fixed and anneal confirmations did (`fixed-confirm-smoke`), so it gets its own volume. The sturdier one is in the code: fetch whenever the artifact differs from what is on disk (a marker file holding the artifact's sha), or fetch into a directory named for the artifact rather than the label. That edit moves the evidence of every task that reaches `kept_checkpoint`, so it is best made alongside other changes there.
+
+## Notes
+
+**2026-11-03, maintenance** — Not blocked on scheduling. The code fix moves the evidence of the measurement tasks that reach `kept_checkpoint`; training sits upstream and keeps its memo. A later run of an affected experiment would redo only that scoring, or none of it with `mini run --keep-stale-done`.
