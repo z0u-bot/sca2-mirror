@@ -101,9 +101,10 @@ const CHOICES = {
 };
 const state = { op: "difference", model: "clean", b: "ramp", pick: "argmax", render: "posterized", walk: "in-sync", show: "examples" };
 
+const src = name => window.PANELS?.[name] ?? BASE + name + ".png";
 function img(name, alt) {
   const el = document.createElement("img");
-  el.src = window.PANELS?.[name] ?? BASE + name + ".png";
+  el.src = src(name);
   el.alt = alt;
   return el;
 }
@@ -122,13 +123,35 @@ function row(cells, extra) {
   return r;
 }
 
-function answerName(model) {
-  const s = state;
+function answerName(model, s = state) {
   if (model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
   return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${model}-${s.pick}`;
 }
 const NAMES = { clean: "Unedited", edited: "Edited", truth: "True" };
 
+// Every panel a state shows, so the panels one click away can be fetched ahead of the click.
+function panelNames(s) {
+  const names = [`operand-${s.render}-parrots`, `operand-${s.render}-${s.b}`];
+  if (s.show === "examples")
+    for (const [a, b] of EXAMPLES) names.push(`operand-${s.render}-${a}`, `operand-${s.render}-${b}`, `example-${s.render}-${a}-${b}-${s.op}`);
+  for (const m of s.model === "all" ? ["clean", "edited", "truth"] : [s.model]) names.push(answerName(m, s));
+  return names;
+}
+const fetched = new Map();
+function prefetch(name) {
+  if (fetched.has(name)) return;
+  const el = new Image();
+  el.src = src(name);
+  fetched.set(name, el);  // held so the browser keeps the decoded image
+}
+function prefetchNeighbors() {
+  for (const [k, opts] of Object.entries(CHOICES))
+    for (const [value] of opts)
+      if (value !== state[k]) panelNames({ ...state, [k]: value }).forEach(prefetch);
+}
+const idle = window.requestIdleCallback ?? (f => setTimeout(f, 200));
+
+let shown = 0;
 function render() {
   const s = state, box = document.getElementById("eqs");
   const rows = [];
@@ -148,8 +171,17 @@ function render() {
   }
   const all = s.model === "all";
   rows.push(row([all ? fig(qa, "a") : qa, sym("?"), all ? fig(qb, "b") : qb, sym("="), y], cls));
-  box.classList.toggle("no-examples", s.show !== "examples");
-  box.replaceChildren(...rows);
+  // Keep the old panels up until the new ones are decoded (or a short wait passes), so a slow fetch shows the
+  // previous picture rather than an empty box.
+  const ticket = ++shown;
+  const imgs = rows.flatMap(r => [...r.querySelectorAll("img")]);
+  const ready = Promise.all(imgs.map(i => i.decode().catch(() => {})));
+  Promise.race([ready, new Promise(r => setTimeout(r, 1500))]).then(() => {
+    if (ticket !== shown) return;
+    box.classList.toggle("no-examples", s.show !== "examples");
+    box.replaceChildren(...rows);
+    idle(prefetchNeighbors);
+  });
 
   const who = {
     clean: "the unedited model", edited: "the model with the op's axis edited out", truth: "the true op",
