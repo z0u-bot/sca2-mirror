@@ -1,0 +1,138 @@
+<title>Equations as images</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one context as a stack of equations (a ? b = y), the query last and set apart; controls above, as chips. */
+:root {
+  --bg: #f7f8fa;
+  --fg: #1d2330;
+  --muted: #5d6677;
+  --rule: #d5dae3;
+  --chip: #e8ebf1;
+  --accent: #2d5bd7;
+  --accent-fg: #ffffff;
+  --frame: #1d2330;
+  --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
+    --accent: #7ea2ff; --accent-fg: #0e1320; --frame: #e3e7ef; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
+  --accent: #7ea2ff; --accent-fg: #0e1320; --frame: #e3e7ef; color-scheme: dark;
+}
+body {
+  background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font-body);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 16px;
+}
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 14px; }
+.controls { display: grid; gap: 8px; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
+.group > .label { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; min-width: 6.5em; }
+.group button {
+  font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 4px 11px;
+  background: var(--chip); color: var(--fg); cursor: pointer;
+}
+.group.ops button { font-family: var(--font-mono); }
+.group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.group button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.eqs { display: grid; gap: 8px; }
+.eq { display: grid; grid-template-columns: 1fr 1.6em 1fr 1.6em 1fr; align-items: center; gap: 4px; }
+.eq .sym { text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--muted); }
+.eq img {
+  display: block; width: 100%; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
+  outline: 1px solid var(--rule); outline-offset: -1px; background: var(--chip);
+}
+.query { border-top: 1px solid var(--rule); padding-top: 10px; margin-top: 4px; }
+.query img.answer { outline: 3px solid var(--frame); outline-offset: 0; }
+.caption { color: var(--muted); font-size: 13px; max-width: 65ch; }
+.caption code { font-family: var(--font-mono); font-size: 12.5px; }
+@media (max-width: 480px) { .group > .label { min-width: 100%; } }
+</style>
+
+<div class="wrap" id="app">
+  <div class="controls">
+    <div class="group ops" id="op" role="group" aria-label="Hidden op"><span class="label">Hidden op</span></div>
+    <div class="group" id="model" role="group" aria-label="Answer"><span class="label">Answer</span></div>
+    <div class="group" id="b" role="group" aria-label="Second image"><span class="label">Second image</span></div>
+    <div class="group" id="pick" role="group" aria-label="Model color"><span class="label">Model color</span></div>
+    <div class="group" id="render" role="group" aria-label="Colors"><span class="label">Colors</span></div>
+    <div class="group" id="walk" role="group" aria-label="Examples"><span class="label">Examples</span></div>
+  </div>
+  <div class="eqs" id="eqs"></div>
+  <p class="caption" id="caption"></p>
+</div>
+
+<script>
+const BASE = document.documentElement.dataset.panels ?? "panels/";
+const OPS = ["mix", "lighten", "darken", "difference", "hue-hsv", "sat-hsv", "value-hsv"];
+const EXAMPLES = [["hats", "huelight"], ["barn", "ramp"], ["bikes", "rafting"]];
+const CHOICES = {
+  op: OPS.map(o => [o, o]),
+  model: [["clean", "Unedited model"], ["edited", "Edited model"], ["truth", "True answer"]],
+  b: [["ramp", "Gray ramp"], ["huelight", "Hue and lightness"]],
+  pick: [["sample", "Drawn (T = 1)"], ["argmax", "Most likely"]],
+  render: [["posterized", "Posterized"], ["dithered", "Dithered"]],
+  walk: [["random", "Random pixels"], ["in-sync", "In step with the query"]],
+};
+const state = { op: "difference", model: "clean", b: "ramp", pick: "sample", render: "posterized", walk: "random" };
+
+function img(name, alt, cls) {
+  const el = document.createElement("img");
+  el.src = window.PANELS?.[name] ?? BASE + name + ".png";
+  el.alt = alt;
+  if (cls) el.className = cls;
+  return el;
+}
+function sym(s) { const el = document.createElement("span"); el.className = "sym"; el.textContent = s; return el; }
+function eq(a, b, y, extra) {
+  const row = document.createElement("div");
+  row.className = "eq" + (extra ? " " + extra : "");
+  row.append(a, sym("?"), b, sym("="), y);
+  return row;
+}
+
+function answerName() {
+  const s = state;
+  if (s.model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
+  return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${s.model}-${s.pick}`;
+}
+
+function render() {
+  const s = state, box = document.getElementById("eqs");
+  box.replaceChildren(
+    ...EXAMPLES.map(([a, b]) => eq(
+      img(`operand-${s.render}-${a}`, a), img(`operand-${s.render}-${b}`, b),
+      img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`))),
+    eq(img(`operand-${s.render}-parrots`, "parrots"), img(`operand-${s.render}-${s.b}`, s.b),
+       img(answerName(), "answer", "answer"), "query"),
+  );
+  const who = { clean: "the unedited model", edited: "the model with the op's axis edited out", truth: "the true op" }[s.model];
+  const pick = s.model === "truth" ? "" : (s.pick === "sample" ? ", one color drawn from its answer at each pixel" : ", its most likely color at each pixel");
+  const walk = s.walk === "random"
+    ? "Each pixel of the query is its own context, with three example pixels drawn at random from the three example pairs."
+    : "Each pixel of the query is its own context, with the three examples taken at the same position in the example pairs.";
+  document.getElementById("caption").innerHTML =
+    `Three examples of <code>${s.op}</code>, then the query, answered by ${who}${pick}. ${walk}`;
+  for (const k of Object.keys(CHOICES))
+    for (const btn of document.querySelectorAll(`#${k} button`)) btn.setAttribute("aria-pressed", String(btn.value === s[k]));
+  for (const id of ["pick", "walk"]) document.getElementById(id).hidden = s.model === "truth";
+}
+
+for (const [k, opts] of Object.entries(CHOICES)) {
+  const g = document.getElementById(k);
+  for (const [value, label] of opts) {
+    const btn = document.createElement("button");
+    btn.type = "button"; btn.value = value; btn.textContent = label; btn.id = `${k}-${value}`;
+    btn.addEventListener("click", () => { state[k] = value; render(); });
+    g.append(btn);
+  }
+}
+render();
+</script>
