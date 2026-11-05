@@ -34,24 +34,30 @@ body {
 .wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 14px; }
 .controls { display: grid; gap: 8px; }
 .group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.group > .label { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; min-width: 6.5em; }
+.group > .label { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; min-width: 7.5em; }
 .group button {
   font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 4px 11px;
   background: var(--chip); color: var(--fg); cursor: pointer;
 }
 .group.ops button { font-family: var(--font-mono); }
 .group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.group button:disabled { opacity: 0.4; cursor: default; }
 .group button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .eqs { display: grid; gap: 8px; }
 .eq { display: grid; grid-template-columns: 1fr 1.6em 1fr 1.6em 1fr; align-items: center; gap: 4px; }
+.eq.compare { grid-template-columns: 1fr 1.6em 1fr 1.6em 1fr 1fr 1fr; column-gap: 8px; }
 .eq .sym { text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--muted); }
+.eq figure { margin: 0; display: grid; gap: 3px; }
+.eq figcaption { font-size: 12px; color: var(--muted); text-align: center; }
 .eq img {
   display: block; width: 100%; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
   outline: 1px solid var(--rule); outline-offset: -1px; background: var(--chip);
 }
-.query { border-top: 1px solid var(--rule); padding-top: 10px; margin-top: 4px; }
+.query { border-top: 1px solid var(--rule); padding-top: 10px; }
+.eqs.no-examples .query { border-top: 0; padding-top: 0; }
 .query img.answer { outline: 3px solid var(--frame); outline-offset: 0; }
-.caption { color: var(--muted); font-size: 13px; max-width: 65ch; }
+.query img.answer.truth { outline: 1px solid var(--rule); outline-offset: -1px; }
+.caption { color: var(--muted); font-size: 13px; max-width: 65ch; margin: 0; }
 .caption code { font-family: var(--font-mono); font-size: 12.5px; }
 @media (max-width: 480px) { .group > .label { min-width: 100%; } }
 </style>
@@ -64,6 +70,7 @@ body {
     <div class="group" id="pick" role="group" aria-label="Model color"><span class="label">Model color</span></div>
     <div class="group" id="render" role="group" aria-label="Colors"><span class="label">Colors</span></div>
     <div class="group" id="walk" role="group" aria-label="Examples"><span class="label">Examples</span></div>
+    <div class="group" id="show" role="group" aria-label="Show examples"><span class="label">Show</span></div>
   </div>
   <div class="eqs" id="eqs"></div>
   <p class="caption" id="caption"></p>
@@ -75,13 +82,14 @@ const OPS = ["mix", "lighten", "darken", "difference", "hue-hsv", "sat-hsv", "va
 const EXAMPLES = [["hats", "huelight"], ["barn", "ramp"], ["bikes", "rafting"]];
 const CHOICES = {
   op: OPS.map(o => [o, o]),
-  model: [["clean", "Unedited model"], ["edited", "Edited model"], ["truth", "True answer"]],
+  model: [["clean", "Unedited model"], ["edited", "Edited model"], ["truth", "True answer"], ["all", "All three"]],
   b: [["ramp", "Gray ramp"], ["huelight", "Hue and lightness"]],
-  pick: [["sample", "Drawn (T = 1)"], ["argmax", "Most likely"]],
+  pick: [["argmax", "Most likely (T = 0)"], ["sample", "Drawn (T = 1)"]],
   render: [["posterized", "Posterized"], ["dithered", "Dithered"]],
-  walk: [["random", "Random pixels"], ["in-sync", "In step with the query"]],
+  walk: [["in-sync", "In step with the query"], ["random", "Random pixels"]],
+  show: [["examples", "Examples and query"], ["query", "Query only"]],
 };
-const state = { op: "difference", model: "clean", b: "ramp", pick: "sample", render: "posterized", walk: "random" };
+const state = { op: "difference", model: "clean", b: "ramp", pick: "argmax", render: "posterized", walk: "in-sync", show: "examples" };
 
 function img(name, alt, cls) {
   const el = document.createElement("img");
@@ -91,38 +99,63 @@ function img(name, alt, cls) {
   return el;
 }
 function sym(s) { const el = document.createElement("span"); el.className = "sym"; el.textContent = s; return el; }
-function eq(a, b, y, extra) {
-  const row = document.createElement("div");
-  row.className = "eq" + (extra ? " " + extra : "");
-  row.append(a, sym("?"), b, sym("="), y);
-  return row;
+function fig(el, caption) {
+  const f = document.createElement("figure");
+  const c = document.createElement("figcaption");
+  c.textContent = caption;
+  f.append(el, c);
+  return f;
+}
+function row(cells, extra) {
+  const r = document.createElement("div");
+  r.className = "eq" + (extra ? " " + extra : "");
+  r.append(...cells);
+  return r;
 }
 
-function answerName() {
+function answerName(model) {
   const s = state;
-  if (s.model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
-  return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${s.model}-${s.pick}`;
+  if (model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
+  return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${model}-${s.pick}`;
 }
+const NAMES = { clean: "Unedited", edited: "Edited", truth: "True answer" };
 
 function render() {
   const s = state, box = document.getElementById("eqs");
-  box.replaceChildren(
-    ...EXAMPLES.map(([a, b]) => eq(
-      img(`operand-${s.render}-${a}`, a), img(`operand-${s.render}-${b}`, b),
-      img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`))),
-    eq(img(`operand-${s.render}-parrots`, "parrots"), img(`operand-${s.render}-${s.b}`, s.b),
-       img(answerName(), "answer", "answer"), "query"),
-  );
-  const who = { clean: "the unedited model", edited: "the model with the op's axis edited out", truth: "the true op" }[s.model];
-  const pick = s.model === "truth" ? "" : (s.pick === "sample" ? ", one color drawn from its answer at each pixel" : ", its most likely color at each pixel");
-  const walk = s.walk === "random"
-    ? "Each pixel of the query is its own context, with three example pixels drawn at random from the three example pairs."
-    : "Each pixel of the query is its own context, with the three examples taken at the same position in the example pairs.";
-  document.getElementById("caption").innerHTML =
-    `Three examples of <code>${s.op}</code>, then the query, answered by ${who}${pick}. ${walk}`;
+  const rows = [];
+  if (s.show === "examples")
+    for (const [a, b] of EXAMPLES)
+      rows.push(row([img(`operand-${s.render}-${a}`, a), sym("?"), img(`operand-${s.render}-${b}`, b), sym("="),
+                     img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`)]));
+  const qa = img(`operand-${s.render}-parrots`, "parrots"), qb = img(`operand-${s.render}-${s.b}`, s.b);
+  if (s.model === "all") {
+    const answers = ["clean", "edited", "truth"].map(m =>
+      fig(img(answerName(m), NAMES[m], "answer" + (m === "truth" ? " truth" : "")), NAMES[m]));
+    rows.push(row([fig(qa, "a"), sym("?"), fig(qb, "b"), sym("="), ...answers], "query compare"));
+  } else {
+    rows.push(row([qa, sym("?"), qb, sym("="),
+      img(answerName(s.model), NAMES[s.model], "answer" + (s.model === "truth" ? " truth" : ""))], "query"));
+  }
+  box.classList.toggle("no-examples", s.show !== "examples");
+  box.replaceChildren(...rows);
+
+  const who = {
+    clean: "the unedited model", edited: "the model with the op's axis edited out", truth: "the true op",
+    all: "the unedited model, the edited model and the true op",
+  }[s.model];
+  const pick = s.model === "truth" ? "" : (s.pick === "sample"
+    ? ", with one color drawn from the model's answer at each pixel"
+    : ", with the model's most likely color at each pixel");
+  const walk = s.model === "truth" ? "" : (s.walk === "random"
+    ? " Each pixel of the query is its own context, with three example pixels drawn at random from the three example pairs."
+    : " Each pixel of the query is its own context, with the three examples taken at the same position in the example pairs.");
+  const lead = s.show === "examples" ? `Three examples of <code>${s.op}</code>, then the query` : `The query under <code>${s.op}</code>`;
+  document.getElementById("caption").innerHTML = `${lead}, answered by ${who}${pick}.${walk}`;
+
   for (const k of Object.keys(CHOICES))
     for (const btn of document.querySelectorAll(`#${k} button`)) btn.setAttribute("aria-pressed", String(btn.value === s[k]));
-  for (const id of ["pick", "walk"]) document.getElementById(id).hidden = s.model === "truth";
+  for (const id of ["pick", "walk"])
+    for (const btn of document.querySelectorAll(`#${id} button`)) btn.disabled = s.model === "truth";
 }
 
 for (const [k, opts] of Object.entries(CHOICES)) {
