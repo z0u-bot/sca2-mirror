@@ -62,6 +62,9 @@ SYNTHETIC = ("ramp", "huelight")
 BASE_SIZE = (192, 128)  # width, height at scale 1: a quarter of the Kodak frame
 SCALES = (1,)
 RENDERS = ("posterized", "dithered")
+WALKS = ("random", "in sync")
+# How each example pixel is chosen: at random from its example pair, or at the query pixel's own position, so the
+# three examples and the query walk over their images together like an image-processing pipeline.
 
 # The example pairs (a, b) the three examples of each context are drawn from, and the query pairs.
 EXAMPLES = (("hats", "huelight"), ("barn", "ramp"), ("bikes", "rafting"))
@@ -71,7 +74,7 @@ DRAW_SEED = 2026_11_05  # the example draws and the T = 1 samples; shared by eve
 
 PREFIX = "reports/m2/equation-images"
 OPERANDS_REF = PREFIX + "/operands/x{scale}"
-ANSWERS_REF = PREFIX + "/answers/x{scale}/s{seed}"
+ANSWERS_REF = PREFIX + "/answers/x{scale}/{walk}/s{seed}"
 
 
 def size_of(scale: int) -> tuple[int, int]:
@@ -190,18 +193,18 @@ def op_tables() -> np.ndarray:
 
 
 def contexts(
-    ops: np.ndarray, imgs: dict[str, np.ndarray], render: str, query: tuple[str, str], o: int, rng
+    ops: np.ndarray, imgs: dict[str, np.ndarray], render: str, query: tuple[str, str], o: int, walk: str, rng
 ) -> tuple[np.ndarray, np.ndarray]:
     """One context per query pixel, as palette indices `(N, K, 3)` of example (a, b, y), and the query `(N, 2)`.
 
-    Each example is a pixel drawn at random from its example pair, its answer the op applied there.
+    Each example is a pixel of its example pair, chosen as *walk* says, and its answer is the op applied there.
     """
     qa, qb = imgs[f"{render}/{query[0]}"].reshape(-1), imgs[f"{render}/{query[1]}"].reshape(-1)
     n = len(qa)
     ex = np.zeros((n, K, 3), dtype=np.int64)
     for e, (an, bn) in enumerate(EXAMPLES):
         ea, eb = imgs[f"{render}/{an}"].reshape(-1), imgs[f"{render}/{bn}"].reshape(-1)
-        at = rng.integers(0, len(ea), n)
+        at = rng.integers(0, len(ea), n) if walk == "random" else np.arange(n)
         ex[:, e, 0], ex[:, e, 1] = ea[at], eb[at]
         ex[:, e, 2] = ops[o, ex[:, e, 0], ex[:, e, 1]]
     return ex, np.stack([qa, qb], axis=1).astype(np.int64)
@@ -233,15 +236,15 @@ def tokens_of(ex: np.ndarray, q: np.ndarray, color_ids: np.ndarray, stoi: dict[s
     return rows
 
 
-def answers_one(checkpoint, operand_art, scale: int, seed: int) -> dict:
-    """Every answer picture of one run at *scale*: per op, query pair, render and edit, the argmax color and one draw
+def answers_one(checkpoint, operand_art, scale: int, seed: int, walk: str) -> dict:
+    """Every answer picture of one run at *scale* with the examples chosen by *walk*: per op, query pair, render and edit, the argmax color and one draw
     at T = 1 at each pixel (palette indices), and the probability the model gives the true op's answer.
     """
 
     from mini.store import get, put
     from sca.intervention import Subspace, logits_at, projection
 
-    workdir = get_data_dir() / "equation-images" / f"x{scale}-s{seed}"
+    workdir = get_data_dir() / "equation-images" / f"x{scale}-{walk.replace(' ', '-')}-s{seed}"
     model, tokenizer, color_ids, _ = ex2216._load_run(checkpoint, workdir)
     with np.load(get(operand_art, workdir / "operands.npz")) as z:
         imgs = {k: z[k] for k in z.files}
@@ -255,7 +258,7 @@ def answers_one(checkpoint, operand_art, scale: int, seed: int) -> dict:
         for query in QUERIES:
             for o, op in enumerate(OP_NAMES):
                 rng = np.random.default_rng([DRAW_SEED, RENDERS.index(render), QUERIES.index(query), o])
-                ex, q = contexts(ops, imgs, render, query, o, rng)
+                ex, q = contexts(ops, imgs, render, query, o, walk, rng)
                 toks = tokens_of(ex, q, color_ids, tokenizer.stoi)
                 u = rng.random(len(q))  # one uniform per pixel, shared by both edits
                 truth = ops[o, q[:, 0], q[:, 1]]
@@ -273,7 +276,8 @@ def answers_one(checkpoint, operand_art, scale: int, seed: int) -> dict:
     return {
         "scale": scale,
         "seed": seed,
-        "answers": put(ex2216._npz(**out), name=f"equation-images-x{scale}-s{seed}.npz"),
+        "walk": walk,
+        "answers": put(ex2216._npz(**out), name=f"equation-images-x{scale}-{walk.replace(' ', '-')}-s{seed}.npz"),
     }
 
 
@@ -299,27 +303,35 @@ def publish(made: list[dict], answered: list[dict]) -> dict:
     for m in made:
         set_ref(OPERANDS_REF.format(scale=m["scale"]), m["operands"])
     for a in answered:
-        set_ref(ANSWERS_REF.format(scale=a["scale"], seed=a["seed"]), a["answers"])
+        set_ref(ANSWERS_REF.format(scale=a["scale"], walk=a["walk"], seed=a["seed"]), a["answers"])
     return {"operands": len(made), "answers": len(answered)}
 
 
 def main(ctx: Ctx) -> dict:
     checkpoints = ctx.run(resolve, role="prep")
     made = ctx.map(operands, list(SCALES), role="prep")
-    jobs = [(m, s) for m in made for s in SEEDS]
+    jobs = [(m, s, w) for m in made for s in SEEDS for w in WALKS]
     answered = ctx.map(
         answers_one,
-        [checkpoints[s] for _, s in jobs],
-        [m["operands"] for m, _ in jobs],
-        [m["scale"] for m, _ in jobs],
-        [s for _, s in jobs],
+        [checkpoints[s] for _, s, _ in jobs],
+        [m["operands"] for m, _, _ in jobs],
+        [m["scale"] for m, _, _ in jobs],
+        [s for _, s, _ in jobs],
+        [w for _, _, w in jobs],
         role="answer",
     )
     return ctx.run(publish, made, answered, role="prep")
 
 
 def design() -> dict[str, Any]:
-    return {"ops": OP_NAMES, "anchored_op": ANCHORED_OP, "examples": EXAMPLES, "queries": QUERIES, "renders": RENDERS}
+    return {
+        "ops": OP_NAMES,
+        "anchored_op": ANCHORED_OP,
+        "examples": EXAMPLES,
+        "queries": QUERIES,
+        "renders": RENDERS,
+        "walks": WALKS,
+    }
 
 
 COMPUTE = {
