@@ -42,6 +42,7 @@ body {
 }
 .group.ops button { font-family: var(--font-mono); font-size: 12px; }
 .group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.group button.anchored { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); margin-inline: 3px; }
 .group button:disabled { opacity: 0.4; cursor: default; }
 .group button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 @media (max-width: 560px) {
@@ -57,7 +58,9 @@ body {
 .eq .sym { text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--muted); }
 .eq .stack { display: grid; gap: 6px; }
 .eq figure { margin: 0; display: grid; gap: 2px; }
-.eq figcaption { font-size: 12px; color: var(--muted); text-align: center; }
+.eq figcaption { font-size: 12px; line-height: 16px; color: var(--muted); text-align: center; }
+/* Under All three, a and b carry captions too and the symbols clear one, so the operands line up with the middle answer. */
+.eq.compare .sym { padding-bottom: 18px; }
 .eq img {
   display: block; width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
   outline: 1px solid var(--rule); outline-offset: -1px; background: var(--chip);
@@ -85,6 +88,7 @@ body {
 <script>
 const BASE = document.documentElement.dataset.panels ?? "panels/";
 const OPS = ["mix", "lighten", "darken", "difference", "hue-hsv", "sat-hsv", "value-hsv"];
+const ANCHORED = "difference";
 const EXAMPLES = [["hats", "huelight"], ["barn", "ramp"], ["bikes", "rafting"]];
 const CHOICES = {
   op: OPS.map(o => [o, o]),
@@ -133,15 +137,17 @@ function render() {
       rows.push(row([img(`operand-${s.render}-${a}`, a), sym("?"), img(`operand-${s.render}-${b}`, b), sym("="),
                      img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`)]));
   const qa = img(`operand-${s.render}-parrots`, "parrots"), qb = img(`operand-${s.render}-${s.b}`, s.b);
-  let y;
+  let y, cls = "query";
   if (s.model === "all") {
+    cls += " compare";
     y = document.createElement("div");
     y.className = "stack";
     y.append(...["clean", "edited", "truth"].map(m => fig(img(answerName(m), NAMES[m]), NAMES[m])));
   } else {
     y = img(answerName(s.model), NAMES[s.model]);
   }
-  rows.push(row([qa, sym("?"), qb, sym("="), y], "query"));
+  const all = s.model === "all";
+  rows.push(row([all ? fig(qa, "a") : qa, sym("?"), all ? fig(qb, "b") : qb, sym("="), y], cls));
   box.classList.toggle("no-examples", s.show !== "examples");
   box.replaceChildren(...rows);
 
@@ -169,6 +175,7 @@ for (const [k, opts] of Object.entries(CHOICES)) {
   for (const [value, label] of opts) {
     const btn = document.createElement("button");
     btn.type = "button"; btn.value = value; btn.textContent = label; btn.id = `${k}-${value}`;
+    if (k === "op" && value === ANCHORED) { btn.classList.add("anchored"); btn.title = "The anchored op"; }
     btn.addEventListener("click", () => { state[k] = value; render(); });
     g.append(btn);
   }
