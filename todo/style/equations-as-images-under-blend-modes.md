@@ -1,7 +1,8 @@
 ---
-status: open
+status: done
 tags: [vis, D2.2, blog]
 opened: 2026-10-30
+closed: 2026-11-05
 ---
 # Show equations as images combined under the blend modes
 
@@ -10,3 +11,5 @@ A figure idea for the D2.2 post, noted in the paper round of the post-hoc compar
 ## Notes
 
 **2026-11-05, equation images thread** — A working version is the [equation-images report](/docs/m2/equation-images/report.py): Kodak photos and two synthetic images as operands, posterized and dithered, one context per pixel, argmax and T = 1, on the eight `τ_ℓ fixed` runs before and after the full edit. The panels are also written as separate PNGs for an interactive figure. Still open: which panels go in the post, and whether to run at a larger scale.
+
+**2026-11-05, equation images thread** — Settled at scale 1: the post uses the interactive widget from the report (`widget.html`, every panel at its native 192 × 128), with posterized operands, the in-step example walk and the most likely color by default. For a post, paste a copy whose image base is the absolute URL of the pinned publish, since the published `widget.html` finds its panels by relative path.
