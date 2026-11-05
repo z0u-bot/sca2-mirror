@@ -89,7 +89,7 @@ def grid_index(rgb: np.ndarray) -> np.ndarray:
 
     lookup = {c: i for i, c in enumerate(colors())}
     flat = rgb.reshape(-1, 3).astype(int)
-    return np.array([lookup[tuple(int(v) for v in c)] for c in flat], dtype=np.uint8).reshape(rgb.shape[:-1])
+    return np.array([lookup[(int(r), int(g), int(b))] for r, g, b in flat], dtype=np.uint8).reshape(rgb.shape[:-1])
 
 
 def posterize(x: np.ndarray) -> np.ndarray:
@@ -155,7 +155,7 @@ def operands(scale: int) -> dict:
     for name, n in PHOTOS.items():
         im = Image.open(io.BytesIO(rows[f"kodim{n:02d}.png"])).convert("RGB")
         assert im.size == (768, 512), f"kodim{n:02d} is not landscape"
-        smooth[name] = np.asarray(im.resize((w, h), Image.LANCZOS), float) / 255 * 15
+        smooth[name] = np.asarray(im.resize((w, h), Image.Resampling.LANCZOS), float) / 255 * 15
     for name in SYNTHETIC:
         smooth[name] = synthetic(name, w, h)
     arrays: dict[str, np.ndarray] = {}
@@ -163,9 +163,7 @@ def operands(scale: int) -> dict:
         arrays[f"smooth/{name}"] = (x / 15 * 255).round().astype(np.uint8)
         arrays[f"posterized/{name}"] = grid_index(posterize(x))
         arrays[f"dithered/{name}"] = grid_index(dither(x))
-    buf = io.BytesIO()
-    np.savez_compressed(buf, **arrays)
-    return {"scale": scale, "operands": put(buf.getvalue(), name=f"equation-images-operands-x{scale}.npz")}
+    return {"scale": scale, "operands": put(ex2216._npz(**arrays), name=f"equation-images-operands-x{scale}.npz")}
 
 
 # =============================================================================================
@@ -239,7 +237,6 @@ def answers_one(checkpoint, operand_art, scale: int, seed: int) -> dict:
     """Every answer picture of one run at *scale*: per op, query pair, render and edit, the argmax color and one draw
     at T = 1 at each pixel (palette indices), and the probability the model gives the true op's answer.
     """
-    import io
 
     from mini.store import get, put
     from sca.intervention import Subspace, logits_at, projection
@@ -273,9 +270,11 @@ def answers_one(checkpoint, operand_art, scale: int, seed: int) -> dict:
                     )
                     out[f"{key}/p_truth"] = p[np.arange(len(q)), truth].astype(np.float16).reshape(h, w)
                     out[f"{key}/color_mass"] = p.sum(1).astype(np.float16).reshape(h, w)
-    buf = io.BytesIO()
-    np.savez_compressed(buf, **out)
-    return {"scale": scale, "seed": seed, "answers": put(buf.getvalue(), name=f"equation-images-x{scale}-s{seed}.npz")}
+    return {
+        "scale": scale,
+        "seed": seed,
+        "answers": put(ex2216._npz(**out), name=f"equation-images-x{scale}-s{seed}.npz"),
+    }
 
 
 # =============================================================================================
