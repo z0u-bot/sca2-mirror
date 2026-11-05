@@ -2,7 +2,8 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: one context as a stack of equations (a ? b = y), the query last and set apart; controls above, as chips. */
+/* Layout: compact chip controls that flow into rows, then one context as a stack of equations (a ? b = y), the
+   query last and set apart. Panels show at their native size (--pw) and shrink on narrow screens. */
 :root {
   --bg: #f7f8fa;
   --fg: #1d2330;
@@ -11,66 +12,71 @@
   --chip: #e8ebf1;
   --accent: #2d5bd7;
   --accent-fg: #ffffff;
-  --frame: #1d2330;
+  --pw: 192px;
   --font-body: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
   --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
     --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
-    --accent: #7ea2ff; --accent-fg: #0e1320; --frame: #e3e7ef; color-scheme: dark;
+    --accent: #7ea2ff; --accent-fg: #0e1320; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
   --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
-  --accent: #7ea2ff; --accent-fg: #0e1320; --frame: #e3e7ef; color-scheme: dark;
+  --accent: #7ea2ff; --accent-fg: #0e1320; color-scheme: dark;
 }
 body {
   background: var(--bg); color: var(--fg); font: 15px/1.45 var(--font-body);
   padding-left: max(16px, env(safe-area-inset-left, 0px));
   padding-right: max(16px, env(safe-area-inset-right, 0px));
-  padding-block: 16px;
+  padding-block: 12px;
 }
-.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 14px; }
-.controls { display: grid; gap: 8px; }
-.group { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; }
-.group > .label { color: var(--muted); font-size: 12px; letter-spacing: 0.04em; text-transform: uppercase; min-width: 7.5em; }
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
+.controls { display: flex; flex-wrap: wrap; gap: 6px 18px; }
+.group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
+.group > .label { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 3px; }
 .group button {
-  font: inherit; font-size: 13px; border: 0; border-radius: 999px; padding: 4px 11px;
+  font: inherit; font-size: 12.5px; line-height: 1.3; border: 0; border-radius: 999px; padding: 3px 9px;
   background: var(--chip); color: var(--fg); cursor: pointer;
 }
-.group.ops button { font-family: var(--font-mono); }
+.group.ops button { font-family: var(--font-mono); font-size: 12px; }
 .group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
 .group button:disabled { opacity: 0.4; cursor: default; }
 .group button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.eqs { display: grid; gap: 8px; }
-.eq { display: grid; grid-template-columns: 1fr 1.6em 1fr 1.6em 1fr; align-items: center; gap: 4px; }
-.eq.compare { grid-template-columns: 1fr 1.6em 1fr 1.6em 1fr 1fr 1fr; column-gap: 8px; }
+@media (max-width: 560px) {
+  .controls { gap: 5px; }
+  .group { flex-basis: 100%; }
+  .group > .label { flex: 0 0 7.4em; margin-right: 0; white-space: nowrap; }
+}
+.eqs { display: grid; gap: 8px; justify-self: start; width: fit-content; max-width: 100%; }
+.eq {
+  display: grid; align-items: center; gap: 4px; justify-content: start;
+  grid-template-columns: minmax(0, var(--pw)) 1.6em minmax(0, var(--pw)) 1.6em minmax(0, var(--pw));
+}
 .eq .sym { text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--muted); }
-.eq figure { margin: 0; display: grid; gap: 3px; }
+.eq .stack { display: grid; gap: 6px; }
+.eq figure { margin: 0; display: grid; gap: 2px; }
 .eq figcaption { font-size: 12px; color: var(--muted); text-align: center; }
 .eq img {
-  display: block; width: 100%; max-width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
+  display: block; width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
   outline: 1px solid var(--rule); outline-offset: -1px; background: var(--chip);
 }
 .query { border-top: 1px solid var(--rule); padding-top: 10px; }
 .eqs.no-examples .query { border-top: 0; padding-top: 0; }
-.query img.answer { outline: 3px solid var(--frame); outline-offset: 0; }
-.query img.answer.truth { outline: 1px solid var(--rule); outline-offset: -1px; }
 .caption { color: var(--muted); font-size: 13px; max-width: 65ch; margin: 0; }
 .caption code { font-family: var(--font-mono); font-size: 12.5px; }
-@media (max-width: 480px) { .group > .label { min-width: 100%; } }
 </style>
 
 <div class="wrap" id="app">
   <div class="controls">
     <div class="group ops" id="op" role="group" aria-label="Hidden op"><span class="label">Hidden op</span></div>
     <div class="group" id="model" role="group" aria-label="Answer"><span class="label">Answer</span></div>
-    <div class="group" id="b" role="group" aria-label="Second image"><span class="label">Second image</span></div>
+    <div class="group" id="b" role="group" aria-label="Second image"><span class="label">Image b</span></div>
     <div class="group" id="pick" role="group" aria-label="Model color"><span class="label">Model color</span></div>
     <div class="group" id="render" role="group" aria-label="Colors"><span class="label">Colors</span></div>
     <div class="group" id="walk" role="group" aria-label="Examples"><span class="label">Examples</span></div>
-    <div class="group" id="show" role="group" aria-label="Show examples"><span class="label">Show</span></div>
+    <div class="group" id="show" role="group" aria-label="Show"><span class="label">Show</span></div>
   </div>
   <div class="eqs" id="eqs"></div>
   <p class="caption" id="caption"></p>
@@ -82,20 +88,19 @@ const OPS = ["mix", "lighten", "darken", "difference", "hue-hsv", "sat-hsv", "va
 const EXAMPLES = [["hats", "huelight"], ["barn", "ramp"], ["bikes", "rafting"]];
 const CHOICES = {
   op: OPS.map(o => [o, o]),
-  model: [["clean", "Unedited model"], ["edited", "Edited model"], ["truth", "True answer"], ["all", "All three"]],
+  model: [["clean", "Unedited"], ["edited", "Edited"], ["truth", "True"], ["all", "All three"]],
   b: [["ramp", "Gray ramp"], ["huelight", "Hue and lightness"]],
   pick: [["argmax", "Most likely (T = 0)"], ["sample", "Drawn (T = 1)"]],
   render: [["posterized", "Posterized"], ["dithered", "Dithered"]],
-  walk: [["in-sync", "In step with the query"], ["random", "Random pixels"]],
+  walk: [["in-sync", "In step"], ["random", "Random pixels"]],
   show: [["examples", "Examples and query"], ["query", "Query only"]],
 };
 const state = { op: "difference", model: "clean", b: "ramp", pick: "argmax", render: "posterized", walk: "in-sync", show: "examples" };
 
-function img(name, alt, cls) {
+function img(name, alt) {
   const el = document.createElement("img");
   el.src = window.PANELS?.[name] ?? BASE + name + ".png";
   el.alt = alt;
-  if (cls) el.className = cls;
   return el;
 }
 function sym(s) { const el = document.createElement("span"); el.className = "sym"; el.textContent = s; return el; }
@@ -118,7 +123,7 @@ function answerName(model) {
   if (model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
   return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${model}-${s.pick}`;
 }
-const NAMES = { clean: "Unedited", edited: "Edited", truth: "True answer" };
+const NAMES = { clean: "Unedited", edited: "Edited", truth: "True" };
 
 function render() {
   const s = state, box = document.getElementById("eqs");
@@ -128,14 +133,15 @@ function render() {
       rows.push(row([img(`operand-${s.render}-${a}`, a), sym("?"), img(`operand-${s.render}-${b}`, b), sym("="),
                      img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`)]));
   const qa = img(`operand-${s.render}-parrots`, "parrots"), qb = img(`operand-${s.render}-${s.b}`, s.b);
+  let y;
   if (s.model === "all") {
-    const answers = ["clean", "edited", "truth"].map(m =>
-      fig(img(answerName(m), NAMES[m], "answer" + (m === "truth" ? " truth" : "")), NAMES[m]));
-    rows.push(row([fig(qa, "a"), sym("?"), fig(qb, "b"), sym("="), ...answers], "query compare"));
+    y = document.createElement("div");
+    y.className = "stack";
+    y.append(...["clean", "edited", "truth"].map(m => fig(img(answerName(m), NAMES[m]), NAMES[m])));
   } else {
-    rows.push(row([qa, sym("?"), qb, sym("="),
-      img(answerName(s.model), NAMES[s.model], "answer" + (s.model === "truth" ? " truth" : ""))], "query"));
+    y = img(answerName(s.model), NAMES[s.model]);
   }
+  rows.push(row([qa, sym("?"), qb, sym("="), y], "query"));
   box.classList.toggle("no-examples", s.show !== "examples");
   box.replaceChildren(...rows);
 
