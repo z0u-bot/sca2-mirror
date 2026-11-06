@@ -278,6 +278,16 @@ GPU_END = {
     )
     for i, key in enumerate(("removal", "spill"))
 }
+# Each arm against `base` at the end under the 63-axis baseline of E1 and E2, to separate the change of baseline
+# (eight reference edits along training in E3) from the change of pairing.
+ARM_END_AXES = {
+    (a, key): r_of(
+        [removal_spill(_LSS_AX[(lss.CONDITION, a, s)])[i] for s in OLD8],
+        [removal_spill(_LSS_AX[(lss.CONDITION, BASE, s)])[i] for s in OLD8],
+    )
+    for a in ARMS
+    for i, key in enumerate(("removal", "spill"))
+}
 BRANCH_LATE = BRANCH_EPOCHS > 288
 LSS_LATE = np.asarray(LSS_EPOCHS) >= 320
 
@@ -468,7 +478,7 @@ def branch_figure() -> str:
         panel_data("task score", task, band),
     ]
     alt = """
-        Three panels of rank correlation against epoch, 64 to 400, at eight seeds. Removal stays between about 0.5 and
+        Three panels of rank correlation against epoch, 64 to 400, at eight seeds. Removal stays between about 0.4 and
         0.95 for all three arms, highest under τ_ℓ late; under the two anti arms it falls to about 0.5 after epoch 300.
         Spill stays between about 0.7 and 0.98 for every arm. The task score starts near 1 for every arm and for the
         same schedule on L4, stays above about 0.9 to epoch 250, and then falls to between about 0.45 and 0.9, lowest
@@ -541,6 +551,10 @@ LSS_SPILL_MIN = min(float(LSS_R[(a, "spill")].min()) for a in ARMS)
 LSS_REMOVAL_LT = LSS_R[(LT_LATE, "removal")]
 LSS_REMOVAL_ANTI_LATE = [float(LSS_R[(a, "removal")][LSS_LATE].mean()) for a in (ANTI_LATE, ANTI_HELD)]
 BRANCH_TASK_LATE = {a: float(R_BRANCH[(a, "task")][BRANCH_LATE].mean()) for a in (*ARMS, GPU)}
+ARM_END = {key: [ARM_END_AXES[(a, key)] for a in ARMS] for key in ("removal", "spill")}
+ARM_END_ANTI = sorted(ARM_END_AXES[(a, "removal")] for a in (ANTI_LATE, ANTI_HELD))
+# The prose says these sit above every E2 correlation after the anchor forms.
+assert min(ARM_END["removal"]) > KEPT_AFTER["removal"].max() and min(ARM_END["spill"]) > KEPT_AFTER["spill"].max()
 WORD = "no one two three four five six seven eight nine ten".split()
 
 # %%
@@ -550,8 +564,13 @@ rf"""
 
 /// tip |
 <!-- lede -->
-Two runs at one seed share their initialization, batches and labels. Started together under two recipes, they stay partly alike in the task score through the first 64 epochs, but in removal and spill they are little more alike than runs at different seeds, whether the recipes differ a little or a lot. Carried on from one stored state, they stay alike in all three for hundreds of epochs.
+Two runs at one seed share their initialization, batches and labels. Started together under two recipes, they stay partly alike in the task score through the first 64 epochs, whether the recipes differ a little or a lot, but in removal and spill they are little more alike than runs at different seeds. Carried on from one stored state, they stay alike in all three for hundreds of epochs.
 ///
+<!-- REVIEW: moved "whether the recipes differ a little or a lot" from the removal/spill clause to the task-score
+clause. From one initialization, removal and spill were scored for one pairing only (fixed against anneal, the
+smallest change); the four pairings cover the task score and α (E1). Verify: the right two panels of the E1 figure
+carry one line. -->
+
 
 We compare conditions as two samples, and pair runs by seed only when they branch from one stored state and are measured soon after ([eng/determinism.md](/eng/determinism.md#seeds-are-draws)). "Soon after" has no number yet. The evidence for the rule is that removal under `τ_ℓ fixed` and `τ_ℓ anneal`, which share their seeds, correlated about 0.2 across eight seeds at epoch 400 (the fixed confirmation), and the low-runs report found that twin runs, the same in all but the GPU arithmetic, are as far apart in their weights as unrelated runs by epoch 16, while their task loss agrees to a hundredth.
 
@@ -561,7 +580,12 @@ So the weights part early, and some scores do not. This report asks how alike tw
 
 - [From one initialization (E1)](#from-one-initialization-e1): over the first 64 epochs, the task score of the two runs of a seed falls from nearly the same order across seeds to about half of it, under every pairing of recipes. Removal correlates by about a third, at the edge of chance, and spill by no more than chance. The alignment with e₁ moves from record to record so much that one record of a run predicts its next record about as poorly as it predicts the paired run.
 - [Over the whole run (E2)](#over-the-whole-run-e2): at eight seeds, no correlation of removal or spill after the anchor forms can be told from zero, the correlation of 0.2 at epoch 400 included. The task score of a run is only loosely tied to that of the control at its seed, and netting the task change against that control seed by seed leaves its spread about where it was.
-- [From one stored state (E3)](#from-one-stored-state-e3): runs carried on from one epoch-64 state stay alike in spill to the end, and in removal and the task score for at least a hundred and fifty epochs, under each change of schedule and under a change of GPU. The largest change loosens removal after epoch 300.
+- [From one stored state (E3)](#from-one-stored-state-e3): runs carried on from one epoch-64 state stay alike in spill to the end, and in removal and the task score for at least a hundred and fifty epochs, under each change of schedule and under a change of GPU. Under the two anti arms, removal loosens after epoch 300, though at eight seeds that is not firm.
+<!-- REVIEW: was "The largest change loosens removal after epoch 300." Named the arms (E3 never says "the largest
+change") and hedged: at the end, under the 63-axis baseline, the anti arms correlate with `base` in removal at
+about 0.64 and 0.86 against about a half under the eight reference edits, and at eight seeds those are the same
+measurement. Verify: ARM_END_ANTI in E3. -->
+
 
 ## Scope and method
 
@@ -615,7 +639,9 @@ The alignment α behaves differently. The runs of a seed start alike in it ({min
 
 Removal under the edit correlates by about a third at epochs 32 and 64 ({span(min(EARLY_REMOVAL), max(EARLY_REMOVAL))} over forty seeds), at the edge of chance. Spill stays inside the band at all three checkpoints. At epoch 16 the anchor has barely formed, and removal is close to zero on every run.
 
-So by epoch 64, the seed still says something about the task score, a little about removal, and nothing we can detect about spill. Pairing by seed from one initialization would cancel about half of the variation between seeds in the task score, and little of it in removal or spill.
+So by epoch 64, the seed still says something about the task score, a little about removal, and nothing we can detect about spill. Pairing by seed from one initialization would cancel about half of the variation between seeds in the task score, about a third in removal if that correlation is real, and none we can detect in spill.
+<!-- REVIEW: was "and little of it in removal or spill". The reading that gives "about half" at a correlation of
+0.5 to 0.6 gives about a third at 0.32 to 0.38, which removal holds at all three checkpoints over forty seeds. -->
 """
 
 # %%
@@ -627,13 +653,16 @@ Does what is left of the pairing at epoch 64 last to the end of training? And ho
 
 {full_figure()}
 
-At eight seeds the band of chance is wide, and from epoch 32 on every correlation of removal and spill between the two recipes falls inside it, wandering from about {num(min(KEPT_AFTER["spill"].min(), KEPT_AFTER["removal"].min()), ".1f")} to {num(max(KEPT_AFTER["spill"].max(), KEPT_AFTER["removal"].max()), ".1f")} between neighboring checkpoints. So the correlation of about 0.2 at epoch 400 is consistent with anything from no pairing at all to a strong one: as a rank correlation it is {num(FC_400["removal"])}, with an interval of {span(*FC_400_INTERVAL)}. The forty seeds of E1 pin it down better at epoch 64, to about a third.
+At eight seeds the band of chance is wide, and from epoch 32 on every correlation of removal and spill between the two recipes falls inside it (the {KEPT_R["removal"][0]:.2f} in removal at epoch 16 is before the anchor forms, when removal is noise about zero), wandering from about {num(min(KEPT_AFTER["spill"].min(), KEPT_AFTER["removal"].min()), ".1f")} to {num(max(KEPT_AFTER["spill"].max(), KEPT_AFTER["removal"].max()), ".1f")} between neighboring checkpoints. So the correlation of about 0.2 at epoch 400 is consistent with anything from no pairing at all to a strong one: as a rank correlation it is {num(FC_400["removal"])}, with an interval of {span(*FC_400_INTERVAL)}. The forty seeds of E1 pin it down better at epoch 64, to about a third.
 
 The task score is paired as unsteadily. The two recipes correlate by about a third to a half over the run, and each correlates with the control about as well, though the control has neither the pull nor the anti term. So for the task score, what the two runs of a seed share seems to matter more than how alike their recipes are.
 
 {end_table()}
 
-At epoch 400, the task score of a run correlates with that of the control at its seed by {min(END_R):.2f} to {max(END_R):.2f} across the five sets, and every interval reaches below zero. Netting the task change against the control seed by seed gives a spread close to that of netting against the seed mean of the control: a little smaller on {WORD[END_PAIRED_LOWER]} sets and larger on {WORD[END_PAIRED_HIGHER]}. The control spreads about half as much as the anchored runs, which is why the choice matters little either way.
+At epoch 400, the task score of a run correlates with that of the control at its seed by {min(END_R):.2f} to {max(END_R):.2f} across the five sets, and every interval reaches below zero. Netting the task change against the control seed by seed gives a spread close to that of netting against the seed mean of the control: a little smaller on {WORD[END_PAIRED_LOWER]} sets and larger on {WORD[END_PAIRED_HIGHER]}. The control spreads about half as much as the anchored runs on four of the five sets, which is why the choice matters little either way.
+<!-- REVIEW: was "about half as much as the anchored runs"; on `τ_ℓ fixed` at 704 to 711 the control spreads nearly
+as much as the run (0.0048 against 0.0055), so the claim holds on four sets. -->
+
 
 So at the end of training, eight seeds cannot show that pairing by seed helps on any of these scores, and the per-seed netting of the task change neither helps nor hurts it much.
 """
@@ -647,9 +676,13 @@ Runs carried on from one stored state share everything up to it: by epoch 64 the
 
 {branch_figure()}
 
-They stay alike for a long time. In spill, every arm keeps a rank correlation with `base` of at least {LSS_SPILL_MIN:.2f} at every checkpoint to the end. In removal, every arm stays mostly between 0.8 and 0.95 to epoch 288, with a dip to about a half at single checkpoints. After that `τ_ℓ late` stays near {LSS_REMOVAL_LT[LSS_LATE].mean():.2f} on average, while the two anti arms fall to about a half ({num(min(LSS_REMOVAL_ANTI_LATE))} and {num(max(LSS_REMOVAL_ANTI_LATE))}), with their anti weight still above that of `base`. The late spill scout found the anti arms lowering removal by the end, by about a quarter on one seed, so the runs of a seed parting here fits a change that by then has a real effect.
+They stay alike for a long time. In spill, every arm keeps a rank correlation with `base` of at least {LSS_SPILL_MIN:.2f} at every checkpoint to the end. In removal, every arm stays mostly between 0.8 and 0.95 to epoch 288, with a dip to about a half at single checkpoints. After that `τ_ℓ late` stays near {LSS_REMOVAL_LT[LSS_LATE].mean():.2f} on average, while the two anti arms fall to about a half ({num(min(LSS_REMOVAL_ANTI_LATE))} and {num(max(LSS_REMOVAL_ANTI_LATE))}), with their anti weight still above that of `base`. The late spill scout found the anti arms lowering removal by the end, by about a quarter on one seed, so the runs of a seed parting here fits a change that by then has a real effect, though at eight seeds the loosening is not firm (next paragraph).
 
-The task score starts at a correlation near 1 for every arm and for the change of GPU, and stays at about 0.9 or above to about epoch 250. After that it falls, least for the anti arms (about {min(BRANCH_TASK_LATE[ANTI_LATE], BRANCH_TASK_LATE[ANTI_HELD]):.2f} on average after epoch 288), more for `τ_ℓ late` ({BRANCH_TASK_LATE[LT_LATE]:.2f}), and most for the change of GPU ({BRANCH_TASK_LATE[GPU]:.2f}). At the end, `base` on the A10G and on the L4 also correlate in removal and spill ({GPU_END["removal"]:.2f} and {GPU_END["spill"]:.2f}), though at eight seeds only the second clears the band.
+E1 and E2 net removal against the median drop along the other 63 axes, and E3 along training against eight reference edits, so a reader might ask whether the baseline, rather than the pairing, is what sets E3 apart from E2. At the end of the run, under the 63-axis baseline, the three arms still correlate with `base` by {span(min(ARM_END["removal"]), max(ARM_END["removal"]))} in removal and {span(min(ARM_END["spill"]), max(ARM_END["spill"]))} in spill, above every correlation of E2 after the anchor forms. The anti arms sit at {num(ARM_END_ANTI[0])} and {num(ARM_END_ANTI[1])} in removal under that baseline, against about a half under the reference edits, and at eight seeds those are the same measurement, which is why the loosening above is not firm.
+
+The task score starts at a correlation near 1 for every arm and for the change of GPU, and stays at about 0.9 or above to about epoch 250. After that it falls, least for the anti arms (about {min(BRANCH_TASK_LATE[ANTI_LATE], BRANCH_TASK_LATE[ANTI_HELD]):.2f} on average after epoch 288), more for `τ_ℓ late` ({BRANCH_TASK_LATE[LT_LATE]:.2f}), and most for the change of GPU ({BRANCH_TASK_LATE[GPU]:.2f}). At the end, `base` on the A10G and on the L4 also correlate in removal and spill ({GPU_END["removal"]:.2f} and {GPU_END["spill"]:.2f}), and both clear the band at eight seeds.
+<!-- REVIEW: was "only the second clears the band"; the band at eight seeds is 0.72 and both values are above it. -->
+
 
 So from a stored state, pairing by seed pays on all three scores for at least a hundred and fifty epochs, under each change here and under a change of GPU. The branch carries the seed-to-seed differences of the first 64 epochs into both runs, and the changes after it add less than those differences, until late in the run.
 """
@@ -659,7 +692,7 @@ So from a stored state, pairing by seed pays on all three scores for at least a 
 r"""
 ## Discussion
 
-There is no one number for "soon after". From one initialization, the two runs of a seed are little more alike in removal and spill than runs at different seeds by the first checkpoints at which the anchor exists, and they keep about half of their pairing in the task score through epoch 64, and less after. From a stored state at epoch 64, they stay paired in all three for hundreds of epochs. So what the runs share when they part seems to matter more than how long ago they parted. In E1 the size of the change made no clear difference either.
+There is no one number for "soon after". From one initialization, the two runs of a seed are little more alike in removal and spill than runs at different seeds by the first checkpoints at which the anchor exists, and they keep about half of their pairing in the task score through epoch 64, and seemingly less after. From a stored state at epoch 64, they stay paired in all three for hundreds of epochs. So what the runs share when they part seems to matter more than how long ago they parted. In E1 the size of the change made no clear difference to the task score either.
 
 That fits the design rule, and it puts the weight on the stored state rather than on the time since. If it holds beyond these experiments, arms that branch from a stored state after the anchor forms can be paired for most of a run, while conditions that share only an initialization gain little from pairing on removal or spill at any checkpoint we have.
 
