@@ -2,6 +2,7 @@
 status: open
 tags: [D2.2, anchoring, intervention]
 opened: 2026-11-05
+priority: high
 ---
 # Anchor the "not `difference`" end of the arc to a second axis
 
@@ -12,3 +13,7 @@ So design the whole arc instead of one end of it. A second anchor would pull the
 Things to settle in a plan: what the second pull's target is (the "not fit" examples of labelled `difference` contexts, or something graded by the posterior); whether the edit removes the plane or only e₁ with e₂ held in place; how the anti term treats e₂; and how to tell the arc landed in the plane (the off-axis evidence measured with both axes zeroed, as low-runs did with e₁). The screen is the same as for any recipe change: eight seeds at 1/50 on fixed labels, removal and its low tail, spill, and task change.
 
 This came from the review of the edit-aware plan (PR #346, closed). That plan trained the answer under the edit toward the target null, which trains the measurement itself and gives the model an easy way out: learning to ignore the off-axis part only when e₁ is gone. This item and [route-the-readers-learning-through-e1](./route-the-readers-learning-through-e1.md) go after the cause instead.
+
+## Notes
+
+**2026-11-08, housekeeping** — Shortlisted in place of the edit-aware term ([make-the-reader-depend-on-e1](./make-the-reader-depend-on-e1.md)), which held the science slot on the shortlist until it was set aside on 11-05. Of the two items from that review, this is the one it names to try first. No plan or PR for it yet.
