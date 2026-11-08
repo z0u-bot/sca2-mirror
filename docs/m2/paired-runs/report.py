@@ -519,8 +519,8 @@ def end_table() -> str:
             **The task score at epoch 400, against the control at the same seeds.** The rank correlation across eight
             seeds between the clean score of each run (mean over ops) and that of the control, with its interval. The
             two spreads are standard deviations over seeds of the task change. The first nets each run against the
-            control at the same seed, as the D2.2 design does. The second nets it against the seed mean of the control,
-            and includes the uncertainty of that mean.
+            control at the same seed, as reports up to the fixed confirmation did. The second nets it against the seed
+            mean of the control, as the D2.2 design now does, and includes the uncertainty of that mean.
         """,
         class_="report-figure",
     )
@@ -592,7 +592,7 @@ From one initialization
 :   Four recipes stopped at epoch 64, each at the {len(SCREEN_SEEDS)} seeds of the loss-rate screen (712 to 743): `τ_ℓ fixed` and `τ_ℓ anneal` from the fixed and anneal confirmations, `step, soft τ` and `falloff` from the loss-rate screen. At a seed the four share their initialization, batches, and label draws, and differ by varying amounts. `τ_ℓ anneal` is `τ_ℓ fixed` with the slice temperature sharpening (by under 1% before epoch 64), `step, soft τ` pulls at a step over slices 2 to 4 in place of the pool over slices 1 to 3, and `falloff` is that step with the position temperature held fixed. The fixed confirmation also scored the edit on both of its recipes at epochs 16, 32, and 64, at forty seeds (704 to 743).
 
 Over the whole run
-:   `τ_ℓ fixed` and `τ_ℓ anneal` at seeds 712 to 719, trained to epoch 400, with the control at the same seeds (no pull and no anti term). At the end of training only, three more recipes join them, at seeds 704 to 711 with their own control, as the reference-baseline experiment and the soft pool scout scored them.
+:   `τ_ℓ fixed` and `τ_ℓ anneal` at seeds 712 to 719, trained to epoch 400, with the control at the same seeds (no pull and no anti term). At the end of training only, three more recipes join this comparison with the control, at seeds 704 to 711 with their own control, as the reference-baseline experiment and the soft pool scout scored them.
 
 From one stored state
 :   The four arms of the late spill scout (`base`, `τ_ℓ late`, `anti late`, and `anti held`) at seeds 704 to 711. Each arm is carried on from the stored epoch-64 state of `τ_ℓ 0.1, τ_ℓ fixed` at its seed, on an A10G, and each arm other than `base` changes one schedule from epoch 64 on. The soft pool scout trained the same schedule as `base` from the same state on an L4, which gives one more pairing: the same model on another GPU.
@@ -717,7 +717,7 @@ If it holds beyond these experiments, arms that branch from a stored state after
 
 The evidence for the long pairing rests on one stored state at one epoch and on eight seeds, so how far it generalizes is not settled. A stored state taken earlier, before the seeds have parted, may behave more like a shared initialization.
 
-At epoch 400, netting the D2.2 task change against the control at each seed neither narrows nor widens its spread much (E2), so a gate set against the seed mean of the control would see about the same spread.
+At epoch 400, netting the D2.2 task change against the control at each seed neither narrows nor widens its spread much (E2), so the D2.2 task gate, which nets against the mean of the controls, gives up little by not pairing.
 
 α at the example answers moves so much from record to record that a single record is a poor measure of a run (E1). The loss-rate call averages it over six records, and this result supports that choice.
 """
