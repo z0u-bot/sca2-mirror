@@ -31,7 +31,7 @@ from abc import ABC, abstractmethod
 from collections.abc import Mapping, Generator
 from contextlib import contextmanager
 from pathlib import Path, PurePath
-from typing import Any, Callable, Iterator, cast
+from typing import Any, Callable, Iterator, TypeIs, cast
 
 import cloudpickle
 
@@ -66,6 +66,10 @@ META_KEY = "__run__"
 
 
 def _is_project_file(path: str | Path) -> bool:
+    # Frozen stdlib modules (``importlib._bootstrap``, which defines ``importlib.util.module_from_spec``) name no
+    # file at all, so the path test below would take them for project code.
+    if str(path).startswith("<frozen "):
+        return False
     rf = str(Path(path).resolve())
     return "site-packages" not in rf and "/lib/python3" not in rf and not rf.startswith(_MINI_DIR)
 
@@ -153,7 +157,7 @@ def reachable_values(fn: Callable, encode: Callable[[Any], str | None]) -> tuple
     done: set[int] = set()  # by identity: a ``functools.wraps`` wrapper shares its target's qualname
 
     def note(name: str, value: Any) -> None:
-        if isinstance(value, (types.ModuleType, type)) or callable(value):
+        if isinstance(value, (types.ModuleType, type)) or callable(value) or _is_dunder(name.rpartition(".")[2]):
             return
         if (js := encode(value)) is not None:
             tracked[name] = js
@@ -728,13 +732,86 @@ def _collect_sources(fn: Callable, seen: dict[str, str]) -> None:
             _collect_sources(obj, seen)
         elif isinstance(obj, type) and _is_project_source(obj):
             _collect_class(obj, seen)
-        elif name is not None and not isinstance(obj, types.ModuleType) and not callable(obj):
+        elif name is not None and not _is_dunder(name) and not isinstance(obj, types.ModuleType) and not callable(obj):
             # A plain value referenced by name (a module-level LR, a config table):
             # fold its canonical JSON in, so editing the *value* invalidates like
             # editing code. Skipped when it has no stable encoding (see _value_json).
             if (js := _value_json(obj)) is not None:
                 seen[f"{qualname}::{name}"] = js
+    for module in _escaping_path_modules(fn):
+        _collect_path_module(module, seen)
     _collect_deferred(_bytecode_imports(fn) + _import_time_chain(fn), seen)
+
+
+def _is_dunder(name: str) -> bool:
+    """A module attribute the import system sets (``__file__``, ``__name__``), not a value the project chose.
+
+    ``__file__`` in particular is an absolute path, so folding it in would make the evidence differ between checkouts and machines, and a helper that loads a sibling by path reads it.
+    """
+    return name.startswith("__") and name.endswith("__")
+
+
+def _is_path_loaded(obj: Any) -> TypeIs[types.ModuleType]:
+    """Whether *obj* is a project module loaded by file path and left out of ``sys.modules``.
+
+    Experiments load a sibling this way (``spec_from_file_location``, then ``del sys.modules[...]``) so their task bodies still cloudpickle by value. Such a module has no importable name, so the deferred walk can't find it on ``sys.path``; only the live object leads to it.
+    """
+    if not isinstance(obj, types.ModuleType) or sys.modules.get(obj.__name__) is obj:
+        return False
+    file = getattr(obj, "__file__", None)
+    return isinstance(file, str) and _is_project_file(file)
+
+
+def _escaping_path_modules(fn: Callable) -> list[types.ModuleType]:
+    """Path-loaded modules *fn* loads by name and then uses as a value, rather than as the root of an attribute chain.
+
+    ``sib.helper(x)`` needs nothing here: the chain walk in :func:`_attr_chain_refs` lands on ``helper``. But ``return _SIB`` or ``f(sib)`` hands the module itself on, and whatever reaches into it later (``P = _get(); P.helper(x)``) holds it in a local the chain walk can't follow. So the module counts whole.
+    """
+    code = getattr(fn, "__code__", None)
+    if code is None:
+        return []
+    g = getattr(fn, "__globals__", {})
+    cells: dict[str, Any] = {}
+    for name, cell in zip(code.co_freevars, getattr(fn, "__closure__", None) or (), strict=False):
+        try:
+            cells[name] = cell.cell_contents
+        except ValueError:
+            pass
+    out: list[types.ModuleType] = []
+    for c in _nested_codes(code):
+        loaded: types.ModuleType | None = None  # a module just loaded, awaiting its next instruction
+        for ins in dis.get_instructions(c):
+            if loaded is not None and ins.opname != "LOAD_ATTR" and all(m is not loaded for m in out):
+                out.append(loaded)
+            loaded = None
+            if ins.opname == "LOAD_GLOBAL" and _is_path_loaded(v := g.get(ins.argval)):
+                loaded = v
+            elif ins.opname == "LOAD_DEREF" and _is_path_loaded(v := cells.get(ins.argval)):
+                loaded = v
+        if loaded is not None and all(m is not loaded for m in out):
+            out.append(loaded)
+    return out
+
+
+def _collect_path_module(module: types.ModuleType, seen: dict[str, str]) -> None:
+    """Fold a path-loaded module in whole: its source, and what its own functions and classes reach.
+
+    The source covers edits to the file itself; walking its members follows them into the project code they call, as the reference walk would for a helper reached by name. A path-loaded module bound inside it (``ex2219.ex2216``) is reachable through it, so it counts whole too.
+    """
+    key = f"module:{module.__name__}"
+    if key in seen:
+        return
+    try:
+        seen[key] = _without_docstrings(Path(cast(str, module.__file__)).read_text())
+    except OSError, SyntaxError:
+        return
+    for obj in vars(module).values():
+        if isinstance(obj, types.FunctionType) and obj.__module__ == module.__name__:
+            _collect_sources(obj, seen)
+        elif isinstance(obj, type) and obj.__module__ == module.__name__:
+            _collect_class(obj, seen)
+        elif _is_path_loaded(obj):
+            _collect_path_module(obj, seen)
 
 
 @functools.lru_cache(maxsize=256)
