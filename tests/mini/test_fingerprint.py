@@ -509,3 +509,79 @@ def test_reachable_values_do_not_take_an_attribute_for_a_global(load_module):
     plot = load_module("figs", src, "a").plot
     tracked, untracked = reachable_values(plot, str)
     assert "metrics" not in tracked and not untracked
+
+
+# A sibling loaded the way experiments load one: by path, left out of ``sys.modules`` so the task bodies still
+# cloudpickle by value.
+LOAD_BY_PATH = (
+    "import importlib.util, sys\n"
+    "from pathlib import Path\n"
+    "\n"
+    "def _load(name):\n"
+    "    path = Path(__file__).resolve().parent / f'{name}.py'\n"
+    "    spec = importlib.util.spec_from_file_location('sibling_' + name, path)\n"
+    "    module = importlib.util.module_from_spec(spec)\n"
+    "    sys.modules[spec.name] = module\n"
+    "    try:\n"
+    "        spec.loader.exec_module(module)\n"
+    "    finally:\n"
+    "        del sys.modules[spec.name]\n"
+    "    return module\n"
+    "\n"
+)
+SIBLING = "def inner(x):\n    return x + {n}\n\ndef helper(x):\n    return inner(x)\n"
+
+
+@pytest.mark.parametrize(
+    "task_src,dep",
+    [
+        ("sib = _load('sib')\n\ndef task(x):\n    return sib.helper(x)\n", "inner"),
+        (
+            "_SIB = _load('sib')\n\ndef _get():\n    return _SIB\n\ndef task(x):\n    P = _get()\n    return P.helper(x)\n",
+            "module:sibling_sib",
+        ),
+        (
+            "sib = _load('sib')\n\ndef _call(m, x):\n    return m.helper(x)\n\ndef task(x):\n    return _call(sib, x)\n",
+            "module:sibling_sib",
+        ),
+        ("def task(x):\n    sib = _load('sib')\n    return (lambda: sib.helper(x))()\n", None),
+    ],
+    ids=["attribute of a global", "returned by a getter", "passed as an argument", "loaded inside the task"],
+)
+def test_modules_loaded_by_path_are_evidence(load_module, tmp_path, task_src: str, dep: str | None):
+    """A sibling module loaded by file path has no importable name, so only the live object leads to it. Reached as ``sib.helper``, the chain walk lands on the helper; handed on as a value (returned, passed), whatever later reaches into it holds it in a local, so the module counts whole.
+
+    The last case loads inside the task, where there is no live module to follow and no import statement to read. It stays a hole, pinned here so a change to it is deliberate."""
+
+    def parts(variant: str, n: int) -> dict:
+        d = tmp_path / variant
+        d.mkdir()
+        (d / "sib.py").write_text(SIBLING.format(n=n))
+        return task_key_parts(load_module("tasks", LOAD_BY_PATH + task_src, variant).task, (1,))[1]
+
+    v1, v2, copy = parts("a", 1), parts("b", 2), parts("c", 1)
+    assert copy["code_fp"] == v1["code_fp"], "identical source must fingerprint identically"
+    if dep is None:
+        assert v1["code_fp"] == v2["code_fp"]
+        return
+    assert v1["code_fp"] != v2["code_fp"], "sibling edit invisible — stale results would be served"
+    assert dep in v1["deps"], "explain should name what moved"
+
+
+def test_evidence_does_not_depend_on_where_the_checkout_sits(load_module, tmp_path):
+    """A helper that loads a sibling by path reads ``__file__``, an absolute path, and reaches ``importlib.util.module_from_spec``, which lives in a frozen stdlib module. Neither may join the evidence: the first would differ between checkouts and machines, and the second is library code."""
+    import importlib.util
+
+    from mini.memo import _is_project_source
+
+    src = LOAD_BY_PATH + "def task(x):\n    return _load('sib').helper(x)\n"
+    found = []
+    for variant in ("a", "b"):
+        (tmp_path / variant).mkdir()
+        (tmp_path / variant / "sib.py").write_text(SIBLING.format(n=1))
+        task = load_module("tasks", src, variant).task
+        found.append(task_key_parts(task, (1,))[1])
+        assert not [k for k in reachable_values(task, lambda v: repr(v))[0] if k.endswith("__file__")]
+    assert found[0]["code_fp"] == found[1]["code_fp"]
+    assert not [k for k in found[0]["deps"] if k.endswith("__file__")]
+    assert not _is_project_source(importlib.util.module_from_spec)
