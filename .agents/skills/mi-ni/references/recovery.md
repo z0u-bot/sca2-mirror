@@ -23,6 +23,8 @@ Mid-sweep, a bug fails 20 of 100 cells while 80 finish fine. Because keys are id
 
 Keeping stale DONE results is a *judgment call* — it asserts the edit didn't change what the finished cells computed. The default deliberately re-runs them (bias to over-invalidate); reach for the flag when you know the fix only matters to the cells that failed.
 
+The same goes for a change to the evidence model itself. When mini starts tracking more of what a fn depends on (as when the walk began to follow modules loaded by path, #354), finished results can turn stale with nothing changed in what they computed. Keep them: run with `--keep-stale-done`, and re-run only when the experiment has its own reason to.
+
 ### Superseded records
 
 Renaming a task fn or removing a config changes what the DAG *requests*, leaving old records behind under keys no wake will ask for again. Each tick persists the set of keys the DAG requested; the read commands aggregate over that set, showing the orphans as `(superseded)` without letting them poison the run's state — a completed run reads DONE even if an old key once settled FAILED. `retry` skips superseded records too (resetting one would plant a phantom that never runs); target one explicitly with `--key` if you really mean it. (Editing a fn's *body* no longer supersedes anything — the re-run lands on the same record.)

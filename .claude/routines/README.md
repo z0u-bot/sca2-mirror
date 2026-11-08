@@ -33,6 +33,7 @@ Pass these on with every brief:
 - Before writing prose (PR body, todo notes, docstrings), read `.agents/skills/writing/SKILL.md` and `.agents/skills/style-terms/SKILL.md`, since the Skill tool may not know repo skills here. Don't name the user in commits, PRs, todos or code.
 - Open a PR ready for review (not a draft).
 - Run `./go check` before pushing.
+- If a `mini run` finds finished results stale, keep them with `--keep-stale-done` unless there's a good reason to re-run (see the mi-ni skill's `references/recovery.md`).
 
 ## Environment note (for the helper)
 
