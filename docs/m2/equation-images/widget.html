@@ -2,13 +2,14 @@
 <meta name="claude:viewport-fit-sides" content="cover">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
 <style>
-/* Layout: compact chip controls that flow into rows, then one context as a stack of equations (a ? b = y), the
-   query last and set apart. Panels show at their native size (--pw) and shrink on narrow screens. */
+/* Layout: one grid holds the whole context. Controls that change every row (colors, op) sit at the top; controls
+   that change only the query (second image, temperature, answer) sit just above it. Example rows are cropped to a
+   band half the query's height, and a vertical label names each block. Panels show at their native size (--pw)
+   and shrink on narrow screens. */
 :root {
   --bg: #f7f8fa;
   --fg: #1d2330;
   --muted: #5d6677;
-  --rule: #d5dae3;
   --chip: #e8ebf1;
   --accent: #2d5bd7;
   --accent-fg: #ffffff;
@@ -18,12 +19,12 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
+    --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --chip: #222833;
     --accent: #7ea2ff; --accent-fg: #0e1320; color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --rule: #2c323d; --chip: #222833;
+  --bg: #12151b; --fg: #e3e7ef; --muted: #98a1b2; --chip: #222833;
   --accent: #7ea2ff; --accent-fg: #0e1320; color-scheme: dark;
 }
 body {
@@ -32,185 +33,189 @@ body {
   padding-right: max(16px, env(safe-area-inset-right, 0px));
   padding-block: 12px;
 }
-.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 12px; }
-.controls { display: flex; flex-wrap: wrap; gap: 6px 18px; }
-.group { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; }
-.group > .label { color: var(--muted); font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; margin-right: 3px; }
-.group button {
-  font: inherit; font-size: 12.5px; line-height: 1.3; border: 0; border-radius: 999px; padding: 3px 9px;
-  background: var(--chip); color: var(--fg); cursor: pointer;
+.wrap { max-width: 760px; margin: 0 auto; display: grid; gap: 8px; justify-items: start; }
+
+.eqs {
+  display: grid; gap: 1px 4px; align-items: center; max-width: 100%;
+  grid-template-columns: 1.3em minmax(0, var(--pw)) 1.6em minmax(0, var(--pw)) 1.6em minmax(0, var(--pw));
 }
-.group.ops button { font-family: var(--font-mono); font-size: 12px; }
-.group button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
-.group button.anchored { box-shadow: 0 0 0 2px var(--bg), 0 0 0 3.5px var(--accent); margin-inline: 3px; }
-.group button:disabled { opacity: 0.4; cursor: default; }
-.group button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-@media (max-width: 560px) {
-  .controls { gap: 5px; }
-  .group { flex-basis: 100%; }
-  .group > .label { flex: 0 0 7.4em; margin-right: 0; white-space: nowrap; }
+.side {
+  grid-column: 1; writing-mode: vertical-rl; transform: rotate(180deg); text-align: center;
+  font-size: 12px; color: var(--muted); align-self: stretch;
 }
-.eqs { display: grid; gap: 8px; justify-self: start; width: fit-content; max-width: 100%; }
-.eq {
-  display: grid; align-items: center; gap: 4px; justify-content: start;
-  grid-template-columns: minmax(0, var(--pw)) 1.6em minmax(0, var(--pw)) 1.6em minmax(0, var(--pw));
+.sym { text-align: center; font-size: 18px; color: var(--muted); }
+.eqs figure { margin: 0; position: relative; }
+.eqs img {
+  display: block; width: 100%; aspect-ratio: 3 / 2; object-fit: cover; image-rendering: pixelated;
+  background: var(--chip);
 }
-.eq .sym { text-align: center; font-family: var(--font-mono); font-size: 18px; color: var(--muted); }
-.eq .stack { display: grid; gap: 6px; }
-.eq figure { margin: 0; display: grid; gap: 2px; }
-.eq figcaption { font-size: 12px; line-height: 16px; color: var(--muted); text-align: center; }
-/* Under All three, a and b carry captions too and the symbols clear one, so the operands line up with the middle answer. */
-.eq.compare .sym { padding-bottom: 18px; }
-.eq img {
-  display: block; width: 100%; aspect-ratio: 3 / 2; image-rendering: pixelated;
-  outline: 1px solid var(--rule); outline-offset: -1px; background: var(--chip);
+.eqs .example img { aspect-ratio: 3 / 1; }
+.eqs figcaption {
+  position: absolute; left: 0; bottom: 0; padding: 0 4px; font-size: 12px; line-height: 16px;
+  background: #000; color: #fff;
 }
-.query { border-top: 1px solid var(--rule); padding-top: 10px; }
-.eqs.no-examples .query { border-top: 0; padding-top: 0; }
+
+.controls {
+  grid-column: 2 / -1; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;
+  gap: 10px 4px; padding-block: 10px 6px;
+}
+.group { display: contents; }
+.spacer { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); opacity: 0.4; margin-inline: 4px; }
+.controls button {
+  position: relative; font: inherit; font-size: 12.5px; line-height: 1.3; border: 0; border-radius: 999px;
+  padding: 3px 9px; background: var(--chip); color: var(--fg); cursor: pointer;
+}
+.controls button[aria-pressed="true"] { background: var(--accent); color: var(--accent-fg); }
+.controls button.anchored::before {
+  content: ""; position: absolute; left: 50%; top: -8px; transform: translateX(-50%);
+  border: 5px solid transparent; border-bottom: 0; border-top: 5px solid var(--fg);
+}
+.controls button:disabled { opacity: 0.4; cursor: default; }
+.controls button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
 .caption { color: var(--muted); font-size: 13px; max-width: 65ch; margin: 0; }
 .caption code { font-family: var(--font-mono); font-size: 12.5px; }
 </style>
 
 <div class="wrap" id="app">
-  <div class="controls">
-    <div class="group ops" id="op" role="group" aria-label="Hidden op"><span class="label">Hidden op</span></div>
-    <div class="group" id="model" role="group" aria-label="Answer"><span class="label">Answer</span></div>
-    <div class="group" id="b" role="group" aria-label="Second image"><span class="label">Image b</span></div>
-    <div class="group" id="pick" role="group" aria-label="Model color"><span class="label">Model color</span></div>
-    <div class="group" id="render" role="group" aria-label="Colors"><span class="label">Colors</span></div>
-    <div class="group" id="walk" role="group" aria-label="Examples"><span class="label">Examples</span></div>
-    <div class="group" id="show" role="group" aria-label="Show"><span class="label">Show</span></div>
-  </div>
   <div class="eqs" id="eqs"></div>
-  <p class="caption" id="caption"></p>
+  <p class="caption" id="caption" aria-live="polite"></p>
 </div>
 
 <script>
 const BASE = document.documentElement.dataset.panels ?? "panels/";
-const OPS = ["mix", "lighten", "darken", "difference", "hue-hsv", "sat-hsv", "value-hsv"];
 const ANCHORED = "difference";
 const EXAMPLES = [["hats", "huelight"], ["barn", "ramp"], ["bikes", "rafting"]];
+const WALK = "in-sync";
+// Each control: [group name, [[value, chip label, full name for screen readers and the tooltip], ...]].
 const CHOICES = {
-  op: OPS.map(o => [o, o]),
-  model: [["clean", "Unedited"], ["edited", "Edited"], ["truth", "True"], ["all", "All three"]],
-  b: [["ramp", "Gray ramp"], ["huelight", "Hue and lightness"]],
-  pick: [["argmax", "Most likely (T = 0)"], ["sample", "Drawn (T = 1)"]],
-  render: [["posterized", "Posterized"], ["dithered", "Dithered"]],
-  walk: [["in-sync", "In step"], ["random", "Random pixels"]],
-  show: [["examples", "Examples and query"], ["query", "Query only"]],
+  render: ["Colors", [
+    ["posterized", "posterize", "Posterized: each channel of a and b rounded to the nearest of the model's six levels"],
+    ["dithered", "dither", "Dithered: a and b diffused onto the model's colors (Floyd\u2013Steinberg)"]]],
+  op: ["Hidden op", [
+    ["mix", "mix", "Hidden op: mix"], ["lighten", "lighten", "Hidden op: lighten"],
+    ["darken", "darken", "Hidden op: darken"], ["difference", "diff.", "Hidden op: difference (the anchored op)"],
+    ["hue-hsv", "hue", "Hidden op: hue-hsv"], ["sat-hsv", "sat.", "Hidden op: sat-hsv"],
+    ["value-hsv", "value", "Hidden op: value-hsv"]]],
+  b: ["Second image of the query", [
+    ["ramp", "gray", "Query b: a gray ramp"], ["huelight", "color", "Query b: hue across, lightness down"]]],
+  pick: ["Model color", [
+    ["argmax", "T = 0", "Temperature 0: the model's most likely color at each pixel"],
+    ["sample", "T = 1", "Temperature 1: one color drawn from the model's answer at each pixel"]]],
+  model: ["Answer", [
+    ["clean", "clean", "Answer from the unedited model"],
+    ["edited", "edited", "Answer from the model with the op's axis edited out"],
+    ["truth", "true", "The true answer under the op"]]],
 };
-const state = { op: "difference", model: "clean", b: "ramp", pick: "argmax", render: "posterized", walk: "in-sync", show: "examples" };
+const TOP = ["render", "op"], QUERY = ["b", "pick", "model"];
+const state = { op: "difference", model: "clean", b: "ramp", pick: "argmax", render: "posterized" };
 
 const src = name => window.PANELS?.[name] ?? BASE + name + ".png";
-function img(name, alt) {
-  const el = document.createElement("img");
-  el.src = src(name);
-  el.alt = alt;
-  return el;
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
 }
-function sym(s) { const el = document.createElement("span"); el.className = "sym"; el.textContent = s; return el; }
-function fig(el, caption) {
-  const f = document.createElement("figure");
-  const c = document.createElement("figcaption");
-  c.textContent = caption;
-  f.append(el, c);
-  return f;
+function panel(cls, caption) {
+  const f = el("figure", cls), i = el("img");
+  f.append(i);
+  if (caption) { const c = el("figcaption", null, caption); c.setAttribute("aria-hidden", "true"); f.append(c); }
+  return [f, i];
 }
-function row(cells, extra) {
-  const r = document.createElement("div");
-  r.className = "eq" + (extra ? " " + extra : "");
-  r.append(...cells);
-  return r;
+function controls(keys) {
+  const box = el("div", "controls");
+  keys.forEach((k, n) => {
+    if (n) { const s = el("span", "spacer"); s.setAttribute("aria-hidden", "true"); box.append(s); }
+    const [label, opts] = CHOICES[k];
+    const g = el("div", "group");
+    g.id = k; g.setAttribute("role", "group"); g.setAttribute("aria-label", label);
+    for (const [value, text, full] of opts) {
+      const btn = el("button", null, text);
+      btn.type = "button"; btn.value = value; btn.id = `${k}-${value}`; btn.title = full;
+      btn.setAttribute("aria-label", full);
+      if (k === "op" && value === ANCHORED) btn.classList.add("anchored");
+      btn.addEventListener("click", () => { state[k] = value; render(); });
+      g.append(btn);
+    }
+    box.append(g);
+  });
+  return box;
 }
 
-function answerName(model, s = state) {
-  if (model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
-  return `answer-${s.walk}-${s.render}-${s.b}-${s.op}-${model}-${s.pick}`;
+// The grid is built once; a change of state only swaps image sources.
+const slots = [];  // [img, state => panel name, state => alt text]
+const box = document.getElementById("eqs");
+box.append(controls(TOP));
+const side = el("div", "side", "examples");
+side.style.gridRow = `2 / span ${EXAMPLES.length}`;
+box.append(side);
+for (const [a, b] of EXAMPLES) {
+  const pa = panel("example"), pb = panel("example"), py = panel("example");
+  slots.push([pa[1], s => `operand-${s.render}-${a}`, () => a],
+             [pb[1], s => `operand-${s.render}-${b}`, () => b],
+             [py[1], s => `example-${s.render}-${a}-${b}-${s.op}`, s => `${a} ${s.op} ${b}`]);
+  box.append(pa[0], el("span", "sym", "&"), pb[0], el("span", "sym", "="), py[0]);
 }
-const NAMES = { clean: "Unedited", edited: "Edited", truth: "True" };
+box.append(controls(QUERY));
+const qa = panel("query", "a"), qb = panel("query", "b"), qy = panel("query", "y");
+box.append(el("div", "side", "query"), qa[0], el("span", "sym", "&"), qb[0], el("span", "sym", "="), qy[0]);
+const NAMES = { clean: "clean", edited: "edited", truth: "true" };
+function answerName(s) {
+  if (s.model === "truth") return `truth-${s.render}-${s.b}-${s.op}`;
+  return `answer-${WALK}-${s.render}-${s.b}-${s.op}-${s.model}-${s.pick}`;
+}
+slots.push([qa[1], s => `operand-${s.render}-parrots`, () => "a: parrots"],
+           [qb[1], s => `operand-${s.render}-${s.b}`, s => `b: ${s.b === "ramp" ? "gray ramp" : "hue and lightness"}`],
+           [qy[1], answerName, s => `y: ${CHOICES.model[1].find(o => o[0] === s.model)[2].toLowerCase()}`]);
 
-// Every panel a state shows, so the panels one click away can be fetched ahead of the click.
-function panelNames(s) {
-  const names = [`operand-${s.render}-parrots`, `operand-${s.render}-${s.b}`];
-  if (s.show === "examples")
-    for (const [a, b] of EXAMPLES) names.push(`operand-${s.render}-${a}`, `operand-${s.render}-${b}`, `example-${s.render}-${a}-${b}-${s.op}`);
-  for (const m of s.model === "all" ? ["clean", "edited", "truth"] : [s.model]) names.push(answerName(m, s));
-  return names;
-}
+// Panels are fetched ahead: those one click away once a view is up, and the new view's before it is shown, so a
+// slow fetch leaves the previous picture in place rather than an empty box.
 const fetched = new Map();
-function prefetch(name) {
-  if (fetched.has(name)) return;
-  const el = new Image();
-  el.src = src(name);
-  fetched.set(name, el);  // held so the browser keeps the decoded image
+function fetchPanel(name) {
+  if (!fetched.has(name)) {
+    const i = new Image();
+    i.src = src(name);
+    fetched.set(name, i.decode().catch(() => {}));
+  }
+  return fetched.get(name);
 }
 function prefetchNeighbors() {
-  for (const [k, opts] of Object.entries(CHOICES))
+  for (const [k, [, opts]] of Object.entries(CHOICES))
     for (const [value] of opts)
-      if (value !== state[k]) panelNames({ ...state, [k]: value }).forEach(prefetch);
+      if (value !== state[k]) for (const [, name] of slots) fetchPanel(name({ ...state, [k]: value }));
 }
 const idle = window.requestIdleCallback ?? (f => setTimeout(f, 200));
 
+const RENDER = {
+  posterized: "each channel of a and b is rounded to the nearest of its six levels",
+  dithered: "a and b are dithered onto those colors",
+};
 let shown = 0;
 function render() {
-  const s = state, box = document.getElementById("eqs");
-  const rows = [];
-  if (s.show === "examples")
-    for (const [a, b] of EXAMPLES)
-      rows.push(row([img(`operand-${s.render}-${a}`, a), sym("?"), img(`operand-${s.render}-${b}`, b), sym("="),
-                     img(`example-${s.render}-${a}-${b}-${s.op}`, `${a} ${s.op} ${b}`)]));
-  const qa = img(`operand-${s.render}-parrots`, "parrots"), qb = img(`operand-${s.render}-${s.b}`, s.b);
-  let y, cls = "query";
-  if (s.model === "all") {
-    cls += " compare";
-    y = document.createElement("div");
-    y.className = "stack";
-    y.append(...["clean", "edited", "truth"].map(m => fig(img(answerName(m), NAMES[m]), NAMES[m])));
-  } else {
-    y = img(answerName(s.model), NAMES[s.model]);
-  }
-  const all = s.model === "all";
-  rows.push(row([all ? fig(qa, "a") : qa, sym("?"), all ? fig(qb, "b") : qb, sym("="), y], cls));
-  // Keep the old panels up until the new ones are decoded (or a short wait passes), so a slow fetch shows the
-  // previous picture rather than an empty box.
-  const ticket = ++shown;
-  const imgs = rows.flatMap(r => [...r.querySelectorAll("img")]);
-  const ready = Promise.all(imgs.map(i => i.decode().catch(() => {})));
-  Promise.race([ready, new Promise(r => setTimeout(r, 1500))]).then(() => {
+  const s = { ...state }, ticket = ++shown;
+  const names = slots.map(([, name]) => name(s));
+  Promise.race([Promise.all(names.map(fetchPanel)), new Promise(r => setTimeout(r, 1500))]).then(() => {
     if (ticket !== shown) return;
-    box.classList.toggle("no-examples", s.show !== "examples");
-    box.replaceChildren(...rows);
+    slots.forEach(([img, , alt], n) => { img.src = src(names[n]); img.alt = alt(s); });
+    qy[0].querySelector("figcaption").textContent = `y (${NAMES[s.model]})`;
     idle(prefetchNeighbors);
   });
 
-  const who = {
-    clean: "the unedited model", edited: "the model with the op's axis edited out", truth: "the true op",
-    all: "the unedited model, the edited model and the true op",
-  }[s.model];
-  const pick = s.model === "truth" ? "" : (s.pick === "sample"
-    ? ", with one color drawn from the model's answer at each pixel"
-    : ", with the model's most likely color at each pixel");
-  const walk = s.model === "truth" ? "" : (s.walk === "random"
-    ? " Each pixel of the query is its own context, with three example pixels drawn at random from the three example pairs."
-    : " Each pixel of the query is its own context, with the three examples taken at the same position in the example pairs.");
-  const lead = s.show === "examples" ? `Three examples of <code>${s.op}</code>, then the query` : `The query under <code>${s.op}</code>`;
-  document.getElementById("caption").innerHTML = `${lead}, answered by ${who}${pick}.${walk}`;
+  const op = `<code>${s.op}</code>`;
+  const answer = s.model === "truth"
+    ? `Here y is the true answer under ${op}.`
+    : `Here y is the answer of the ${s.model === "clean" ? "unedited model" : "model with the op's axis edited out"}, ` +
+      (s.pick === "sample" ? "with one color drawn from its answer at each pixel (T = 1)." : "with its most likely color at each pixel (T = 0).") +
+      " Each pixel of y is its own context: the three example pixels at the same position, then the query pair.";
+  document.getElementById("caption").innerHTML =
+    `Three examples of the hidden op ${op}, cropped to their middle band, then a query. ${answer} ` +
+    `The model knows only the 216 colors of its grid, so ${RENDER[s.render]}. ` +
+    `The op marked &#9660; is the one anchored in training, and the one the edit takes out.`;
 
   for (const k of Object.keys(CHOICES))
     for (const btn of document.querySelectorAll(`#${k} button`)) btn.setAttribute("aria-pressed", String(btn.value === s[k]));
-  for (const id of ["pick", "walk"])
-    for (const btn of document.querySelectorAll(`#${id} button`)) btn.disabled = s.model === "truth";
-}
-
-for (const [k, opts] of Object.entries(CHOICES)) {
-  const g = document.getElementById(k);
-  for (const [value, label] of opts) {
-    const btn = document.createElement("button");
-    btn.type = "button"; btn.value = value; btn.textContent = label; btn.id = `${k}-${value}`;
-    if (k === "op" && value === ANCHORED) { btn.classList.add("anchored"); btn.title = "The anchored op"; }
-    btn.addEventListener("click", () => { state[k] = value; render(); });
-    g.append(btn);
-  }
+  for (const btn of document.querySelectorAll("#pick button")) btn.disabled = s.model === "truth";
 }
 render();
 </script>

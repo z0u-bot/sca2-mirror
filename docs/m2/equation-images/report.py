@@ -421,7 +421,7 @@ WIDGET = write_panels(SEED)
 rf"""
 ## The panels as files
 
-Every panel of seed {SEED} is also a PNG at its native size ({W} × {H}, one pixel per grid color), named in [panels.json]({MANIFEST.get("manifest", "_assets/panels.json")}). A [small page]({WIDGET or "_assets/widget.html"}) shows them as one context at a time, with a choice of op, second image, model, colors and example walk, for embedding in a post.
+Every panel of seed {SEED} is also a PNG at its native size ({W} × {H}, one pixel per grid color), named in [panels.json]({MANIFEST.get("manifest", "_assets/panels.json")}). A [small page]({WIDGET or "_assets/widget.html"}) shows them as one context at a time, with the examples walked in step, and a choice of op, colors, second image, temperature and answer, for embedding in a post.
 
 ## References
 
