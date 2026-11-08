@@ -11,3 +11,7 @@ The pack HLO scout (`docs/m2/pack-hlo`, write-up in the project files as `pack-t
 - Kernel launches. A step runs about 490 kernels, and the card is idle about 0.26 ms of the 1.8 ms step between them (flags off). XLA can capture runs of kernels as CUDA graphs (command buffers); whether the scanned step is captured, and what a wider capture would save, is untested. The `--xla_gpu_enable_command_buffer` flag and the scout's profiler trace are the place to start.
 
 Neither changes the conclusion that seed packs don't pay on the L40S: the other large kernels (MLP hidden state, logits) also slow down about 1.5-fold in a pack of 8.
+
+## Notes
+
+**2026-11-08, housekeeping** — The anchor and anti terms are not a third candidate. The term cost probe (`docs/m2/term-cost`, PR #345, dev profile) timed the recipe-of-record step on an L40S at 2.01 ms with both terms and 1.97 ms with neither, a gap smaller than the spread between containers. XLA's cost analysis puts the terms at about 3% of the bytes a step moves.
