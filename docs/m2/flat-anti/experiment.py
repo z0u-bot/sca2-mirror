@@ -100,10 +100,10 @@ SEEDS: tuple[int, ...] = tuple(range(720, 728))
 KEEP = tuple(sorted({*fc.STOP_KEEP, *fc.FINISH_KEEP}))
 """Checkpoints kept along training: 16, 32, 64, then every 32 epochs, as the fixed confirmation's runs."""
 
-BUDGET_USD = 8
+BUDGET_USD = 14
 """From the fixed-labels crossed runs on L40S cards (sixteen runs to epoch 400 for about \\$1 of training) and the
 fixed confirmation's scoring: 48 runs to 400, controls included (about \\$3), their end measurements and axis scoring (\\$2), the
-axis scoring of thirteen kept checkpoints on each (\\$2), and room for a retry."""
+axis scoring of thirteen kept checkpoints on each (\\$2), and room for a retry; then \\$6 for the three rungs of the second round."""
 
 
 def label_of(c: Condition, model_seed: int) -> str:
