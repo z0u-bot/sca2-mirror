@@ -570,6 +570,45 @@ def along_draw(data: dict, alt_text: str) -> str:
     return _plot()
 
 
+def alpha_by_slice(c: str, key: str) -> np.ndarray:
+    """Mean α at the example answers by slice (embedding first) at the last record, over the seeds: of the anchored
+    op's probe contexts (`alpha_anchored`) or the other ops' (`alpha_other`).
+    """
+    ans = list(lr.lean.ANSWERS)
+    return np.mean([np.asarray(_TRAJ[label(c, s)]["traj"][key])[-1][:, ans].mean(axis=1) for s in SEEDS], axis=0)
+
+
+ALPHA_SLICE = {c: (alpha_by_slice(c, "alpha_anchored"), alpha_by_slice(c, "alpha_other")) for c in CONDITIONS}
+SLICE_NAMES = ["embedding", "slice 1", "slice 2", "slice 3", "slice 4"]
+
+
+def slice_table() -> str:
+    # No figure beside it: five numbers a column, and the conditions agree to a few hundredths.
+    anch = np.array([ALPHA_SLICE[c][0] for c in CONDITIONS])
+    oth = np.array([ALPHA_SLICE[c][1] for c in CONDITIONS])
+    rows = [
+        [
+            SLICE_NAMES[i],
+            num(ex.FALLOFF_HOLDS[i], ".3f"),
+            num(ALPHA_SLICE[RECIPE][0][i], ".2f"),
+            f"{num(anch[:, i].min(), '.2f')} to {num(anch[:, i].max(), '.2f')}",
+            num(ALPHA_SLICE[RECIPE][1][i], ".2f"),
+            f"{num(oth[:, i].min(), '.2f')} to {num(oth[:, i].max(), '.2f')}",
+        ]
+        for i in range(len(SLICE_NAMES))
+    ]
+    return table_html(
+        ["slice", "falloff hold", "α, `difference`", "range", "α, other ops", "range"],
+        rows,
+        """
+        **Where the op and the other ops sit on e₁, by slice, at epoch 400.** α at the example answers, as a mean
+        over the eight runs of the recipe, and the range of that mean over the eight conditions. "`difference`" is
+        over the probe contexts of the anchored op, and "other ops" over those of the other six. Beside them, the
+        hold of the falloff at each slice.
+        """,
+    )
+
+
 def settle_table() -> str:
     # No figure beside it: every column agrees across conditions, and removal along training is drawn in E3.
     rows = [
@@ -637,6 +676,7 @@ r"""
 <!-- REVIEW: was "three runs in eight remove much less, and one in each condition falls to about the lost line". `level 0.2` has two runs far under the recipe (0.49, 0.67) and one at 0.79, and both lowest runs are under 0.5, which the table counts as lost. Verify: REMOVAL and LOST. -->
 - [Along training (E3)](#along-training-e3): at 0.2, three of the low runs remove about as much as the rest at epoch 64 and then slide, and two are low from the start and stay low, where the slow runs of the recipe catch up. Spill along training is rarest at 0.2 and most common at `level 0.115`, and the recipe crosses the spill criterion on more runs than any weight from 0.14 up.
 <!-- REVIEW: was "the low runs at 0.2 remove about as much as the rest early on, then slide or stall". Seed 726 is under 0.6 at epochs 32 and 64 in both conditions at 0.2 and never recovers; seeds 720 and 725 (`flat 0.2`) and 725 (`level 0.2`) are at par at epoch 64 and slide. Added the recipe count (3 runs against 1). Verify: REMOVAL_ALONG and OVER_ALONG. -->
+- [Where the anchor sits (E4)](#where-the-anchor-sits-e4): the op sits on e₁ mostly at slices 2 to 4, and the other ops lean on it most at slice 1, the same under every condition. The falloff is high where the other ops lean and low where the op sits.
 
 ## Scope and method
 
@@ -771,6 +811,20 @@ Of the second round, `level 0.17` and `from 0.17` cross on {OVER_ALONG["level-0.
 
 The recipe crosses on {OVER_ALONG[RECIPE]} runs, one of them for much of the middle of training, and all are back under by the end. So spill at the end understates how often spill gets through along the way, for the recipe as much as for `level 0.115`. The counts do not order by the weight: the recipe crosses on more runs than `flat 0.115` and any weight from 0.14 up, and about as many as `level 0.115`.
 <!-- REVIEW: was "Spill along training follows the weight the other way ... So spill at the end understates how often the low weights let spill through along the way; the recipe sits between the two." Runs over at any checkpoint: recipe 3, `flat 0.115` 1, `flat 0.2` 0, `level 0.115` 4, `level 0.2` 1, so the recipe is above `flat 0.115`, and at `flat 0.115` the count at the end (1) equals the count along training. The `flat 0.115` spike is at epoch 96, when its weight is 0.234 on every slice (recipe: 0.244 to 0.223). Verify: OVER_ALONG, SPILL_ALONG, and `anti_weight` in the trajectories. -->
+"""
+
+# %%
+
+rf"""
+## Where the anchor sits (E4)
+
+The falloff was chosen by trial, high at the embedding and low at slice 4. Does its shape follow where the op and the other ops sit on e₁?
+
+{slice_table()}
+
+The op sits mostly at slices 2 to 4, peaking at slice 3, and hardly at all on the embedding. The other ops lean on e₁ most at slice 1, at about half of what the op has there, and less with depth. Every condition has the same profile to within a few hundredths, so the falloff did not make it.
+
+The falloff is high where the other ops lean and low where the op sits: it pushes other ops off e₁ hardest at the embedding and slice 1, and least at slices 3 and 4, where the op sits. A weight the same at every slice has to do both jobs with one number, which may be why it works only in a narrow band. These are α values at the end of training, read beside a falloff set by trial, so they describe the shape and do not show it is the best one.
 """
 
 # %%
