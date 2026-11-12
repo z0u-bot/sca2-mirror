@@ -2,7 +2,7 @@
 # title: Flat anti weight
 
 # An exploratory report: the recipe of record, `τ_ℓ fixed`, trained at seeds 720 to 727 under five anti-subspace
-# weights (the falloff over depth, two holds that are the same at every slice, and one weight held level from the
+# weights (the falloff over depth, two holds that are the same at every slice, and two weights held level from the
 # start), beside a control at each seed. `experiment.py` beside this script trains and scores the runs. This is the
 # plan: results are TODO.
 
