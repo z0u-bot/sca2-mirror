@@ -341,6 +341,7 @@ def end_table() -> str:
 
 
 def gap_table() -> str:
+    # No figure beside it: the seeds behind these gaps are drawn in the end figure just above.
     rows = [[f"`{SHOWN[c]}`", "`recipe`", *[num(v, "+.3f") for v in GAP[c]]] for c in GAP]
     rows += [[f"`{SHOWN[lv]}`", f"`{SHOWN[fl]}`", *[num(v, "+.3f") for v in GAP_LEVEL[lv]]] for lv, fl in (("level-0.115", "flat-0.115"), ("level-0.2", "flat-0.2"))]  # fmt: skip
     return table_html(
@@ -426,6 +427,7 @@ def along_draw(data: dict, alt_text: str) -> str:
 
 
 def settle_table() -> str:
+    # No figure beside it: every column agrees across conditions, and removal along training is drawn in E3.
     rows = [
         [
             f"`{SHOWN[c]}`",
@@ -465,7 +467,7 @@ r"""
 
 /// tip |
 <!-- lede -->
-The recipe of record sets the anti-subspace weight high on the early slices and low on the late ones. We tried the same weight at every slice instead. A high weight everywhere kept spill out, but on a few seeds the edit took out much less of the op, and one run in eight lost the anchor. A low weight everywhere kept removal, and one run in eight ended over the spill criterion, a difference from the recipe that eight runs cannot confirm. No run without the high start of the weight lost the anchor early.
+The recipe of record sets the anti-subspace weight high on the early slices and low on the late ones. We tried the same weight at every slice instead. A high weight kept spill out but cost removal on some seeds, and a low one did about as well as the recipe, without clearly matching it.
 ///
 
 The recipe of record anneals the anti-subspace weight from 0.25 on every slice to a hold that falls off with depth, from 0.2 at the embedding to 0.03 at slice 4. The falloff came from the [split-anti-seeds](/docs/m2/split-anti-seeds/report.py) experiment, where both holds that were the same at every slice did worse. But that experiment used an older pull: a step on slices 2 to 4, with a sharp pooling temperature from the start and no pool over slices.
@@ -475,7 +477,7 @@ Each flat hold there lost the anchor on one run, but the hold can't have caused 
 Two other results stand against the flat holds: the high hold removed less on the seeds where the pull settled slowly, and the low one spilled. A sharp pool over slices 1 to 3 has since taken away the spill from block 1 ([soft-pool-scout](/docs/m2/soft-pool-scout/report.py)), so a flat hold may now do as well, which would make the recipe simpler to describe.
 <!-- REVIEW: the plan first said the flat holds failed by losing the anchor. The assumptions review found the losses parted from the kept runs by about epoch 60, when the anneal had moved the weight by under 0.008 in any condition, so the hold cannot have caused them. Verify: the loss-rate report on when lost runs diverge, and AntiSpec at epochs 20 and 64. -->
 
-This report trains the recipe at eight seeds under five anti weights, with a control at each seed: 48 runs. None of the four other weights meets the margin we set before the runs for doing about as well as the falloff. The two at 0.2 miss it on removal. The two at 0.115 miss it by one run over the spill criterion each, which is too few to tell them from the recipe.
+This report trains the recipe at eight seeds under five anti weights, with a control at each seed: 48 runs. None of the four other weights meets the bar we set before the runs for doing about as well as the falloff (in Scope and method). The two at 0.2 miss it on removal. The two at 0.115 miss it by one run over the spill criterion each, which is too few to tell them from the recipe.
 """
 
 # %%
@@ -504,7 +506,7 @@ The two flat holds match the falloff on its mean and on its highest value. `flat
 `level 0.115` asks a separate question, and its comparison is with `flat 0.115`, which differs only in the start. In the [ex-2.1.11](/docs/m2/ex-2.1.11/report.py) experiment, an anti weight held at its low value from the start let the pull latch onto a syntax token. That low value was 0.3 times the anchor weight, where 0.115 is a little more than the anchor weight (0.1), so `level 0.115` is a milder case than that one. The soft start of the pooling temperature now spreads the early pull over positions, and may do that job instead.
 <!-- REVIEW: added the scale of the ex-2.1.11 arm (`anti-hold`, ratio 0.30 against a peak ratio of 2.5), since "no high start" could be taken as a repeat of it. Verify: `lam` 0.1 and `hold_ratio` 0.3 in the anti schedule. -->
 
-Seeds 720 to 727 have no finished run of the recipe; the loss-rate counts stopped them at epoch 64. We compare conditions as two samples of eight runs, with a 95% Welch t interval on the difference of seed means,[^welch] and Fisher's exact test for counts of runs (lost, or over the spill criterion).
+The recipe is retrained at seeds 720 to 727, where no run of it had been trained past epoch 64 (the loss-rate counts stopped there). We compare conditions as two samples of eight runs, with a 95% Welch t interval on the difference of seed means,[^welch] and Fisher's exact test for counts of runs (lost, or over the spill criterion).
 
 At eight runs a side, removal gaps under about 0.05 are hard to see. But the seed range of the recipe (about 0.08 in fixed-confirm) suggests an interval of about ±0.03 on removal, so the experiment can bound what a flat hold costs.
 
@@ -546,6 +548,8 @@ rf"""
 Does every condition settle on the example answers, and as quickly? Up to the call at epoch 64 the three annealed conditions are the same recipe, so any losses there test the level conditions alone. A level run that aligns a syntax token or the query answer would show up here.
 
 A run of any condition can still lose the anchor after epoch 64. In the loss-rate experiment, the slow runs of the older recipe stalled until the anti weight at slice 3 had fallen to about half. A hold of 0.2 never falls that far, so the speed of settling may separate `flat 0.2` from the rest.
+
+The table gives the call, how quickly α settled, and removal at epoch 64 for each condition; the last two columns count runs from E3.
 
 {settle_table()}
 
