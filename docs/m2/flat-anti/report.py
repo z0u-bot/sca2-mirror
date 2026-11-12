@@ -251,10 +251,11 @@ def end_figure() -> str:
         "lost": LOST_BELOW,
     }
     alt = f"""
-        Removal is near 0.88 on every run of the recipe and of level 0.115. The two conditions at 0.2 each have three
-        runs well below the rest, the lowest at {REMOVAL["flat-0.2"].min():.2f} and {REMOVAL["level-0.2"].min():.2f},
-        and flat 0.115 has two runs a little below. Spill stays under the criterion on every run at 0.2 and on the
-        recipe, and goes over on one run of each 0.115 condition. Under the edit at block 1 alone, level 0.115 has
+        Removal is near 0.88 on every run of the recipe and of level 0.115. Flat 0.2 has three runs well below the rest and
+        level 0.2 two, the lowest at {REMOVAL["flat-0.2"].min():.2f} and {REMOVAL["level-0.2"].min():.2f}, both under
+        the lost line, and the lowest run of flat 0.115 is at {REMOVAL["flat-0.115"].min():.2f}. Spill stays under the
+        criterion on every run at 0.2 and on the recipe, whose highest run is just under it at
+        {SPILL[RECIPE].max():.3f}, and goes over on one run of each 0.115 condition. Under the edit at block 1 alone, level 0.115 has
         {BLOCK1_OVER["level-0.115"]} runs over and the conditions at 0.2 none.
     """
     return end_draw(data, alt)
@@ -369,8 +370,10 @@ def along_figure() -> str:
         underneath. Removal reaches about 0.8 by epoch 64 on most runs of every condition. Under the recipe and the
         conditions at 0.115 it then holds or climbs; under the two conditions at 0.2, a few runs slide or stay near
         0.5 for the rest of training. Spill stays near zero on most runs. Under level 0.115 one run (seed {s0}) rises to
-        {p0:.2f} in the middle of training and comes back down, and several others cross the criterion for a while.
-        Under the two conditions at 0.2 spill stays under the criterion throughout. The weight strip shows the recipe
+        {p0:.2f} in the first half of training and comes back down, and several others cross the criterion for a while.
+        One run of flat 0.115 spikes as high at epoch 96, and one run of the recipe stays over for much of the middle
+        of training. Under flat 0.2 spill stays under the criterion throughout, and under level 0.2 one run crosses
+        it at one checkpoint. The weight strip shows the recipe
         fanning out by slice as it anneals, the flat holds annealing as one line, and the level conditions flat.
     """
     return along_draw(data, alt)
@@ -462,7 +465,7 @@ r"""
 
 /// tip |
 <!-- lede -->
-The recipe of record sets the anti-subspace weight high on the early slices and low on the late ones. With the same weight at every slice, we had to choose between the two things that falloff gives together. A high weight everywhere kept every run clean, but on a few seeds the edit took out much less of the op. A low weight everywhere kept removal, but let a little spill through. The high start of the weight was not needed to keep the anchor.
+The recipe of record sets the anti-subspace weight high on the early slices and low on the late ones. We tried the same weight at every slice instead. A high weight everywhere kept spill out, but on a few seeds the edit took out much less of the op, and one run in eight lost the anchor. A low weight everywhere kept removal, and one run in eight ended over the spill criterion, a difference from the recipe that eight runs cannot confirm. No run without the high start of the weight lost the anchor early.
 ///
 
 The recipe of record anneals the anti-subspace weight from 0.25 on every slice to a hold that falls off with depth, from 0.2 at the embedding to 0.03 at slice 4. The falloff came from the [split-anti-seeds](/docs/m2/split-anti-seeds/report.py) experiment, where both holds that were the same at every slice did worse. But that experiment used an older pull: a step on slices 2 to 4, with a sharp pooling temperature from the start and no pool over slices.
@@ -470,7 +473,7 @@ The recipe of record anneals the anti-subspace weight from 0.25 on every slice t
 Each flat hold there lost the anchor on one run, but those losses can't have come from the hold. The lost runs parted from the kept ones within the first sixty epochs ([loss-rate](/docs/m2/loss-rate/report.py)), while the anti weight was still near its start of 0.25 in every condition, and the falloff later lost one run of forty in the same way. A soft start for the pooling temperature has since stopped those losses. What remains against the flat holds is the rest: the high hold removed less on the seeds where the pull settled slowly, and the low one spilled. A sharp pool over slices 1 to 3 has since taken away the spill from block 1 ([soft-pool-scout](/docs/m2/soft-pool-scout/report.py)), so a flat hold may now do as well. That would make the recipe simpler to describe.
 <!-- REVIEW: the plan first said the flat holds failed by losing the anchor. The assumptions review found the losses parted from the kept runs by about epoch 60, when the anneal had moved the weight by under 0.008 in any condition, so the hold cannot have caused them. Verify: the loss-rate report on when lost runs diverge, and AntiSpec at epochs 20 and 64. -->
 
-This report trains the recipe at eight seeds under five anti weights, with a control at each seed: 48 runs. None of the four other weights does as well as the falloff by the margin we set before the runs, though the low weights miss it only on spill, by one run each.
+This report trains the recipe at eight seeds under five anti weights, with a control at each seed: 48 runs. None of the four other weights meets the margin we set before the runs for doing about as well as the falloff. The two at 0.2 miss it on removal. The two at 0.115 miss it by one run over the spill criterion each, which is too few to tell them from the recipe.
 """
 
 # %%
@@ -478,9 +481,11 @@ This report trains the recipe at eight seeds under five anti weights, with a con
 r"""
 ## Observations
 
-- [Keeping the anchor (E1)](#keeping-the-anchor-e1): every run of every condition is called kept at epoch 64, with or without the high start, and the anchor settles about as fast in all of them.
-- [Removal and spill at the end (E2)](#removal-and-spill-at-the-end-e2): at 0.2 everywhere, no run spills and the color embeddings stop leaning onto e₁, but three runs in eight remove much less, and one in each condition falls to about the lost line. At 0.115 everywhere, removal stays near the recipe, and one run in each condition ends over the spill criterion. With no high start, block 1 spills on more runs.
-- [Along training (E3)](#along-training-e3): the low runs at 0.2 remove about as much as the rest early on, then slide or stall while the weight holds high on the late slices. Spill along training is rarest at 0.2 and most common at `level 0.115`.
+- [How the anchor settles (E1)](#how-the-anchor-settles-e1): every run of every condition is called kept at epoch 64, with or without the high start, and α at the example answers settles about as fast in all of them.
+- [Removal and spill at the end (E2)](#removal-and-spill-at-the-end-e2): at 0.2 everywhere, no run spills and the color embeddings stop leaning onto e₁, but two or three runs in eight remove much less, and one in each condition ends under the lost line. At 0.115 everywhere, removal stays near the recipe, and one run in each condition ends over the spill criterion. With no high start, block 1 spills on more runs.
+<!-- REVIEW: was "three runs in eight remove much less, and one in each condition falls to about the lost line". `level 0.2` has two runs far under the recipe (0.49, 0.67) and one at 0.79, and both lowest runs are under 0.5, which the table counts as lost. Verify: REMOVAL and LOST. -->
+- [Along training (E3)](#along-training-e3): at 0.2, three of the low runs remove about as much as the rest at epoch 64 and then slide, and two are low from the start and stay low, where the slow runs of the recipe catch up. Spill along training is rarest at 0.2 and most common at `level 0.115`, and the recipe crosses the criterion on more runs than `flat 0.115`.
+<!-- REVIEW: was "the low runs at 0.2 remove about as much as the rest early on, then slide or stall". Seed 726 is under 0.6 at epochs 32 and 64 in both conditions at 0.2 and never recovers; seeds 720 and 725 (`flat 0.2`) and 725 (`level 0.2`) are at par at epoch 64 and slide. Added the recipe count (3 runs against 1). Verify: REMOVAL_ALONG and OVER_ALONG. -->
 
 ## Scope and method
 
@@ -528,15 +533,15 @@ Embedding lean
 # %%
 
 rf"""
-## Keeping the anchor (E1)
+## How the anchor settles (E1)
 
-Does every condition keep the anchor, and does it settle as quickly? Up to the call at epoch 64 the three annealed conditions are one recipe, so losses there test the level conditions alone; a level run that aligns a syntax token or the query answer would show here. A run of any condition can still lose the anchor after epoch 64. In the loss-rate experiment, the slow runs of the older recipe hung until the anti weight at slice 3 had fallen to about half, and a hold of 0.2 never falls that far, so the speed of settling may separate `flat 0.2` from the rest.
+Does every condition settle on the example answers, and as quickly? Up to the call at epoch 64 the three annealed conditions are one recipe, so losses there test the level conditions alone; a level run that aligns a syntax token or the query answer would show here. A run of any condition can still lose the anchor after epoch 64. In the loss-rate experiment, the slow runs of the older recipe hung until the anti weight at slice 3 had fallen to about half, and a hold of 0.2 never falls that far, so the speed of settling may separate `flat 0.2` from the rest.
 
 {settle_table()}
 
 All {N_CALLED} runs are called kept, by a wide margin, and α at the example answers reaches 0.4 by epoch 28 on every run. The level conditions settle as quickly as the rest, so the early pull finds the example answers without the high start; nothing latched onto a syntax token or the query answer. The window mean of α is a little higher at `level 0.115` than elsewhere, which fits a weaker push from e₁ over the window.
 
-The time to settle does not separate the conditions either, so whatever sets `flat 0.2` apart comes later (E3). With every run kept this early, the low-removal runs of E2 are runs whose α settled on time, and whose removal fell behind or never caught up.
+The time to settle does not separate the conditions either, so whatever sets `flat 0.2` apart comes later (E3). With every run called kept, the low-removal runs of E2 are runs whose α settled on time, and whose removal fell behind or never caught up. Two of them end under 0.5 and so count as lost at the end; the call missed them.
 
 """
 
@@ -545,21 +550,23 @@ The time to settle does not separate the conditions either, so whatever sets `fl
 rf"""
 ## Removal and spill at the end (E2)
 
-Among the runs that keep the anchor, does a flat hold remove as much, and spill as little? Under the older pull, the high flat hold removed less on the seeds where the pull settled slowly, and the low one spilled. Block-1 spill and the embedding lean say where any spill comes from.
+Does a flat hold remove as much, and spill as little? Under the older pull, the high flat hold removed less on the seeds where the pull settled slowly, and the low one spilled. Block-1 spill and the embedding lean say where any spill comes from.
 
 {end_figure()}
 
 {end_table()}
 
-A weight of 0.2 everywhere is the cleanest: no run over the criterion, under the full edit or at block 1, and the color embeddings barely lean onto e₁. But removal sags. Three runs of each condition at 0.2 end well below the lowest run of the recipe, and the lowest in each ({num(REMOVAL["flat-0.2"].min(), ".2f")} and {num(REMOVAL["level-0.2"].min(), ".2f")}) is at about the line where we call the anchor lost. That is the same pattern the high hold showed under the older pull, so it does not seem to depend on how the pull is pooled.
+A weight of 0.2 everywhere is the cleanest: no run over the criterion, under the full edit or at block 1, and the color embeddings barely lean onto e₁. But removal sags. Three runs of `flat 0.2` and two of `level 0.2` end well below the lowest run of the recipe, and the lowest in each ({num(REMOVAL["flat-0.2"].min(), ".2f")} and {num(REMOVAL["level-0.2"].min(), ".2f")}) is under the line where we call the anchor lost, the second only just. That is the same pattern the high hold showed under the older pull, so it does not seem to depend on how the pull is pooled.
 
-A weight of 0.115 everywhere keeps removal close to the recipe. `level 0.115` matches it, and `flat 0.115` is a little lower, with two runs a little under the lowest of the recipe. Each ends with one run over the spill criterion, on an HSV op. The embedding lean stays about where the recipe has it, and with no high start block 1 spills on more runs.
+A weight of 0.115 everywhere keeps removal close to the recipe. `level 0.115` matches it, and `flat 0.115` is a little lower: four of its runs end under the lowest of the recipe, two of them by less than 0.01, and the lowest at {num(REMOVAL["flat-0.115"].min(), ".2f")}. Each ends with one run over the spill criterion, on an HSV op. At `flat 0.115` that run is seed {SEEDS[int(SPILL["flat-0.115"].argmax())]}, and the same seed is the run of the recipe nearest the criterion (at {SPILL[RECIPE].max():.3f}), so on spill at the end the two conditions differ by about 0.01 on one seed. The embedding lean stays about where the recipe has it, and with no high start block 1 spills on more runs.
+<!-- REVIEW: (1) was "Three runs of each condition at 0.2 end well below ... at about the line where we call the anchor lost"; `level 0.2` has two runs far under and one at 0.79, and 0.44 and 0.49 are both under 0.5 (lost, as the table counts). (2) was "`flat 0.115` ... with two runs a little under the lowest of the recipe"; four are under (0.735, 0.796, 0.820, 0.821 against 0.823). (3) added that the run over at `flat 0.115` and the highest run of the recipe are both seed 720 (0.029 and 0.019). Verify: REMOVAL, LOW, SPILL by seed. -->
 
-The recipe gets both: removal as high as any condition, and no run over the criterion under the full edit. Its embedding lean is about as strong as at 0.115, though it holds 0.2 at the embedding, so the lean seems to follow the weight past the embedding more than the weight on it. Under the sharp pool, the lean costs the recipe no selectivity at the end.
+The recipe has removal as high as any condition, and no run over the criterion under the full edit at the end, though its run at seed 720 ends just under it. Its embedding lean is about as strong as at 0.115, though it holds 0.2 at the embedding, so the lean seems to follow the weight past the embedding more than the weight on it. Under the sharp pool, the lean costs the recipe no selectivity at the end.
 
 {gap_table()}
 
-On removal the intervals are wide, since the low runs at 0.2 spread the seed range. `level 0.115` sits within a few hundredths of the recipe either way. The counts of runs over the criterion (one against none) are too small for Fisher's exact test to tell apart (p = {fisher(1):.1f}), so what separates the low weights from the recipe on spill is suggestive. Every condition but the recipe misses the task gate on one run, each time on an HSV op.
+On removal the intervals are wide, since the low runs at 0.2 spread the seed range. `level 0.115` sits within a few hundredths of the recipe either way. The counts of runs over the criterion (one against none) are too small for Fisher's exact test to tell apart (p = {fisher(1):.1f}), and the gaps in mean spill have intervals that span zero, so the runs at the end do not separate the low weights from the recipe on spill. Every condition but the recipe misses the task gate on one run, each time on an HSV op.
+<!-- REVIEW: was "so what separates the low weights from the recipe on spill is suggestive". One run against none has p = 1.0, and the Welch intervals on mean spill against the recipe are −0.010 to +0.013 (`flat 0.115`) and −0.005 to +0.020 (`level 0.115`). Verify: welch(SPILL[c], SPILL[RECIPE]). -->
 """
 
 # %%
@@ -571,9 +578,10 @@ The late spill of earlier recipes rose as the anti weight annealed ([late-spill-
 
 {along_figure()}
 
-Up to epoch 64 the three annealed conditions have about the same weight, so how far each run has got by then is run-to-run variation: a few runs of the recipe and of `flat 0.115` are still climbing, and none of `flat 0.2` is. After that the conditions part. Under the recipe and at 0.115, every run climbs to near 0.9 or holds there as the weight on the late slices comes down. At 0.2, a few runs slide back, or sit near 0.5 from early on, while the weight on every slice stays high ({N_SLID["flat-0.2"]} and {N_SLID["level-0.2"]} runs end more than 0.1 under their best, against {N_SLID[RECIPE]} on the recipe). So a high weight on the late slices seems to work against holding the op on e₁ there, on the seeds where the pull holds it less firmly.
+Up to epoch 64 the three annealed conditions have about the same weight, so how far each run has got by then is run-to-run variation: a few runs of the recipe and of `flat 0.115` are still climbing, and none of `flat 0.2` is. After that the conditions part. Under the recipe and at 0.115, every run climbs to near 0.9 or holds there as the weight on the late slices comes down. At 0.2, a few runs slide back, or sit near 0.5 from early on, while the weight on every slice stays high ({N_SLID["flat-0.2"]} and {N_SLID["level-0.2"]} runs end more than 0.1 under their best, against {N_SLID[RECIPE]} on the recipe). So a high weight seems to work against holding the op on e₁, on the seeds where the pull holds it less firmly. These runs can't say whether the weight on the late slices matters or the total: the conditions at 0.2 are higher on every slice past the embedding, and mean removal also orders by the total weight over training.
 
-Spill along training follows the weight the other way. The runs at 0.2 stay under the criterion nearly throughout. `level 0.115` crosses it on the most runs ({OVER_ALONG["level-0.115"]}), once up to {PEAK_ALONG["level-0.115"].max():.2f} in the first half of training, and that run comes back down by the end. `flat 0.115` spikes as high once, and that run ends over. The recipe crosses on {OVER_ALONG[RECIPE]} runs, one of them for much of the middle of training, and all are back under by the end. So spill at the end understates how often the low weights let spill through along the way; the recipe sits between the two.
+Spill along training is rarest at 0.2: no run of `flat 0.2` crosses the criterion, and one run of `level 0.2` does, at one checkpoint. `level 0.115` crosses it on the most runs ({OVER_ALONG["level-0.115"]}), once up to {PEAK_ALONG["level-0.115"].max():.2f} in the first half of training, and that run comes back down by the end. `flat 0.115` spikes as high once, at epoch 96 while its weight is still near the start on every slice, and that run ends over. The recipe crosses on {OVER_ALONG[RECIPE]} runs, one of them for much of the middle of training, and all are back under by the end. So spill at the end understates how often spill gets through along the way, for the recipe as much as for `level 0.115`. The counts do not order by the weight: the recipe crosses on more runs than `flat 0.115`, and about as many as `level 0.115`.
+<!-- REVIEW: was "Spill along training follows the weight the other way ... So spill at the end understates how often the low weights let spill through along the way; the recipe sits between the two." Runs over at any checkpoint: recipe 3, `flat 0.115` 1, `flat 0.2` 0, `level 0.115` 4, `level 0.2` 1, so the recipe is above `flat 0.115`, and at `flat 0.115` the count at the end (1) equals the count along training. The `flat 0.115` spike is at epoch 96, when its weight is 0.234 on every slice (recipe: 0.244 to 0.223). Verify: OVER_ALONG, SPILL_ALONG, and `anti_weight` in the trajectories. -->
 """
 
 # %%
@@ -581,11 +589,12 @@ Spill along training follows the weight the other way. The runs at 0.2 stay unde
 r"""
 ## Discussion
 
-The falloff does two jobs at once, and a weight that is the same at every slice does only one of them. Held high on every slice, the anti term keeps spill out, the color embeddings included, but on some seeds it holds the op off e₁ on the late slices and removal sags. Held low on every slice, removal is fine, but a little spill gets through, mostly through block 1. The falloff is high where spill enters and low where the op is read, and gets both. Eight runs a side make the spill counts suggestive and the removal sag at 0.2 firmer, since it repeats what the split-anti-seeds experiment found under the older pull.
+A weight of 0.2 on every slice is too much. It keeps spill out, the color embeddings included, but on some seeds removal sags, and one run in each condition at 0.2 ends with the anchor lost. That fits what the split-anti-seeds experiment found under the older pull, though at eight runs a side the gap in mean removal is not settled by these runs alone. Whether the cost comes from the weight on the late slices or from the total is not separated here.
 
-If the falloff is described in words, it fits in a sentence: high early to keep the other ops off e₁, low late so the op can settle there. A single constant weight would be simpler, and `level 0.115` comes close, but it would trade the clean spill record of the recipe for one run over in eight.
+A weight of 0.115 on every slice, the mean of the falloff, does about as well as the recipe on what we can measure at eight runs. `level 0.115` matches it on removal, and `flat 0.115` is a little lower, within the margin on its mean but not clearly. Each ends with one run over the spill criterion where the recipe has none, and the recipe has its own runs that cross the criterion along training. So these runs do not show that the falloff is needed. They show that a flat weight has to be low enough, and that 0.115 is not clearly worse. Only two flat values were tried, so where between 0.115 and 0.2 the cost starts is open.
+<!-- REVIEW: the first draft said the falloff "does two jobs at once" that a flat weight cannot, and "gets both". The claims review found the comparison that isolates placement (recipe against `flat 0.115`, same start and total) gives a removal gap with an interval across zero and one run over against none on a seed where the recipe sits at 0.019; `level 0.115` matches the recipe on removal. Narrowed to what the runs support. Verify: GAP, SPILL at seed 720, fisher(1). -->
 
-The high start was there to keep the pull off syntax tokens in D2.1. Here it made no difference to keeping the anchor, which fits the soft start of the pooling temperature doing that job now. It may still keep some spill out along the way, since `level 0.115` spilled on more runs mid-training than `flat 0.115`.
+No run without the high start lost the anchor early (none of sixteen), and α settled as fast as with it. That bounds the early loss rate only loosely, and both level weights are at or above the anchor weight, a milder case than the one in D2.1. The soft start of the pooling temperature, which this recipe always has, may be what keeps the pull off the syntax tokens now, though no condition here goes without it.
 """
 
 # %%
