@@ -4,14 +4,14 @@ The recipe of record (`τ_ℓ fixed`) anneals the anti weight from 0.25 on every
 depth, in a straight line from 0.2 at the embedding to 0.03 at slice 4 (`falloff`). The only runs with a hold that is
 the same at every slice (split-anti-seeds' `deep, hold 0.2` and `deep, hold 0.1`, late-pull's `late` at 0.03) used an
 older pull: a step on slices 2 to 4, a sharp τ_p from the start, and no pool over slices. This experiment trains the
-recipe at eight seeds under four anti weights:
+recipe at eight seeds under five anti weights:
 
-- `falloff`: the recipe as it is, retrained beside the others so that every condition shares one card and one regime;
+- `recipe`: `τ_ℓ fixed` as it is, with the falloff, retrained beside the others so that every condition shares one card and one regime;
 - `flat 0.115`: the anneal from 0.25 to a hold of 0.115 at every slice, the mean of the falloff's five holds, so the
   term carries the same total weight spread evenly;
 - `flat 0.2`: the same anneal to a hold of 0.2 at every slice, the falloff's embedding value everywhere;
-- `level 0.115`: 0.115 at every slice from epoch 0, with no high start. ex-2.1.11 found the high start kept the pull
-  off a syntax token; this asks whether the soft τ_p start now does that job.
+- `level 0.115` and `level 0.2`: the value at every slice from epoch 0, with no high start. ex-2.1.11 found the high
+  start kept the pull off a syntax token; these ask whether the soft τ_p start now does that job.
 
 Every condition keeps the end anneal it shares with the anchor (epochs 360 to 400). Everything else, and the scoring,
 is the fixed confirmation's, and a control (no pull, no anti term) trains at each seed for the task change. Conditions are compared as two samples (no pairing by seed). Training and scoring run on
@@ -81,10 +81,11 @@ class Condition:
 
 
 CONDITIONS: tuple[Condition, ...] = (
-    Condition("falloff"),
+    Condition("recipe"),
     Condition("flat-0.115", MEAN_HOLD),
     Condition("flat-0.2", EMB_HOLD),
     Condition("level-0.115", MEAN_HOLD, MEAN_HOLD),
+    Condition("level-0.2", EMB_HOLD, EMB_HOLD),
 )
 
 SEEDS: tuple[int, ...] = tuple(range(720, 728))
@@ -94,7 +95,7 @@ KEEP = tuple(sorted({*fc.STOP_KEEP, *fc.FINISH_KEEP}))
 
 BUDGET_USD = 8
 """From the fixed-labels crossed runs on L40S cards (sixteen runs to epoch 400 for about \\$1 of training) and the
-fixed confirmation's scoring: 40 runs to 400, controls included (about \\$3), their end measurements and axis scoring (\\$2), the
+fixed confirmation's scoring: 48 runs to 400, controls included (about \\$3), their end measurements and axis scoring (\\$2), the
 axis scoring of thirteen kept checkpoints on each (\\$2), and room for a retry."""
 
 
