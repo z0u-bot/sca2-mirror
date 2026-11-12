@@ -2,7 +2,6 @@
 status: open
 tags: [D2.2, anchoring, intervention]
 opened: 2026-11-05
-priority: high
 ---
 # Anchor the "not `difference`" end of the arc to a second axis
 
@@ -17,3 +16,5 @@ This came from the review of the edit-aware plan (PR #346, closed). That plan tr
 ## Notes
 
 **2026-11-08, housekeeping** — Shortlisted in place of the edit-aware term ([make-the-reader-depend-on-e1](./make-the-reader-depend-on-e1.md)), which held the science slot on the shortlist until it was set aside on 11-05. Of the two items from that review, this is the one it names to try first. No plan or PR for it yet.
+
+**2026-11-08, maintenance** — Taken off the shortlist again: no new science is planned while the D2.2 post is being written, and the form of D2.3 is still open (anchor-based circuit design, or gradient routing, perhaps starting with a comparison against it). Promote it again if D2.3 picks up this line.
