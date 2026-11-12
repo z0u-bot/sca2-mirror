@@ -365,6 +365,124 @@ def end_table() -> str:
     )
 
 
+def task_mean_along(c: str, s: int) -> np.ndarray:
+    """The task change, as a mean over ops, at each kept checkpoint and the end."""
+    return np.array([np.mean(np.asarray(_ALONG_BY[(label(c, s), e)]["clean"]) - CONTROL_CLEAN) for e in ALONG_EPOCHS])
+
+
+def task_figure() -> str:
+    data = {
+        "names": CONDITIONS,
+        "shown": [SHOWN[c] for c in CONDITIONS],
+        "ops": list(OPS),
+        "task": {c: TASK[c].tolist() for c in CONDITIONS},
+        "gate": TASK_OP_GATE,
+    }
+    alt = f"""
+        Seven panels, one per op, each with the eight conditions along the bottom and the task change of each run
+        as a dot. On {", ".join(OPS[:4])} every run is within a few hundredths of the controls. The runs that miss the
+        gate are lower on every op, and furthest down on the HSV ops: the lowest dot, at
+        {float(min(TASK[c].min() for c in CONDITIONS)):.2f}, is on hue-hsv. The recipe and level 0.17 have no run under
+        the gate on any op.
+    """
+    return task_draw(data, alt)
+
+
+@memo
+def task_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="flat-anti-task",
+        alt_text=alt_text,
+        caption="""
+            **Task change by op at epoch 400, by condition.** The clean score of each op less the mean of the eight
+            controls, one small dot per run over a thin bar for the range, with the seed mean as the large mark. The
+            dashed line is the gate on any one op (−0.05), with the side under it hatched; the gate on the mean over
+            ops (−0.02) is not drawn.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        names, ops = data["names"], data["ops"]
+        fig, axes = plt.subplots(1, len(ops), figsize=(6.8, 2.6), layout="constrained", sharey=True)
+        rng = np.random.default_rng(0)
+        jit = {n: rng.uniform(-0.15, 0.15, len(data["task"][n])) for n in names}
+        for k, (ax, op) in enumerate(zip(axes, ops, strict=True)):
+            for i, n in enumerate(names):
+                v = np.asarray(data["task"][n])[:, k]
+                _dots(ax, i, v, light_dark(*INK[n]), MARKER[n], jit[n])
+            ax.axhline(0, color=light_dark(*ZERO), lw=0.5, zorder=0)
+            ax.axhline(data["gate"], color=light_dark(*RULE), lw=0.7, ls="--", zorder=1)
+            ax.set_title(op, fontsize=7)
+            ax.set_xticks(range(len(names)), data["shown"], rotation=90, fontsize=5.5)
+            ax.set_xlim(-0.6, len(names) - 0.4)
+            ax.tick_params(labelsize=6)
+        lo = min(axes[0].get_ylim()[0], data["gate"] - 0.01)
+        for ax in axes:
+            hatch(ax, lo, data["gate"])
+        axes[0].set_ylim(lo, axes[0].get_ylim()[1])
+        axes[0].set_ylabel("task change ↑", fontsize=6.5)
+        return fig
+
+    return _plot()
+
+
+def task_along_figure() -> str:
+    missed = {(c, s) for c, s, _ in MISSED}
+    data = {
+        "names": CONDITIONS,
+        "shown": [SHOWN[c] for c in CONDITIONS],
+        "epochs": list(ALONG_EPOCHS),
+        "mean": {c: [task_mean_along(c, s).tolist() for s in SEEDS] for c in CONDITIONS},
+        "hsv": {c: [np.mean([task_along(c, s, o) for o in HSV], axis=0).tolist() for s in SEEDS] for c in CONDITIONS},
+        "missed": {c: [(c, s) in missed for s in SEEDS] for c in CONDITIONS},
+        "gate": TASK_MEAN_GATE,
+    }
+    alt = """
+        Eight columns, one per condition, one line per run, from epoch 64. Top: the task change as a mean over all
+        seven ops. Bottom: the mean over the three HSV ops alone. Every run climbs towards the controls through the middle of training, the HSV ops
+        later than the rest. The runs that miss the gate are drawn darker; they climb later and level off below the
+        others once the learning rate has decayed, from about epoch 350.
+    """
+    return task_along_draw(data, alt)
+
+
+@memo
+def task_along_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name="flat-anti-task-along",
+        alt_text=alt_text,
+        caption="""
+            **Task change along training, by condition.** One column per condition, one line per run, at the
+            checkpoints kept from epoch 64 on and at the end; the runs that miss the gate at the end are drawn solid
+            and the rest faint. **Top:** the clean score less the mean of the controls, as a mean over all seven ops;
+            the dashed line is the gate on that mean (−0.02). **Bottom:** the same over the three HSV ops alone.
+        """,
+    )
+    def _plot() -> plt.Figure:
+        names = data["names"]
+        fig, axes = plt.subplots(
+            2, len(names), figsize=(6.8, 3.0), layout="constrained", sharex=True, sharey="row",
+        )  # fmt: skip
+        ep = np.asarray(data["epochs"])
+        keep = ep >= 64
+        for j, n in enumerate(names):
+            ink = light_dark(*INK[n])
+            for row, key in enumerate(("mean", "hsv")):
+                ax = axes[row, j]
+                for v, miss in zip(data[key][n], data["missed"][n], strict=True):
+                    ax.plot(ep[keep], np.asarray(v)[keep], color=ink, marker=MARKER[n], ms=1.6, lw=0.9 if miss else 0.6,
+                            alpha=1.0 if miss else 0.3, zorder=3 if miss else 2)  # fmt: skip
+                ax.axhline(0, color=light_dark(*ZERO), lw=0.5, zorder=0)
+                ax.tick_params(labelsize=6)
+            axes[0, j].axhline(data["gate"], color=light_dark(*RULE), lw=0.7, ls="--", zorder=1)
+            axes[0, j].set_title(data["shown"][j], fontsize=7)
+            axes[1, j].set_xlabel("epoch", fontsize=6.5)
+        axes[0, 0].set_ylabel("all ops ↑", fontsize=6.5)
+        axes[1, 0].set_ylabel("HSV ops ↑", fontsize=6.5)
+        return fig
+
+    return _plot()
+
+
 def gap_table() -> str:
     # No figure beside it: the seeds behind these gaps are drawn in the end figure just above.
     rows = [[f"`{SHOWN[c]}`", "`recipe`", *[num(v, "+.3f") for v in GAP[c]]] for c in GAP]
@@ -608,7 +726,7 @@ A weight of 0.115 everywhere keeps removal close to the recipe. `level 0.115` ma
 Each condition at 0.115 ends with one run over the spill criterion, on an HSV op. At `flat 0.115` that run is seed {SEEDS[int(SPILL["flat-0.115"].argmax())]}, also the run of the recipe nearest the criterion (at {SPILL[RECIPE].max():.3f}), so on spill at the end the two conditions differ by about 0.01 on one seed. The embedding lean stays about where the recipe has it, and with no high start block 1 spills on more runs.
 <!-- REVIEW: (1) was "Three runs of each condition at 0.2 end well below ... at about the line where we call the anchor lost"; `level 0.2` has two runs far under and one at 0.79, and 0.44 and 0.49 are both under 0.5 (lost, as the table counts). (2) was "`flat 0.115` ... with two runs a little under the lowest of the recipe"; four are under (0.735, 0.796, 0.820, 0.821 against 0.823). (3) added that the run over at `flat 0.115` and the highest run of the recipe are both seed 720 (0.029 and 0.019). Verify: REMOVAL, LOW, SPILL by seed. -->
 
-Between 0.115 and 0.2, `level 0.17` ends with no run over the criterion, its highest at {num(SPILL["level-0.17"].max())}, and removal at {num(REMOVAL["level-0.17"].mean(), ".2f")}, {num(-GAP["level-0.17"][0], ".2f")} under the recipe on its mean, which is inside the margin, though the interval reaches {num(-GAP["level-0.17"][1], ".2f")} under. One run sits lower, at {num(REMOVAL["level-0.17"].min(), ".2f")}: seed {SEEDS[int(REMOVAL["level-0.17"].argmin())]}, the lowest run of the recipe too, and the only run of `level 0.17` over at block 1 ({num(BLOCK1["level-0.17"].max())}). `level 0.14` keeps removal at the recipe ({num(REMOVAL["level-0.14"].mean(), ".2f")}) and ends with one run over, on `mix`. `from 0.17` ends with no run over and removal at {num(REMOVAL["from-0.17"].mean(), ".2f")}. At block 1 it has {BLOCK1_OVER["from-0.17"]} run over, just ({num(BLOCK1["from-0.17"].max())}), against {BLOCK1_OVER["level-0.115"]} at `level 0.115`, which would fit a start of 0.17 being enough to keep block 1 about as clean as the start of 0.25 does, though one run against three of eight is within what chance gives (Fisher's exact test, p = {stats.fisher_exact(np.array([[BLOCK1_OVER["level-0.115"], 8 - BLOCK1_OVER["level-0.115"]], [BLOCK1_OVER["from-0.17"], 8 - BLOCK1_OVER["from-0.17"]]]))[1]:.1f}).
+Between 0.115 and 0.2, `level 0.17` ends with no run over the spill criterion, its highest at {num(SPILL["level-0.17"].max())}, and removal at {num(REMOVAL["level-0.17"].mean(), ".2f")}, {num(-GAP["level-0.17"][0], ".2f")} under the recipe on its mean, which is inside the margin, though the interval reaches {num(-GAP["level-0.17"][1], ".2f")} under. One run sits lower, at {num(REMOVAL["level-0.17"].min(), ".2f")}: seed {SEEDS[int(REMOVAL["level-0.17"].argmin())]}, the lowest run of the recipe too, and the only run of `level 0.17` over at block 1 ({num(BLOCK1["level-0.17"].max())}). `level 0.14` keeps removal at the recipe ({num(REMOVAL["level-0.14"].mean(), ".2f")}) and ends with one run over, on `mix`. `from 0.17` ends with no run over and removal at {num(REMOVAL["from-0.17"].mean(), ".2f")}. At block 1 it has {BLOCK1_OVER["from-0.17"]} run over, just ({num(BLOCK1["from-0.17"].max())}), against {BLOCK1_OVER["level-0.115"]} at `level 0.115`, which would fit a start of 0.17 being enough to keep block 1 about as clean as the start of 0.25 does, though one run against three of eight is within what chance gives (Fisher's exact test, p = {stats.fisher_exact(np.array([[BLOCK1_OVER["level-0.115"], 8 - BLOCK1_OVER["level-0.115"]], [BLOCK1_OVER["from-0.17"], 8 - BLOCK1_OVER["from-0.17"]]]))[1]:.1f}).
 
 The recipe has removal as high as any condition, and no run over the criterion under the full edit at the end, though its run at seed 720 ends just under it. Its embedding lean is about as strong as at 0.115, though it holds 0.2 at the embedding, so the lean seems to follow the weight past the embedding more than the weight on it. Under the sharp pool, the lean costs the recipe no selectivity at the end.
 
@@ -616,9 +734,15 @@ The recipe has removal as high as any condition, and no run over the criterion u
 
 On removal the intervals are wide, since the low runs at 0.2 spread the seed range. `level 0.115` sits within a few hundredths of the recipe either way. The counts of runs over the criterion (one against none) are too small for Fisher's exact test to tell apart (p = {fisher(1):.1f}), and the gaps in mean spill have intervals that span zero, so the runs at the end do not separate the low weights from the recipe on spill.
 
+{task_figure()}
+
 Six runs miss the task gate, one in each condition but the recipe and `level 0.17`. The worst op of each is an HSV op, but {sum(TASK[c][SEEDS.index(s)].mean() < TASK_MEAN_GATE for c, s, _ in MISSED)} of the six miss on the mean over ops (about −0.03, where the gate is −0.02), with every op a little under the controls, the ops learned early included. They share seeds: seed 722 under each condition that ends at a hold of 0.115 everywhere, seed 725 under both at 0.2, and seed 720 under `level 0.14`.
 
 The HSV ops are the last the model learns, mostly between epochs 100 and 350, and these runs learned theirs later than the recipe did at the same seed. At epoch 256 the worst op of each is {num(min(v[ALONG_EPOCHS.index(256)] for v in MISSED_ALONG.values()), ".2f")} to {num(max(v[ALONG_EPOCHS.index(256)] for v in MISSED_ALONG.values()), ".2f")} under the controls, where the recipe at seed 722 is within 0.01 of them on `hue-hsv` by epoch 320. At 400 it is {num(min(v[-1] for v in MISSED_ALONG.values()), ".2f")} to {num(max(v[-1] for v in MISSED_ALONG.values()), ".2f")}, and it has flattened: none moves by more than {max(abs(v[-1] - v[ALONG_EPOCHS.index(352)]) for v in MISSED_ALONG.values()):.2f} after epoch 352, by when the learning rate is under a twentieth of its peak.
+
+{task_along_figure()}
+
+The misses are runs that learned the whole task late. By epoch 64 each is the furthest behind of its condition on the mean over ops, or second furthest, and it stays behind on every op while the others close on the controls. The HSV ops, learned last, are where the gap is still open at the end. Under `flat 0.115` and `flat 0.2` the weight is within about 0.01 of the recipe on every slice up to epoch 64, so a run already behind by then is behind by run-to-run variation, not by the weight. The lag is partly tied to the seed, since 722 and 725 each miss under more than one condition, which fits the [paired-runs](/docs/m2/paired-runs/report.py) finding that runs at one seed stay partly alike in the task score through epoch 64. The recipe at those seeds kept up, so the seed sets the odds rather than the outcome.
 
 So the misses fit runs that were late on the late ops and ran out of schedule. These runs can't tell that from a lasting cost, and at 400 epochs the misses count all the same. One run in eight against none is also too few to put them down to the weight: at seed 722, `flat 0.115` is already behind the recipe on `hue-hsv` at epoch 96, when the two weights differ by about 0.01 on any slice. The runs over the spill criterion at 0.115 are on HSV ops too, which may be the same lateness, though that is two runs, and the run over at `level 0.14` is on `mix`.
 <!-- REVIEW: was "each on an HSV op ... each of these runs was still learning its op when training stopped ... at 400 it is −0.08 to −0.05 and still rising. So the misses look like slow learning of the late ops rather than damage", and the last sentence said the HSV spill "fits ops learned late taking shape while the weight on the late slices is low". (1) Five of the six miss the mean gate (means −0.026 to −0.033), with lighten and darken at −0.02 to −0.04 too; `flat 0.2` at seed 725 has no op under −0.05 and misses on the mean alone. (2) From epoch 352 to 400 the worst op moves by 0.001 to 0.010, and falls back at the last checkpoint on two runs; the learning rate is 1.4e-4 at 352 and 3.2e-5 at 400 against a peak of 3e-3, so "still rising" does not hold and more learning under this schedule is not on offer. (3) Misses also occur at 0.2, so a low weight on the late slices does not cover them. Verify: TASK by op for the runs in MISSED, MISSED_ALONG, and `lr` in the trajectories. -->
@@ -694,6 +818,9 @@ r"""
 
 [late-spill-scout](/docs/m2/late-spill-scout/report.py)
 :   Late spill on the recipe rose as the anti weight annealed, and holding the anti weight high lowered it at a cost to removal.
+
+[paired-runs](/docs/m2/paired-runs/report.py)
+:   Two runs at one seed under different recipes stay partly alike in the task score through epoch 64, but are only weakly alike in removal and no more alike than chance in spill.
 
 [ex-2.1.11](/docs/m2/ex-2.1.11/report.py)
 :   In D2.1, an anti weight held at its low value from the start let the pull latch onto a syntax token, and one held at its high value throughout left the response less graded.
