@@ -67,6 +67,8 @@ Propose a preregistration if you think it is more appropriate. It suits a claim 
 
 An exploratory result is as solid as its data, and the report says how sure we are. What it lacks is a prediction made in advance, so if a later design leans on it heavily, a preregistered confirmation settles it.
 
+An exploratory report may still set a bar before the runs, such as what counts as doing about as well as the recipe. Write each part of it down with the number it reads and when: a mean or the whole interval, and a count at the end or at any checkpoint. Otherwise a pass can turn on the reading, as `level 0.17` did in the flat-anti experiment. A condition added after the first results have been read is scored against the same bar, and the report says it was chosen afterwards, on the same seeds, and how close its pass was.
+
 ## Who does what
 
 | Step | Who | Model |
@@ -84,7 +86,7 @@ The style review runs on every draft, whoever wrote it. Its two prose passes fin
 
 ## Running a review
 
-A reviewer starts with an empty context, so it reads the report the way a reader will. Before each review, commit the draft, so that `git diff` afterwards shows that review's changes alone. Then brief the reviewer with:
+A reviewer starts with an empty context, so it reads the report the way a reader will. Before each review, commit the draft, so that `git diff` afterwards shows that review's changes alone. While the reviewer works, leave the files it may edit alone, commits included: a commit then would sweep its half-done edits in under your own message. A fix that can't wait (a lint failure in CI, say) waits for the reviewer to return, or goes in by staging other files by path. Then brief the reviewer with:
 
 - The path to the report, and a fresh Markdown render of it (`./go render docs/<key>/report.py -o .mini/lit/<key>/index.md`). Reviews read the render, where a cell that failed to render shows up and the source markup doesn't get in the way. The render re-runs the cells, but memoized work comes from the shared cache, so only what the draft changed is slow.
 - Which sections are in scope, since a report gets written a section at a time and a `TODO` whose turn hasn't come isn't a finding.
