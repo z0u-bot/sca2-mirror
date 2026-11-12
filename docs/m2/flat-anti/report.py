@@ -148,7 +148,7 @@ LOW = {c: [s for s in SEEDS if END[(c, s)]["removal"] < REMOVAL[RECIPE].min()] f
 
 def fisher(k: int, n: int = len(SEEDS)) -> float:
     """Fisher's exact test (two-sided) of *k* runs of *n* against none of the recipe."""
-    return float(stats.fisher_exact([[k, n - k], [0, n]])[1])
+    return float(stats.fisher_exact(np.array([[k, n - k], [0, n]]))[1])
 
 
 # --- Along training -------------------------------------------------------------------------------------------
