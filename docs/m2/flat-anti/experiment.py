@@ -12,6 +12,10 @@ recipe at eight seeds under five anti weights:
 - `flat 0.2`: the same anneal to a hold of 0.2 at every slice, the falloff's embedding value everywhere;
 - `level 0.115` and `level 0.2`: the value at every slice from epoch 0, with no high start. ex-2.1.11 found the high
   start kept the pull off a syntax token; these ask whether the soft τ_p start now does that job.
+- `level 0.14` and `level 0.17`: two more constant weights between those two, added after the first round, where
+  `level 0.115` let block 1 spill and `level 0.2` cost removal;
+- `from 0.17`: the anneal to a hold of 0.115 at every slice from a lower start of 0.17, added with them, to ask
+  whether a small start keeps block 1 clean at the low hold.
 
 Every condition keeps the end anneal it shares with the anchor (epochs 360 to 400). Everything else, and the scoring,
 is the fixed confirmation's, and a control (no pull, no anti term) trains at each seed for the task change. Conditions are compared as two samples (no pairing by seed). Training and scoring run on
@@ -86,6 +90,9 @@ CONDITIONS: tuple[Condition, ...] = (
     Condition("flat-0.2", EMB_HOLD),
     Condition("level-0.115", MEAN_HOLD, MEAN_HOLD),
     Condition("level-0.2", EMB_HOLD, EMB_HOLD),
+    Condition("level-0.14", 0.14, 0.14),
+    Condition("level-0.17", 0.17, 0.17),
+    Condition("from-0.17", MEAN_HOLD, 0.17),
 )
 
 SEEDS: tuple[int, ...] = tuple(range(720, 728))
