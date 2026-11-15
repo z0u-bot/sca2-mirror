@@ -133,8 +133,9 @@ def test_pushover_names_the_missing_secrets(monkeypatch, pushover_env):
     monkeypatch.delenv("PUSHOVER_USER")
     monkeypatch.delenv("PUSHOVER_GROUP")
     status = asyncio.run(auth_check.check_pushover())
-    assert not status.ok
-    assert status.detail.startswith("PUSHOVER_USER and PUSHOVER_GROUP not set")
+    assert status == auth_check.Status(
+        "Pushover", False, "PUSHOVER_USER and PUSHOVER_GROUP not set", notes=[auth_check._PUSHOVER_ADVICE]
+    )
 
 
 def test_pushover_validates_both_keys(monkeypatch, pushover_env):
@@ -148,7 +149,9 @@ def test_pushover_quotes_the_refusal_and_not_the_key(monkeypatch, pushover_env):
     verdicts = {"u-key": {"status": 1}, "g-key": {"status": 0, "errors": ["user key is invalid"]}}
     monkeypatch.setattr(auth_check, "_pushover_validate", fake_validate(verdicts)[0])
     status = asyncio.run(auth_check.check_pushover())
-    assert status == auth_check.Status("Pushover", False, "group: user key is invalid")
+    assert status == auth_check.Status(
+        "Pushover", False, "group: user key is invalid", notes=[auth_check._PUSHOVER_ADVICE]
+    )
     assert "g-key" not in status.line()
 
 
@@ -158,7 +161,9 @@ def test_pushover_unreachable_names_only_the_error_type(monkeypatch, pushover_en
 
     monkeypatch.setattr(auth_check, "_pushover_validate", _pushover_validate)
     status = asyncio.run(auth_check.check_pushover())
-    assert status == auth_check.Status("Pushover", False, "api.pushover.net unreachable (ConnectionError)")
+    assert status == auth_check.Status(
+        "Pushover", False, "api.pushover.net unreachable (ConnectionError)", notes=[auth_check._PUSHOVER_ADVICE]
+    )
 
 
 # -- environment-aware selection ---------------------------------------------

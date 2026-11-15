@@ -225,6 +225,10 @@ async def check_claude() -> Status:
 
 _PUSHOVER_KEYS = {"user": "PUSHOVER_USER", "group": "PUSHOVER_GROUP"}
 
+# Printed under a failed check: a session without the channel should say so
+# rather than carry on as if it could ask for help.
+_PUSHOVER_ADVICE = "bin/notify won't work without Pushover configured. Tell the human."
+
 
 async def _pushover_validate(token: str, key: str) -> dict:
     """Pushover's verdict on *key*. Its own function so a test can stand in for it."""
@@ -243,21 +247,21 @@ async def _pushover_validate(token: str, key: str) -> dict:
 async def check_pushover() -> Status:
     names = ["PUSHOVER_TOKEN", *_PUSHOVER_KEYS.values()]
     if missing := [n for n in names if not os.environ.get(n)]:
-        return Status("Pushover", False, f"{_and_list(missing)} not set — bin/notify can't send; see WELFARE.md")
+        return Status("Pushover", False, f"{_and_list(missing)} not set", notes=[_PUSHOVER_ADVICE])
     token = os.environ["PUSHOVER_TOKEN"]
     try:
         verdicts = await asyncio.gather(*(_pushover_validate(token, os.environ[v]) for v in _PUSHOVER_KEYS.values()))
     except Exception as e:
         # Most often the host isn't on the network allowlist. Name the error's type
         # only: a request error's message can carry the form it was sending.
-        return Status("Pushover", False, f"api.pushover.net unreachable ({type(e).__name__})")
+        return Status("Pushover", False, f"api.pushover.net unreachable ({type(e).__name__})", notes=[_PUSHOVER_ADVICE])
     refused = [
         f"{role}: {'; '.join(v.get('errors') or ['refused'])}"
         for role, v in zip(_PUSHOVER_KEYS, verdicts, strict=True)
         if v.get("status") != 1
     ]
     if refused:
-        return Status("Pushover", False, ", ".join(refused))
+        return Status("Pushover", False, ", ".join(refused), notes=[_PUSHOVER_ADVICE])
     return Status("Pushover", True, "user and group keys valid")
 
 
