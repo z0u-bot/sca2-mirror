@@ -1133,3 +1133,266 @@ The same with the two post-hoc erasers that removed the op best without role lab
 """
 
 confusion_figure("post-hoc")
+
+
+r"""
+## Removal and spill by method
+
+One figure above each result table of the post: removal and spill per method, the median over the eight runs with
+the range and each run.
+"""
+
+# --- Removal and spill per method, for the result tables of the post ---------------------------------------------
+# The numbers are computed in the post-hoc comparison and fitter-transfer reports, so those report modules are loaded
+# (once, memoized) for their per-run arrays.
+
+
+def _load_report(name: str, alias: str):
+    """A report module by path, loaded with no publisher, so that the figures it draws as it loads stay out of this
+    page's assets.
+    """
+    from mini.reports import use_publisher
+
+    path = Path(__file__).resolve().parent.parent / name / "report.py"
+    spec = importlib.util.spec_from_file_location(alias, path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    before = current_publisher()
+    use_publisher(None)
+    try:
+        spec.loader.exec_module(module)
+    finally:
+        del sys.modules[spec.name]
+        use_publisher(before)
+    return module
+
+
+@memo
+def method_numbers() -> dict:
+    """Per table and method, the eight per-run removals (share) and spills (points of expected exact match): the
+    post-hoc comparison (pooled fits, and fits keyed to the example answers: removal at the spill criterion, spill at
+    matched removal) and fitter transfer (slices 1 to 3 and every slice, chosen on the other seven runs).
+    """
+    phc = _load_report("post-hoc-compare", "d22_figures_phc_report")
+    ft = _load_report("fitter-transfer", "d22_figures_ft_report")
+    fitters = ("dim", "ridge", "leace", "inlp")
+
+    def arr(v) -> list[float]:
+        return [float(x) for x in np.asarray(v, float)]
+
+    out: dict[str, Any] = {"anchor": {"removal": arr(phc.A_REMOVAL), "spill": arr(100 * phc.A_SPILL)}}
+    # Retrained (sans-diff) against the control at the same seed, with no edit: its spill is a gap between two models.
+    out["retrained"] = {"removal": arr(phc.SANS_POINT[0]), "spill": arr(100 * phc.SANS_POINT[1])}
+    for table, src in (("pooled", phc.M_POOLED), ("roles", phc.M_CONTROL)):
+        out[table] = {m: {"removal": arr(src[m]["removal"]), "spill": arr(100 * src[m]["spill"])} for m in fitters}
+    for table, src in (("blocks", ft.BLOCKS), ("every", ft.EVERY)):
+        out[table] = {m: {"removal": arr(src[m]["removal"]), "spill": arr(100 * src[m]["spill"])} for m in fitters}
+    return out
+
+
+METHOD_NUMBERS = method_numbers()
+
+METHOD_ROWS = (
+    ("anchor", "SCA"),
+    ("dim", "difference in means"),
+    ("ridge", "ridge probe"),
+    ("leace", "LEACE"),
+    ("inlp", "INLP"),
+)
+METHOD_TABLES = {
+    "pooled": "pooled fits: removal at the spill criterion, spill at matched removal",
+    "roles": "fits keyed to the example answers: removal at the spill criterion, spill at matched removal",
+    "blocks": "slices 1 to 3, chosen on the other seven runs",
+    "every": "every slice, chosen on the other seven runs",
+}
+
+
+def method_row(key: str, name: str, v: dict, ref: tuple[bool, bool] = (False, False), line: bool = False) -> dict:
+    """One row of a methods figure: removal in percent, spill in points, and which panels draw it as a reference
+    (hollow marker, dashed range) and whether a dotted line marks its median.
+    """
+    removal = [100 * x for x in v["removal"]]
+    return {"key": key, "name": name, "removal": removal, "spill": v["spill"], "ref": ref, "line": line}
+
+
+def spill_span() -> tuple[float, float]:
+    """One spill axis for every methods figure."""
+    every = [x for t in METHOD_TABLES for m in METHOD_NUMBERS[t].values() for x in m["spill"]]
+    every += METHOD_NUMBERS["retrained"]["spill"]
+    return (min(-3, min(every) - 0.5), max(10, max(every) * 1.15))
+
+
+def methods_alt(rows: list[dict[str, Any]], what: str) -> str:
+    med = {
+        str(r["name"]): (float(np.median(np.asarray(r["removal"]))), float(np.median(np.asarray(r["spill"]))))
+        for r in rows
+    }
+    return f"""
+        Two strip charts side by side, one row per method ({", ".join(med)}), for {what}. Left: removal in percent,
+        from 0 to 100. Right: spill in points of expected exact match, with a dashed line at the criterion of 2. Each
+        row has a dot at the median over eight runs, a thin line for the range, and a tick per run. Medians (removal,
+        spill): {"; ".join(f"{n} {r:.0f}%, {sp:.1f}" for n, (r, sp) in med.items())}.
+    """
+
+
+def methods_figure(table: str) -> str:
+    rows: list[dict[str, Any]] = []
+    for key, name in METHOD_ROWS:
+        if key == "anchor":
+            rows.append(method_row(key, name, METHOD_NUMBERS["anchor"], ref=(True, True), line=True))
+        else:
+            rows.append(method_row(key, name, METHOD_NUMBERS[table][key]))
+    caption = f"""
+        **Removal and spill by method**, {METHOD_TABLES[table]}. The dot is the median over the eight runs at 712 to
+        719, the line the range, and each tick one run. Spill is in points of expected exact match, and the dashed line
+        marks the criterion of 2. SCA is the same in every table; the dotted line marks its median.
+    """
+    return methods_draw(
+        {"name": f"d22-methods-{table}", "rows": rows, "spill_span": spill_span(), "caption": caption},
+        methods_alt(rows, METHOD_TABLES[table]),
+    )
+
+
+METHOD_INKS = {
+    "anchor": ("#d9731a", "#f0a05a"),  # the anchored orange of the confusion grids
+    "dim": ("#a07a1f", "#d8b25a"),
+    "ridge": ("#8d5a3b", "#c9926f"),
+    "leace": ("#3a8f4f", "#6cc184"),
+    "inlp": ("#b8435a", "#e57a8e"),
+    "retrained": ("#7b4fb0", "#b493e0"),  # the retrained purple of the confusion grids
+}
+
+
+@memo
+def methods_draw(data: dict, alt_text: str) -> str:
+    @themed(
+        name=data["name"],
+        alt_text=alt_text,
+        caption=data["caption"],
+    )
+    def _plot() -> plt.Figure:
+        from matplotlib.layout_engine import ConstrainedLayoutEngine
+
+        rows = data["rows"]
+        y = {
+            r["key"]: i + (0.35 if i and rows[0]["ref"][0] else 0) for i, r in enumerate(rows)
+        }  # room under a reference row
+        fig, (ax_r, ax_s) = plt.subplots(1, 2, figsize=(6.4, 0.75 + 0.23 * (max(y.values()) + 1)), sharey=True, layout=ConstrainedLayoutEngine(wspace=0.12), gridspec_kw={"width_ratios": [1, 1]})  # fmt: skip
+        faint = light_dark("#ccc", "#444")
+        hairline = 72 / 192  # one PNG pixel (192 dpi), one device pixel on a 2× screen
+        for panel, (ax, field) in enumerate(((ax_r, "removal"), (ax_s, "spill"))):
+            for r in rows:
+                v, yy = np.sort(np.asarray(r[field])), y[r["key"]]
+                ink = light_dark(*METHOD_INKS[r["key"]])
+                ref = r["ref"][panel]
+                if r["line"]:  # the main comparison point, behind the other ink
+                    ax.axvline(np.median(v), color=ink, lw=hairline, ls=(0, (1, 3)), alpha=0.8, antialiased=False, snap=True, zorder=1)  # fmt: skip
+                ax.plot([v[0], v[-1]], [yy, yy], color=ink, lw=hairline, ls=(0, (6, 4)) if ref else "-", antialiased=False, snap=True, clip_on=False, zorder=2)  # fmt: skip
+                ax.scatter(
+                    v[1:-1],
+                    np.full(len(v) - 2, yy),
+                    marker="|",
+                    s=9,
+                    color=ink,
+                    alpha=0.65,
+                    lw=hairline,
+                    antialiased=False,
+                    snap=True,
+                    clip_on=False,
+                    zorder=3,
+                )
+                ax.scatter(
+                    v[[0, -1]],
+                    [yy, yy],
+                    marker="|",
+                    s=28,
+                    color=ink,
+                    alpha=0.85,
+                    lw=2 * hairline,
+                    antialiased=False,
+                    snap=True,
+                    clip_on=False,
+                    zorder=3,
+                )
+                bg = light_dark("#fff", "#111")
+                ax.scatter([np.median(v)], [yy], s=13 if ref else 22, marker="D" if ref else "o", clip_on=False, zorder=4, **({"facecolor": bg, "edgecolor": ink, "lw": 0.8} if ref else {"color": ink, "edgecolor": bg, "lw": 0.6}))  # fmt: skip
+            ax.spines[["top", "right", "left"]].set_visible(False)
+            ax.spines["bottom"].set(color=faint, lw=0.6)
+            ax.tick_params(axis="y", length=0, pad=16)
+            ax.tick_params(axis="x", labelsize=7, color=faint, length=3)
+        ax_r.set_xlim(0, 100)
+        ax_r.set_xticks([0, 50, 100])
+        ax_r.set_xlabel("removal (%)", fontsize=7.5)
+        ax_s.set_xscale("symlog", linthresh=2, linscale=1.2)
+        ax_s.set_xlim(*data["spill_span"])
+        ticks = [t for t in (-2, 0, 2, 5, 10, 20, 40) if t <= data["spill_span"][1]]
+        ax_s.set_xticks(ticks, [str(t) for t in ticks])
+        ax_s.xaxis.set_minor_locator(plt.NullLocator())
+        ax_s.axvline(2, color=light_dark("#d0d0d0", "#484848"), lw=0.6, ls=(0, (4, 3)), zorder=1)
+        ax_s.axvspan(2, ax_s.get_xlim()[1], facecolor="none", edgecolor=light_dark("#eee", "#242424"), hatch="///", lw=0, zorder=0)  # fmt: skip
+        ax_s.axvline(0, color=faint, lw=0.5, zorder=1)
+        ax_s.set_xlabel("spill (points)", fontsize=7.5)
+        ax_r.set_yticks([y[r["key"]] for r in rows], [r["name"] for r in rows], fontsize=7.5)
+        for label, r in zip(ax_r.get_yticklabels(), rows, strict=True):
+            if all(r["ref"]):
+                label.set(fontstyle="italic", color=light_dark("#666", "#aaa"))
+        ax_r.set_ylim(max(y.values()) + 0.6, -0.6)
+        return fig
+
+    return _plot()
+
+
+r"""
+Pooled fits:
+"""
+
+methods_figure("pooled")
+
+r"""
+Fits keyed to the example answers:
+"""
+
+methods_figure("roles")
+
+r"""
+Slices 1 to 3, chosen on the other seven runs:
+"""
+
+methods_figure("blocks")
+
+r"""
+Every slice, chosen on the other seven runs:
+"""
+
+methods_figure("every")
+
+
+r"""
+## Retrained and SCA
+
+Removal and spill of SCA beside the model retrained without the loss on `difference`. Retrained has no edit, so its
+spill is the gap to the control at the same seed, which carries the differences between two separately trained
+models, so it is drawn as the reference row.
+"""
+
+RETRAINED_CAPTION = """
+    **SCA beside retraining.** Retrained is the control trained from scratch with the loss masked on `difference`
+    contexts, measured against the control at the same seed. The dot is the median over the eight runs at 712 to 719,
+    the line the range, and each tick one run. Retrained has no edit, so its spill is the gap between two separately
+    trained models. The dotted line marks the median of retrained, and the dashed line the spill criterion of 2.
+"""
+
+
+def retrained_figure() -> str:
+    rows = [
+        method_row("retrained", "retrained", METHOD_NUMBERS["retrained"], ref=(True, True), line=True),
+        method_row("anchor", "SCA", METHOD_NUMBERS["anchor"]),
+    ]
+    return methods_draw(
+        {"name": "d22-retrained", "rows": rows, "spill_span": spill_span(), "caption": RETRAINED_CAPTION},
+        methods_alt(rows, "SCA beside the model retrained without the loss on difference"),
+    )
+
+
+retrained_figure()
